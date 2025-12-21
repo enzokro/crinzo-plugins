@@ -67,22 +67,24 @@ Before committing:
 
 - Build requires stages when one suffices
 - New abstractions not present in codebase
-- Changes affect more files than necessary
+- Changes affect more files than expected
 - Cannot explain the change in 1-2 sentences
 
-## Drift Awareness
+If any signal fires, run `/tether:creep` before continuing.
+
+## Creep Awareness
 
 Before returning, verify against the Anchor:
 - Implementation matches Anchor scope exactly
 - No additions beyond Anchor delta
+- Trace section is non-empty (reasoning was externalized)
 - "Omitted" list is non-empty (evidence of discipline)
 
-If drift detected, name it and remove before completing.
+If creep detected: name it, remove it, trace why it appeared.
 
 ## Completion
 
 Return with:
 - What was implemented (exact match to Anchor)
-- What was omitted (deliberate - this is PRIMARY evidence of discipline)
-- Any reasoning traced (for Trace section)
-- Drift check: Confirmed aligned / Removed [X] before completion
+- What was omitted (deliberate—this is PRIMARY evidence of discipline)
+- Creep check: Confirmed clean / Removed [X] before completion

@@ -11,11 +11,11 @@ This pattern was cleanly broken by Opus 4.5. If you're reading this you've likel
 
 ## Core Principle: The Workspace
 
-Tether builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's scope, decisions, and implementations. They are built from structured markdown files with a naming convention inspired by Herbert A. Simon's List of Lists. We created them in this spirit to represent knowledge and action in constrained environments. And, most importantly, they persist across sessions.
+Tether builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's scope, decisions, and implementations. They are built from structured markdown files with a naming convention inspired by Herbert A. Simon's List of Lists. We created them in this spirit to represent knowledge and action in constrained environments. And, critically, they persist across sessions.
 
 ### Workspace File Structure
 
-Each task becomes a workspace file. The naming convention *is* the data structure:
+Each task creates workspace files. The file naming convention *is* the data structure:
 
 ```
 workspace/NNN_task-slug_status[_from-NNN].md
@@ -28,17 +28,17 @@ workspace/NNN_task-slug_status[_from-NNN].md
 | `status`    | Current state                 | `active` → `complete`, `blocked`, or `handoff` |
 | `_from-NNN` | Lineage suffix                | Links child tasks to parents                   |
 
-Workspace files have three sections that mirror tether's development cycle:
+Workspace files contain three sections that mirror tether's development cycle:
 
-| Section    | Purpose                                                                                                             |
-| ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Anchor** | The fixed point. Scope, exclusions, patterns to follow, path, and delta—everything you're bound to.                 |
-| **Trace**  | The reasoning traced during build. Patterns noticed, decisions made, constraints hit—written *before* implementing. |
-| **Close**  | The proof. What was delivered, what was deliberately omitted, why.                                                  |
+| Section    | Purpose                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Anchor** | The fixed point. Scope, exclusions, patterns to follow, path, and delta. Everything the model is bound to.                   |
+| **Trace**  | The reasoning traced during build. Patterns found, decisions made, constraints hit. This is written *before* implementation. |
+| **Close**  | Cleanup and recap. What was delivered, what was deliberately omitted, and why.                                               |
 
 ### Workspaces as Persistent, Queryable Memory
 
-With this structure, the filesystem becomes queryable memory. `ls workspace/` shows the active, ongoing work. `ls workspace/*_from-003*` reveals everything that emerged from task 003. Understanding compounds across sessions. When you return tomorrow, the structure is waiting and ready to go.
+With this structure, the filesystem becomes queryable memory. `ls workspace/` shows the active, ongoing work. `ls workspace/*_from-003*` reveals everything that emerged from task 003. Understanding compounds across sessions. When you come back tomorrow, the structure is waiting for you and ready to go.
 
 ## Installation
 
@@ -52,7 +52,7 @@ Make sure to update the marketplace.json file to include the plugin.
 
 ## Guiding Philosophy
 
-Tether bases all of its work on the following key principles:
+Tether is based on the following key principles:
 
 | Principle                  | Description                                             |
 | -------------------------- | ------------------------------------------------------- |
@@ -71,7 +71,7 @@ Tether follows a four-phase development cycle in rhythm with its guiding princip
 3. **Build** — Implement. Traces reasoning before coding. If scope is creeping, tether stops and clarifies.
 4. **Close** — Add specific omissions and rename the file with its final status.
 
-These phases help scope creep and over-engineering become visible *before* they leak and compound.
+These phases map to the contents of workspace files. This way, scope creep and over-engineering become visible *before* they leak and compound.
 
 ## Architecture
 
@@ -84,19 +84,12 @@ Tether is a plugin made up of Claude skills, agents, and commands:
 | `/tether:workspace`     | Query active tasks and their lineage.                                      |
 | `/tether:anchor [task]` | Create a new workspace file with scope boundary.                           |
 | `/tether:close [task]`  | Complete a task. Add omissions. Rename to final status.                    |
-| `/tether:drift`         | Review current work against its anchor for scope creep.                    |
+| `/tether:creep`         | Check for scope creep during Build. Run when complexity grows.             |
 
-## Command Usage
-
-```bash
-/tether:workspace                              # check existing work
-/tether:anchor implement password reset flow   # start new task
-/tether:close password-reset                   # complete task
-```
 
 ## When to Use Tether
 
-Tether is the right tool when:
+Tether is the right tool for when:
 
 - Precision matters more than speed
 - Understanding must persist across sessions
@@ -110,4 +103,3 @@ For all of its power, tether does add overhead. While that overhead compounds in
 - Exploratory prototyping where you *want* the model to wander
 - Autonomous long-running tasks (use Ralph or similar orchestrators)
 - Simple one-off queries that need no persistence
-

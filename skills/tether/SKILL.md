@@ -73,11 +73,6 @@ Delivered: [added at completion]
 Complete: [added at completion]
 ```
 
-**Drift signals** (halt and clarify):
-- "flexible," "extensible," "comprehensive"
-- "also," "while we're at it," "might as well"
-- "in case," "future-proof," "handle any"
-
 ### Phase 3: Build
 
 Do the work. Trace your reasoning through the workspace file.
@@ -87,13 +82,20 @@ Do the work. Trace your reasoning through the workspace file.
 | Notice how something works | Write to Trace → continue |
 | Choose between options | Write to Trace → implement |
 | Hit a wall or requirement | Write to Trace → work around |
+| Sense complexity growing | Run `/tether:creep` → check against Anchor |
 
 **Rule**: Trace first, implement second. Every entry connects to Anchor.
+
+**Creep signals** (stop and check):
+- "flexible," "extensible," "comprehensive"
+- "while we're at it," "also," "and"
+- "in case," "future-proof"
+- Empty Trace section during active work
 
 **Stop if**:
 - Build requires stages when one suffices
 - New abstractions not present in codebase
-- Changes affect more files than necessary
+- Changes affect more files than expected
 
 ### Phase 4: Close
 
@@ -146,11 +148,11 @@ workspace/005_integration_active_from-002-003.md
 
 **Omissions**: What you didn't build proves discipline. "Nothing omitted" is a red flag.
 
-**Drift**: Detect → Name → Remove → Continue simpler
+**Creep**: Sense it → Run `/tether:creep` → Name it → Remove it → Continue simpler
 
 ---
 
 ## References
 
 - `references/workspace-deep.md` — Full workspace theory and cognitive model
-- `references/drift-detection.md` — Detection patterns and questions
+- `references/creep-detection.md` — Scope creep patterns and detection questions
