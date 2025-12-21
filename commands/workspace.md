@@ -29,7 +29,7 @@ Query the cognitive workspace for this project.
 
 4. If no workspace folder exists:
    - Report this to user
-   - Suggest creating first anchor with `/dc:anchor [task]`
+   - Suggest creating first anchor with `/tether:anchor [task]`
 
 ## Output Format
 

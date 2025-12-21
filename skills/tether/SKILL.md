@@ -36,7 +36,7 @@ The naming convention IS the data structure. `ls workspace/` IS a cognitive quer
 
 Four phases. Each phase operates ON the workspace file.
 
-### Phase 1: Triage
+### Phase 1: Assess
 
 **First action**: `ls workspace/`
 
@@ -58,16 +58,19 @@ Create the workspace file:
 # NNN: Task Name
 
 ## Anchor
-Behavior: [one sentence exact requirement]
+Scope: [one sentence exact requirement]
 Excluded: [what is not in scope]
 Patterns: [existing patterns to follow]
-
-## Transform
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## Patterns / Decisions / Constraints
-[Write here BEFORE implementing - think through the file]
+## Trace
+[Write here BEFORE implementing - trace your reasoning]
+
+## Close
+Omitted: [added at completion]
+Delivered: [added at completion]
+Complete: [added at completion]
 ```
 
 **Drift signals** (halt and clarify):
@@ -75,29 +78,29 @@ Delta: [smallest change achieving requirement]
 - "also," "while we're at it," "might as well"
 - "in case," "future-proof," "handle any"
 
-### Phase 3: Transform
+### Phase 3: Build
 
-Do the work. Think through the workspace file.
+Do the work. Trace your reasoning through the workspace file.
 
 | Moment | Action |
 |--------|--------|
-| Notice how something works | Write to Patterns → continue |
-| Choose between options | Write to Decisions → implement |
-| Hit a wall or requirement | Write to Constraints → work around |
+| Notice how something works | Write to Trace → continue |
+| Choose between options | Write to Trace → implement |
+| Hit a wall or requirement | Write to Trace → work around |
 
-**Rule**: Write first, implement second. The file is your scratchpad.
+**Rule**: Trace first, implement second. Every entry connects to Anchor.
 
 **Stop if**:
-- Transformation requires stages when one suffices
+- Build requires stages when one suffices
 - New abstractions not present in codebase
 - Changes affect more files than necessary
 
-### Phase 4: Verify
+### Phase 4: Close
 
-Add Verify section, rename file:
+Fill in the Close section, rename file:
 
 ```markdown
-## Verify
+## Close
 Omitted: [things not implemented because not requested]
 Delivered: [exact output]
 Complete: [specific criteria met]
@@ -133,9 +136,11 @@ workspace/005_integration_active_from-002-003.md
 
 ## Quick Reference
 
-**Triage**: Actionable + needs thinking? → Full flow. Obvious path? → Direct execution.
+**Assess**: Actionable + needs thinking? → Full flow. Obvious path? → Direct execution.
 
-**Checkpoint**: Triage (ls) → Anchor (create) → Transform (think through) → Verify (rename)
+**Checkpoint**: Assess (ls) → Anchor (create) → Build (trace + implement) → Close (rename)
+
+**Sections**: Anchor (scope + path) → Trace (reasoning) → Close (proof)
 
 **Constraints**: Edit > create | Concrete > abstract | Present > future | Explicit > clever
 

@@ -24,35 +24,32 @@ The workspace makes you more capable, not just more organized. Writing first, im
 
 ## The File As Living Document
 
-Each workspace file has this structure:
+Each workspace file has three sections:
 
 ```markdown
 # NNN: Task Name
 
 ## Anchor
-[Immutable scope - set at creation, never modified]
+Scope: [one sentence exact requirement]
+Excluded: [what is not in scope]
+Patterns: [existing patterns to follow]
+Path: [Input] → [Processing] → [Output]
+Delta: [smallest change achieving requirement]
 
-## Transform
-[The planned minimal path - set at creation]
+## Trace
+[Trace reasoning before implementing—every entry connects to Anchor]
 
-## Patterns
-[Write here when you notice how something works—before moving on]
-
-## Decisions
-[Write here when choosing between options—before implementing]
-
-## Constraints
-[Write here when you hit a wall or requirement—before working around it]
-
-## Verify
-[Omissions, deliverables, completion - added at end]
+## Close
+Omitted: [things not implemented because not requested]
+Delivered: [exact output]
+Complete: [specific criteria met]
 ```
 
-**Anchor and Transform**: Set once at file creation. Your immutable reference point.
+**Anchor**: The fixed point. Set once at file creation, never modified. Contains everything you're bound to—scope, exclusions, patterns, path, and delta.
 
-**Patterns, Decisions, Constraints**: Where you think. Write BEFORE implementing. These sections are your scratchpad during work, your crystallized understanding after.
+**Trace**: Where you think. Write BEFORE implementing. Every entry traces back to the Anchor. Your scratchpad during work, your crystallized reasoning after.
 
-**Verify**: Added when work completes. The final crystallization.
+**Close**: The proof. Filled in when work completes. What was delivered, what was omitted, how the Anchor was satisfied.
 
 ---
 
@@ -64,10 +61,10 @@ The workspace embodies this at two levels:
 
 **Level 1: The folder** — each file is a chunk of understanding
 
-**Level 2: Within files** — sections nest hierarchically
+**Level 2: Within files** — content nests hierarchically
 
 ```markdown
-## Patterns
+## Trace
 - Authentication flow
   - Uses JWT tokens (not sessions)
   - Token refresh handled by interceptor

@@ -23,12 +23,12 @@ This is awareness, not enforcement. The questions help you think.
    If none found, report: "No active workspace. Nothing to review against."
 
 2. Read the Anchor section - this is the scope boundary:
-   - **Behavior**: The exact requirement
+   - **Scope**: The exact requirement
    - **Excluded**: What was explicitly out of scope
 
 3. Examine recent work:
    - What files were changed?
-   - What was added beyond the Transform delta?
+   - What was added beyond the Anchor delta?
 
 4. For each addition, ask the detection questions:
    - Was this explicitly requested in the Anchor?
@@ -69,7 +69,7 @@ These are thought patterns to notice, not syntax to grep:
 ## When to Use
 
 - After completing a significant piece of work
-- Before running `/dc:verify`
+- Before running `/tether:close`
 - When you sense complexity growing
 - When uncertain if you've stayed in scope
 

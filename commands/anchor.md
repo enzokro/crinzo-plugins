@@ -30,22 +30,19 @@ Create a workspace anchor file for the task described in $ARGUMENTS.
 # NNN: Task Name
 
 ## Anchor
-Behavior: [one sentence exact requirement from $ARGUMENTS]
+Scope: [one sentence exact requirement from $ARGUMENTS]
 Excluded: [what is explicitly not in scope]
 Patterns: [existing patterns to follow - search codebase]
-
-## Transform
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## Patterns
-[Write here when you notice how something works]
+## Trace
+[Trace reasoning before implementing - every entry connects to Anchor]
 
-## Decisions
-[Write here when choosing between options]
-
-## Constraints
-[Write here when you hit a wall or requirement]
+## Close
+Omitted: [added at completion]
+Delivered: [added at completion]
+Complete: [added at completion]
 ```
 
 4. Report to user:

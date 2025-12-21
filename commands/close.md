@@ -1,9 +1,9 @@
 ---
-description: Complete a workspace task. Adds omissions section and renames to final status.
+description: Complete a workspace task. Fills in the Close section and renames to final status.
 allowed-tools: Bash, Edit, Read, Glob
 ---
 
-# Verify and Complete
+# Close and Complete
 
 Complete the workspace task identified in $ARGUMENTS.
 
@@ -17,14 +17,14 @@ Complete the workspace task identified in $ARGUMENTS.
    If not found, list all active files and ask user to specify.
 
 2. Read the file and analyze:
-   - What was the anchor (original requirement)?
+   - What was the Anchor (original scope and path)?
    - What was actually implemented?
    - What was deliberately omitted?
 
-3. Add Verify section to the file:
+3. Fill in the Close section:
 
 ```markdown
-## Verify
+## Close
 Omitted: [things not implemented because not requested - be explicit]
 Delivered: [exact output - files changed, features added]
 Complete: [specific criteria met that prove the anchor is satisfied]

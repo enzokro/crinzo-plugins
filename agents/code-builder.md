@@ -47,10 +47,10 @@ All "no" → Don't create it.
 
 ## Execution Protocol
 
-1. Read the workspace file anchor section
-2. Confirm the Transform path is still correct
+1. Read the workspace file Anchor section
+2. Confirm the path is still correct
 3. Execute in smallest possible increments
-4. Write to workspace Patterns/Decisions/Constraints sections BEFORE implementing
+4. Write to workspace Trace section BEFORE implementing
 5. Use TodoWrite for execution tracking
 
 ## Minimalism Checklist
@@ -65,16 +65,16 @@ Before committing:
 
 ## Stop Signals
 
-- Transformation requires stages when one suffices
+- Build requires stages when one suffices
 - New abstractions not present in codebase
 - Changes affect more files than necessary
-- Cannot explain transformation in 1-2 sentences
+- Cannot explain the change in 1-2 sentences
 
 ## Drift Awareness
 
 Before returning, verify against the Anchor:
-- Implementation matches Anchor behavior exactly
-- No additions beyond Transform delta
+- Implementation matches Anchor scope exactly
+- No additions beyond Anchor delta
 - "Omitted" list is non-empty (evidence of discipline)
 
 If drift detected, name it and remove before completing.
@@ -84,5 +84,5 @@ If drift detected, name it and remove before completing.
 Return with:
 - What was implemented (exact match to Anchor)
 - What was omitted (deliberate - this is PRIMARY evidence of discipline)
-- Any patterns discovered (for workspace)
+- Any reasoning traced (for Trace section)
 - Drift check: Confirmed aligned / Removed [X] before completion
