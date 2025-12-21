@@ -32,7 +32,7 @@ Workspace files contain three sections that mirror tether's development cycle:
 
 | Section    | Purpose                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Anchor** | The fixed point. Scope, exclusions, patterns to follow, path, and delta. Everything the model is bound to.                   |
+| **Anchor** | The fixed point. Scope, exclusions, patterns to follow, etc. Everything the model is bound to.                               |
 | **Trace**  | The reasoning traced during build. Patterns found, decisions made, constraints hit. This is written *before* implementation. |
 | **Close**  | Cleanup and recap. What was delivered, what was deliberately omitted, and why.                                               |
 
