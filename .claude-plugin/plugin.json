@@ -1,13 +1,17 @@
 {
   "name": "tether",
-  "description": "Plugin for tightly scoped creation. A workspace for disciplined, anchored thinking prevents over-engineering and scope creep.",
-  "version": "1.0.0",
+  "description": "Plugin for tightly scoped creation. Orchestrated phases with contract verification prevent over-engineering and scope creep.",
+  "version": "2.0.0",
   "author": {
     "name": "cck"
   },
   "skills": "./skills/",
   "agents": [
-    "./agents/code-builder.md"
+    "./agents/tether-orchestrator.md",
+    "./agents/assess.md",
+    "./agents/anchor.md",
+    "./agents/code-builder.md",
+    "./agents/close.md"
   ],
   "commands": "./commands/"
 }

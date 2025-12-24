@@ -33,8 +33,8 @@ Workspace files contain three sections that mirror tether's development cycle:
 | Section    | Purpose                                                                                                                      |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **Anchor** | The fixed point. Scope, exclusions, patterns to follow, etc. Everything the model is bound to.                               |
-| **Trace**  | The reasoning traced during build. Patterns found, decisions made, constraints hit. This is written *before* implementation. |
-| **Close**  | Cleanup and recap. What was delivered, what was deliberately omitted, and why.                                               |
+| **Trace**  | Decision traces as numbered checkpoints (T1, T2, T3...). T1 filled at Anchor, T2+ filled during Build. Each is verified before the next phase proceeds. |
+| **Close**  | Cleanup and recap. What was delivered, what was deliberately omitted, and why. Omitted MUST be non-empty.                    |
 
 ### Workspaces as Persistent, Queryable Memory
 
@@ -75,16 +75,44 @@ These phases map to the contents of workspace files. This way, scope creep and o
 
 ## Architecture
 
-Tether is a plugin made up of Claude skills, agents, and commands:
+Tether v2.0 introduces **orchestrated phases with contract verification**. Each phase is a separate agent with bounded context. The orchestrator verifies artifacts exist before spawning the next phase.
 
-| Component               | Purpose                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- |
-| **Skill**               | Auto-invoked on create/build/implement. Embeds the checkpoint methodology. |
-| **code-builder agent**  | Test-first implementation. Edits over creates. No unprompted abstractions. |
-| `/tether:workspace`     | Query active tasks and their lineage.                                      |
-| `/tether:anchor [task]` | Create a new workspace file with scope boundary.                           |
-| `/tether:close [task]`  | Complete a task. Add omissions. Rename to final status.                    |
-| `/tether:creep`         | Check for scope creep during Build. Run when complexity grows.             |
+```
+[Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close]
+    ↓                  ↓                    ↓                  ↓
+ verify            verify T1           verify T2,T3      verify Omitted
+```
+
+This is structural enforcement, not self-discipline. Agent boundaries are contract boundaries.
+
+### Phase Agents
+
+| Agent                    | Purpose                                                       | Model   |
+| ------------------------ | ------------------------------------------------------------- | ------- |
+| `tether:tether-orchestrator` | Coordinates phases, verifies contracts between them       | inherit |
+| `tether:assess`          | Routing decision: full flow, direct execution, or clarify    | haiku   |
+| `tether:anchor`          | Creates workspace file, explores codebase, fills T1          | inherit |
+| `tether:code-builder`    | Implementation with T2/T3+ decision traces                   | inherit |
+| `tether:close`           | Verifies contracts, fills Close section, renames file        | haiku   |
+
+### Commands (Manual Intervention)
+
+| Command                 | Purpose                                                        |
+| ----------------------- | -------------------------------------------------------------- |
+| `/tether:workspace`     | Query active tasks and their lineage                           |
+| `/tether:anchor [task]` | Manually create a workspace file                               |
+| `/tether:close [task]`  | Manually complete a task                                       |
+| `/tether:creep`         | Check for scope creep during Build                             |
+
+### Decision Traces
+
+The Trace section contains numbered checkpoints (T1, T2, T3...) that capture reasoning:
+
+- **T1** (filled at Anchor): Initial understanding, patterns found, approach chosen
+- **T2** (filled at Build): After first implementation step
+- **T3+** (filled at Build): Significant decisions during implementation
+
+These are the decision traces from theory—not documentation, but structured reasoning that informs the next phase and persists for future reference.
 
 
 ## When to Use Tether

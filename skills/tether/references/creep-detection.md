@@ -78,4 +78,8 @@ If yes to any: run `/tether:creep`, name what crept in, remove it, continue simp
 
 An empty Trace section during active work is itself a creep signal. It means implementation is happening without externalized reasoning—the conditions under which creep thrives.
 
+**The Pairing Rule**: Every TodoWrite update pairs with a Trace write. You will update TodoWrite—that's your locked-in pattern. Ride it. When you update TodoWrite, also write to a Trace checkpoint.
+
+**Checkpoint check**: T1, T2, T3 must be filled in sequence. Empty checkpoints scream. If you're at implementation step 2 and T1 is still empty, stop. Fill it in. The structure makes staleness visible.
+
 Trace first. Creep surfaces when you try to articulate what you're doing against the Anchor.
