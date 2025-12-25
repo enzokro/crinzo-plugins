@@ -1,18 +1,18 @@
-# Tether
+# `tether`
 
-Tether is a Claude Code plugin for disciplined and scoped development. It seizes the step function jump in Agentic coding capabilities unlocked by Opus 4.5.
+`tether` is a Claude Code agent orchestrator for clean, focused development. It seizes the step function jump in agentic coding capabilities unlocked by Opus 4.5.
 
 ## Background
 
-Before Opus 4.5, the major parts of agent scaffolds and orchestrators were dedicated to working *around* the model's worst tendencies: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully steered whenever projects became more than simple, clean data flows.
+Before Opus 4.5, the major parts of agent scaffolds and orchestrators were dedicated to working *around* an LLM's worst tendencies: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully steered whenever projects became more than simple, linear tasks.
 
 Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We can safely say this is the change in LLM Agents from spastic assistants to powerful, intelligent collaborators.
 
-`tether` leverages this combination of models being more capable *and* understanding us better to create a truly powerful development loop. It deploys an orchestrator that guides sub-agents along structural constraints: tiered phases, verified callbacks, and externalized thinking traces that gather over sessions. And all of this fully leveraging the capabilities of Opus 4.5, no more cautious model hand-holding.
+`tether` leverages these increased model capabilities *and* their better understanding of our needs to create a powerful development harness. It deploys an orchestrator that guides sub-agents along structural constraints: tiered phases with externalized thinking traces that gather over sessions. And all of this while fully leveraging the capabilities of Opus 4.5; no more cautious model handholding.
 
 ## Philosophy
 
-Tether is based on the following key principles:
+`tether` is based on the following key principles:
 
 | Principle                  | Description                                             |
 | -------------------------- | ------------------------------------------------------- |
@@ -24,7 +24,7 @@ Tether is based on the following key principles:
 
 ## The Development Cycle
 
-The orchestrator follows a four-phase development cycle. Each phase is carried out by a separate agent with bounded context. The orchestrator verifies that artifacts exist before spawning the next phase.
+The orchestrator follows a development cycle with four phases. Each phase is carried out by a separate agent with bounded context. The orchestrator verifies that artifacts exist before spawning the next phase.
 
 ```
 [Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close]
@@ -73,7 +73,7 @@ Verify all contracts. Fill the Close section with what was delivered and what wa
 
 ## The Workspace: Externalized Knowledge Across Sessions
 
-Tether builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's scope, decisions, and implementations. They are built from structured markdown files with a naming convention inspired by Herbert A. Simon's List of Lists. We created them in this spirit to represent knowledge and action in constrained environments. And, critically, they persist across sessions.
+`tether` builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's scope, decisions, and implementations. They are built from structured markdown files with a naming convention inspired by Herbert A. Simon's List of Lists. We created them in this spirit to represent knowledge and action in constrained environments. And, critically, they persist across sessions.
 
 ### Workspace File Structure
 
@@ -90,7 +90,7 @@ workspace/NNN_task-slug_status[_from-NNN].md
 | `status`    | Current state                 | `active` → `complete`, `blocked`, or `handoff` |
 | `_from-NNN` | Lineage suffix                | Links child tasks to parents                   |
 
-Workspace files contain three sections that mirror Tether's development cycle:
+Workspace files contain three sections that mirror `tether`'s development cycle:
 
 | Section    | Purpose                                                                                      |
 | ---------- | -------------------------------------------------------------------------------------------- |
@@ -115,7 +115,7 @@ Make sure to update the marketplace.json file to include the plugin.
 
 ## Architecture
 
-Tether v2.0 introduces orchestrated phases with contract verification between each.
+`tether` v2.0 introduces orchestrated phases with contract verification between each.
 
 ### Phase Agents
 
@@ -148,18 +148,18 @@ The Trace section is where reasoning becomes visible and auditable. Each checkpo
 The **Pairing Rule**: every TodoWrite update pairs with a Trace write. TodoWrite tracks *what* you're doing; Trace captures *why* and connects it to the Anchor.
 
 
-## When to Use Tether
+## When to Use `tether`
 
-Tether is the right tool when:
+`tether` is the right tool when:
 
 - Precision matters more than speed
 - Understanding must persist across sessions
 - Reasoning needs to be visible and auditable
 - Scope requires explicit negotiation with the model
 
-## When Not to Use Tether
+## When Not to Use `tether`
 
-For all of its power, Tether does add overhead. While that overhead compounds into value over multi-session, complex work, it is the wrong tool for:
+For all of its power, `tether` does add overhead. While that overhead compounds into value over multi-session, complex work, it is the wrong tool for:
 
 - Exploratory prototyping where you *want* the model to wander
 - Autonomous long-running tasks (use Ralph or similar orchestrators)
