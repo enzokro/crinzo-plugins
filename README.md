@@ -1,18 +1,18 @@
 # `tether`
 
-`tether` is a Claude Code agent orchestrator for clean, focused development. It seizes the step function jump in agentic coding capabilities unlocked by Opus 4.5.
+`tether` is a Claude Code agent orchestrator for clean and focused development. It builds on the step function jump in agentic coding capabilities unlocked by Opus 4.5.
 
 ## Background
 
-Before Opus 4.5, the major parts of agent scaffolds and orchestrators were dedicated to working *around* an LLM's worst tendencies: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully steered whenever projects became more than simple, linear tasks.
+Before Opus 4.5, Agents dedicated many of their prompts and tools to working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants behaved like overeager Junior-savants that had to be carefully steered whenever projects grew even moderately complex.
 
-Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We can safely say this is the change in LLM Agents from spastic assistants to powerful, intelligent collaborators.
+Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM Agents from spastic assistants to powerful, intelligent collaborators.
 
-`tether` leverages these increased model capabilities *and* their better understanding of our needs to create a powerful development harness. It deploys an orchestrator that guides sub-agents along structural constraints, with tiered phases and externalized thinking traces that gather over sessions. And all of this fully anchored on Opus 4.5; no more cautious model handholding.
+`tether` combines the model's increased capabilities *and* their better understanding of our needs into a powerful development harness. Its orchestrator guides sub-agents along tiered phases with stable constraints that externalize their thinking over sessions. And all of this fully anchored on Opus 4.5; no more cautious model handholding.
 
-## Philosophy
+# Philosophy
 
-`tether` is based on four principles that keep LLM Agents focused on the task at hand:
+`tether` is based on four principles to keep Agents focused on the task at hand:
 
 | Principle                  | Description                                               |
 | -------------------------- | --------------------------------------------------------- |
@@ -21,10 +21,21 @@ Opus 4.5 broke this pattern. If you're reading this then you've likely felt the 
 | **Explicit over clever**   | Always choose clarity over sophistication.                |
 | **Edit over create**       | Modify what exists before creating something new.         |
 
+None of these are new. In fact they read as the obvious 101s of software development. But anyone who's spent time building apps with LLMs knows that the models are ambitious and like to stay busy. They often deviate from these principles and tech debt quickly accumulates, especially in complex projects. `tether` gives Claude Code a framework that makes these principles its north star. 
 
-## The Development Cycle
+# Installation
 
-The `tether` orchestrator follows a development cycle with four phases. Each phase is carried out by an agent with bounded context. The orchestrator verifies that the correct artifacts exist before spawning the next phase.
+Add the tether plugin to your marketplace and install it.
+```bash
+claude /plugin install <your-marketplace>/tether
+```
+
+Make sure to update the marketplace.json file to include the plugin.
+
+
+# Architecture
+
+`tether` follows a development cycle with four phases. Each phase is delegated to an agent with bounded context. The orchestrator then checks that each agent created the proper, structured Trace (T) artifacts before spawning its next phase. For complex tasks, the orchestrator chronicles its process in a workspace file. This is a key part of `tether`'s workflow and we describe it more in the next section. First, a look at the main development cycle:
 
 ```
 [Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close]
@@ -32,9 +43,33 @@ The `tether` orchestrator follows a development cycle with four phases. Each pha
  decide            verify T1           verify T2,T3      verify Omitted
 ```
 
-### Phase 1: Assess
+Next, let's look at the agents that make up `tether`:
 
-Can this request anchor to a single, concrete behavior? Does it need a workspace file, or is the path obvious?
+## Tether Agents
+
+| Agent                        | Purpose                                             | Model   |
+| ---------------------------- | --------------------------------------------------- | ------- |
+| `tether:tether-orchestrator` | Coordinates phases, verifies contracts              | inherit |
+| `tether:assess`              | Routing decision                                    | haiku   |
+| `tether:anchor`              | Creates workspace file, explores codebase, fills T1 | inherit |
+| `tether:code-builder`        | Implementation with T2/T3+ decision traces          | inherit |
+| `tether:close`               | Verifies contracts, fills Close, renames file       | haiku   |
+
+Decision traces `T*` are a key part of how `tether` stays focused on the user's actual request. 
+
+## Decision Traces
+
+Traces `T*` are where reasoning becomes visible and auditable. Each step must reference the Anchor to keep the model well-scoped in complex tasks.
+
+- **T1** (Anchor fills): Patterns found, approach chosen, references Path
+- **T2** (Build fills): After first implementation step, references Anchor
+- **T3+** (Build fills): Significant decisions during implementation, each references Anchor
+
+With both the Agents and Traces established, we can look at how they interact during `tether`'s workflow.
+
+## Phase 1: Assess
+
+The `assess` Agent decides whether we are dealing with a simple ask that can be done ad hoc or a complex task that requires more deliberation. In other words, can the user's request be anchored to a single, concrete action with an obvious path? Or, do we need `tether`'s full workflow?
 
 | Actionable? | Needs thinking? | Route to           |
 | ----------- | --------------- | ------------------ |
@@ -42,42 +77,51 @@ Can this request anchor to a single, concrete behavior? Does it need a workspace
 | Yes         | No              | Build (direct)     |
 | No          | —               | User (clarify)     |
 
-### Phase 2: Anchor
+## Phase 2: Anchor
 
-Create the workspace file. Explore the codebase for patterns. Define the scope boundary, the path, and crucially—what the model will *not* do.
+The `anchor` Agent defines the request's scope, explores the codebase for patterns, and, crucially, decides what the model will *not* do.
 
-**Contract**: Anchor must fill T1 before Build can proceed. T1 captures what was learned during exploration—patterns found, approach chosen, constraints identified. This is the decision trace that informs implementation.
+**Contract**: The Agent must fill T1 before the `build` Agent does any work. T1 captures what was learned during exploration: codebase patterns, potential approaches, and key constraints. This is the minimal, data-driven Trace that informs implementation.
 
-### Phase 3: Build
+## Phase 3: Build
 
-Implement exactly what was anchored. No more, no less.
+The `build` Agent implements what the Anchor defines, nothing more and nothing less. The workspace file acts as a cognitive surface. Thinking must happen in the workspace and not in a jumble of internal thinking traces.
 
-The critical discipline here is the **Connection Requirement**: each Trace entry (T2, T3+) must reference the Anchor explicitly. Not "I did X." Instead: "I did X, advancing Path step 2, avoiding Y which is in Excluded."
+**The Connection Constraint**: Every Trace entry *must* reference the Anchor. The model is not allowed to say "I did X". Instead, it must say: "I did X, advancing Path step 2, avoiding Y per Excluded." If the connection breaks, the model stops, re-anchors, and tries again. 
 
-| Moment             | Action                                     |
+It must be said here that Claude Code's ToDo harness is incredibly powerful. The model strongly resists work loops that are anything but a series of TodoWrite <-> Thinking iterations. To overcome this, we enforce a **Pairing Rule**: Every `TodoWrite` update pairs with a Trace write. TodoWrite tracks *what* was done, while the Trace captures *why*. `tether` helps them move in lockstep.
+
+| Step               | Reaction                                   |
 | ------------------ | ------------------------------------------ |
-| First step done    | Write T2 → reference Anchor path           |
-| Made a decision    | Write T3+ → reference Anchor constraints   |
-| Update TodoWrite   | Also write to Trace (pairing rule)         |
-| Can't connect      | Stop → you've drifted, reassess            |
+| First step done    | Fill T2, reference Anchor path             |
+| Decision made      | Fill T3+, reference Anchor constraints     |
+| TodoWrite updated  | Also write to Trace                        |
+| Connection breaks  | Stop → drift detected → reassess           |
 | Complexity growing | Run `/tether:creep` → check against Anchor |
 
-**Contract**: Build must fill T2 and T3+ before Close can proceed. Each must reference the Anchor.
+## Phase 4: Close
 
-### Phase 4: Close
+The `close` Agent verifies all contracts, fills the Close section, and renames the workspace file to its final status. Further, `close` cannot proceed unless T1, T2, and T3+ are filled. Each Trace entry must connect back to Anchor. And Omitted must contain deliberate exclusions—not oversights, but choices. The measure of discipline is what was left out on purpose.
 
-Verify all contracts. Fill the Close section with what was delivered and what was *deliberately omitted*. Rename the file to its final status.
+This is where discipline becomes visible. We fight the model's helpful but misaligned urge to implement everything they can think of and call it thoroughness. `tether` fights this: the Omitted section *must* be non-empty. If the model delivered everything and omitted nothing, scope crept in somewhere.
 
-**Contract**: Omitted must be non-empty. If you implemented everything you could think of, scope creep occurred. The measure of discipline is what was deliberately left out.
+## Tether Commands (for manual and ad hoc interventions)
+
+| Command                 | Purpose                              |
+| ----------------------- | ------------------------------------ |
+| `/tether:workspace`     | Query active tasks and their lineage |
+| `/tether:anchor [task]` | Manually create a workspace file     |
+| `/tether:close [task]`  | Manually complete a task             |
+| `/tether:creep`         | Check for scope creep during Build   |
 
 
-## The Workspace: Externalized Knowledge Across Sessions
+# The Workspace: Externalized Knowledge Across Sessions
 
 `tether` builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's scope, decisions, and implementations. They are built from structured markdown files with a naming convention inspired by Herbert A. Simon's List of Lists. We created them in this spirit to represent knowledge and action in constrained environments. And, critically, they persist across sessions.
 
-### Workspace File Structure
+## Workspace File Structure
 
-Each task creates workspace files. The file naming convention *is* the data structure:
+`tether` guides complex tasks with files in its workspace. The workspace file's naming convention becomes a linked, evolving data structure:
 
 ```
 workspace/NNN_task-slug_status[_from-NNN].md
@@ -98,55 +142,9 @@ Workspace files contain three sections that mirror `tether`'s development cycle:
 | **Trace**  | Decision traces (T1, T2, T3...). Each must reference the Anchor. Verified between phases.    |
 | **Close**  | What was delivered, what was *deliberately omitted*. Omitted must be non-empty.              |
 
-### Workspaces as Persistent, Queryable Memory
+## Workspaces as Persistent, Queryable Memory
 
 With this structure, the filesystem becomes queryable memory. `ls workspace/` shows the active, ongoing work. `ls workspace/*_from-003*` reveals everything that emerged from task 003. Understanding compounds across sessions. When you come back tomorrow, the structure is waiting for you and ready to go.
-
-
-## Installation
-
-Add the tether plugin to your marketplace and install it.
-```bash
-claude /plugin install <your-marketplace>/tether
-```
-
-Make sure to update the marketplace.json file to include the plugin.
-
-
-## Architecture
-
-`tether` v2.0 introduces orchestrated phases with contract verification between each.
-
-### Phase Agents
-
-| Agent                        | Purpose                                             | Model   |
-| ---------------------------- | --------------------------------------------------- | ------- |
-| `tether:tether-orchestrator` | Coordinates phases, verifies contracts              | inherit |
-| `tether:assess`              | Routing decision                                    | haiku   |
-| `tether:anchor`              | Creates workspace file, explores codebase, fills T1 | inherit |
-| `tether:code-builder`        | Implementation with T2/T3+ decision traces          | inherit |
-| `tether:close`               | Verifies contracts, fills Close, renames file       | haiku   |
-
-### Commands (Manual Intervention)
-
-| Command                 | Purpose                              |
-| ----------------------- | ------------------------------------ |
-| `/tether:workspace`     | Query active tasks and their lineage |
-| `/tether:anchor [task]` | Manually create a workspace file     |
-| `/tether:close [task]`  | Manually complete a task             |
-| `/tether:creep`         | Check for scope creep during Build   |
-
-
-## Decision Traces
-
-The Trace section is where reasoning becomes visible and auditable. Each checkpoint must reference the Anchor—that's what keeps the model connected to scope during long implementation sprints.
-
-- **T1** (Anchor fills): Patterns found, approach chosen, references Path
-- **T2** (Build fills): After first implementation step, references Anchor
-- **T3+** (Build fills): Significant decisions during implementation, each references Anchor
-
-The **Pairing Rule**: every TodoWrite update pairs with a Trace write. TodoWrite tracks *what* you're doing; Trace captures *why* and connects it to the Anchor.
-
 
 ## When to Use `tether`
 
