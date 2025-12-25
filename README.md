@@ -4,7 +4,7 @@
 
 ## Background
 
-Before Opus 4.5, Agents dedicated many of their prompts and tools to working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants behaved like overeager Junior-savants that had to be carefully steered whenever projects grew even moderately complex.
+Before Opus 4.5, Agents dedicated most of their prompts and tools to working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants behaved like overeager Junior-savants that had to be carefully steered whenever projects grew even moderately complex.
 
 Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM Agents from spastic assistants to powerful, intelligent collaborators.
 
