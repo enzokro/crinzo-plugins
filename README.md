@@ -8,7 +8,7 @@ Before Opus 4.5, Agents dedicated most of their prompts and tools to working *ar
 
 Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM Agents from spastic assistants to powerful, intelligent collaborators.
 
-`tether` combines the model's increased capabilities *and* their better understanding of our needs into a powerful development harness. Its orchestrator guides sub-agents along tiered phases with stable constraints that externalize their thinking over sessions. And all of this fully anchored on Opus 4.5; no more cautious model handholding.
+`tether` combines the model's increased capabilities *and* their better understanding of our needs into a powerful development harness. Its orchestrator guides sub-agents along tiered phases with stable constraints that externalize thinking across sessions. And all of this fully anchored on Opus 4.5; no more cautious model handholding.
 
 # Philosophy
 
