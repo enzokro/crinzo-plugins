@@ -1,6 +1,6 @@
 ---
 name: tether
-description: Use when the user asks to create, build, implement, write, design, plan, generate, draft, make, add a feature, or develop. Provides scope-controlled methodology preventing over-engineering and scope creep. Anchors all creation work in workspace methodology.
+description: Use when the user asks to create, build, implement, write, design, plan, generate, draft, make, add a feature, or develop. Provides tiered and anchored development preventing over-engineering and scope creep. The workspace and externalized traces drive tether's workflow.
 version: 8.0.0
 ---
 
@@ -8,9 +8,9 @@ version: 8.0.0
 
 ## Core Principle
 
-Creation is subtraction. Excellence emerges through constraint, not addition.
+Deliver exactly what was requested, nothing more. The request defines your boundary and constraints. 
 
-Deliver exactly what was requested, nothing more. The request defines the boundary; honor it absolutely. The measure of discipline is what was deliberately omitted.
+Constraints drive excellence. A focused scope, over time, compounds into exponential results. Creation is subtraction via disciplined omission, not spastic addition.
 
 ---
 
@@ -22,25 +22,26 @@ Deliver exactly what was requested, nothing more. The request defines the bounda
 Use Task tool with subagent_type: tether:tether-orchestrator
 ```
 
-The orchestrator coordinates four phase agents with contract verification between each:
+The orchestrator coordinates four tiered agents with verified contracts between them:
 
 ```
-[Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close] → complete
-     ↓                  ↓                    ↓                  ↓
-  haiku            verify T1           verify T2,T3      verify Omitted
+tether:assess (haiku) -> route
+tether:anchor -> file+T1 [gate: T1]
+tether:code-builder -> T2,T3+ [gate: T2,T3]
+tether:close (haiku) -> complete [gate: Omitted≠∅]
 ```
 
-Each agent boundary is a contract boundary. The orchestrator verifies artifacts exist before spawning the next phase. This is structural enforcement, not self-discipline.
+Each agent handoff is gated by a contractually verified trace. The orchestrator checks that traces exist before starting its next agent. This is structural enforcement, not self-discipline.
 
 **When to use orchestrator:**
-- Complex, multi-step implementations
-- Work requiring decision traces
-- Tasks where scope discipline matters
+- Complex implementations with multiple steps
+- Tasks where focused, scoped discipline matters
+- Challenging requests that benefit from externalized thinking traces
 
 **When to execute directly:**
 - Simple, obvious changes
-- Single-file edits
-- Following existing patterns exactly
+- Direct edits to single files
+- Mimicking an existing pattern
 
 For direct execution, apply the constraints below manually.
 
@@ -48,31 +49,27 @@ For direct execution, apply the constraints below manually.
 
 ## The Workspace
 
-Every project has a `workspace/` folder. This IS your extended cognition—an evolving web of crystallized understanding that grows across tasks and sessions.
+Every project has a `workspace/` folder. The workspace IS your extended cognition. It is an evolving store of distilled, long-term knowledge that weaves across tasks and sessions.
 
 ```
 workspace/NNN_task-slug_status[_from-NNN].md
 ```
 
-The naming convention IS the data structure. `ls workspace/` IS a cognitive query.
+The naming convention IS the data structure. `ls workspace/` becomes a cognitive query:
 
-| Element | Values |
-|---------|--------|
-| `NNN` | 001, 002, 003... (sequence) |
-| `status` | active, complete, blocked, handoff |
-| `from-NNN` | Lineage - what this emerged from |
+| Element    | Values                             |
+| ---------- | ---------------------------------- |
+| `NNN`      | 001, 002, 003... (sequence)        |
+| `status`   | active, complete, blocked, handoff |
+| `from-NNN` | Lineage - what this emerged from   |
 
 ---
 
-## The Checkpoint
+## Tiered Agent Handoff
 
-Four phases. Each phase is a cognitive operation that produces an artifact for the next.
+Each tiered, focused agent performs a constrained task that generates traces for the next agent. The orchestrator confirms the needed traces exist before starting the next agent.
 
-```
-Assess → [routing decision] → Anchor → [workspace file + T1] → Build → [T2, T3...] → Close
-```
-
-### Phase 1: Assess
+### Phase 1: `tether:assess`
 
 **Input**: User request
 **Output**: Routing decision (full flow / direct / clarify)
@@ -80,21 +77,21 @@ Assess → [routing decision] → Anchor → [workspace file + T1] → Build →
 **First action**: `ls workspace/`
 
 Then ask:
-1. Can this request be anchored to a single, concrete behavior?
-2. Does this require thinking-on-paper, or is the path obvious?
+1. Is this request tied to a single, concrete behavior?
+2. Does this need externalized workspace thinking, or is the path obvious?
 
-| Actionable? | Needs thinking? | Route to |
-|-------------|-----------------|----------|
-| Yes | Yes | → Anchor (full flow) |
-| Yes | No | → Build (direct, skip workspace) |
-| No | — | → User (clarify first) |
+| Actionable? | Needs thinking? | Route to                         |
+| ----------- | --------------- | -------------------------------- |
+| Yes         | Yes             | → Anchor (full flow)             |
+| Yes         | No              | → Build (direct, skip workspace) |
+| No          | —               | → User (clarify first)           |
 
-### Phase 2: Anchor
+### Phase 2: `tether:anchor`
 
 **Input**: User request + routing decision
-**Output**: Workspace file with Anchor section + T1 checkpoint
+**Output**: Workspace file with Anchor section + T1 trace
 
-Create the workspace file. T1 is filled HERE, not in Build—it captures initial understanding before implementation begins:
+Create the workspace file. T1 is filled HERE, before we Build: it scopes the initial understanding that will guide implementation:
 
 ```markdown
 # NNN: Task Name
@@ -103,13 +100,13 @@ Create the workspace file. T1 is filled HERE, not in Build—it captures initial
 Scope: [one sentence exact requirement]
 Excluded: [what is not in scope]
 Patterns: [existing patterns to follow]
-Path: [Input] → [Processing] → [Output]
+Data Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
 ## Trace
-### T1: [Anchor fills—patterns found, approach, references Path]
-### T2: [Build fills—after first step, references Anchor]
-### T3: [Build fills—significant decision, references Anchor]
+### T1: [`tether:anchor` fills: patterns found, approach, references Path]
+### T2: [`tether:code-builder` fills: after first step, references Anchor]
+### T3: [`tether:code-builder` fills: significant decision, references Anchor]
 
 ## Close
 Omitted: [added at Close]
@@ -117,37 +114,39 @@ Delivered: [added at Close]
 Complete: [added at Close]
 ```
 
-**Contract**: Anchor phase MUST fill T1 before handing off to Build. T1 captures what was learned during exploration—patterns found, approach chosen, constraints identified. This is the decision trace that informs implementation.
+**Contract**: Anchor phase MUST fill T1 before handing off to Build. T1 captures what was learned during exploration: patterns found, constraints identified, approaches chosen. This is the decision trace that informs implementation.
 
-### Phase 3: Build
+### Phase 3: `tether:code-builder`
 
 **Input**: Workspace file with Anchor section + T1 filled
-**Output**: T2, T3+ checkpoints filled; implementation complete
+**Output**: T2, T3+ traces filled, complete implementation
 
-Do the work. Write to Trace during implementation, not after.
+Do the work. Writes Traces *during* implementation, in lockstep with meaningful TodoWrite tool calls.
+Build phase is where the Workspace shines as external, long-term crystallized knowledge. The agent leverages the workspace as pen-and-paper for higher-order thinking.
 
 **Execution Protocol**:
-1. Read workspace file—verify T1 has substantive content
+1. Read workspace file: verify T1 has informative anchor content
 2. Confirm Anchor's path is still correct
-3. Execute in smallest possible increments
-4. **Fill T2 immediately**—after first implementation step
-5. **Fill T3+**—after each significant decision or discovery
-6. **Pairing Rule**—every TodoWrite update pairs with a Trace write
+3. Execute in minimal, elegant increments
+4. **Fill T2 immediately** after first implementation step
+5. **Fill T3+** after each significant decision or discovery
+6. **Pairing Rule**: TodoWrite tool calls must lead to a Trace write
 
-**Connection Requirement**: Each Trace entry must reference the Anchor explicitly:
-- Which part of **Path** does this advance?
+**Connection Requirement**: Each Trace must reference the Anchor explicitly:
+- Which part of **Data Path** does this advance?
 - Which **Excluded** items are you deliberately avoiding?
-- Does this stay within **Scope** and **Delta**?
+- Are we within **Scope** and **Delta**?
 
-| Moment | Action |
-|--------|--------|
-| First step done | Write T2 → reference Anchor path |
-| Made a decision | Write T3+ → reference Anchor constraints |
-| Update TodoWrite | Also write to Trace (pairing rule) |
-| Can't connect to Anchor | Stop → you've drifted, reassess |
-| Complexity growing | Run `/tether:creep` → check against Anchor |
+| Moment                  | Action                                     |
+| ----------------------- | ------------------------------------------ |
+| First step done         | Write T2 → reference Anchor path           |
+| Made a decision         | Write T3+ → reference Anchor constraints   |
+| Update TodoWrite        | Also write to Trace (pairing rule)         |
+| Can't connect to Anchor | Stop → you've drifted, reassess            |
+| Complexity growing      | Run `/tether:creep` → check against Anchor |
 
 If you can't connect what you're doing to Scope/Path/Delta/Excluded, you've drifted. Stop and reassess.
+Call the `tether:anchor` agent again with explicit instructions to refactor the Anchor to align with your current work.
 
 **Creep signals** (stop and check):
 - "flexible," "extensible," "comprehensive"
@@ -160,18 +159,19 @@ If you can't connect what you're doing to Scope/Path/Delta/Excluded, you've drif
 - New abstractions not present in codebase
 - Changes affect more files than expected
 
-### Phase 4: Close
+### Phase 4: `tether:close`
 
-**Input**: Workspace file with Anchor + T1, T2, T3+ filled; implementation complete
-**Output**: Completed workspace file; renamed to final status
+**Input**: Workspace file with Anchor + Traces filled. Implementation complete.
+**Output**: Final workspace file, renamed to current status
 
 **Contract verification** (gate check):
 1. T1 filled (from Anchor phase)
-2. T2, T3 filled (from Build phase)
+2. T2, T3+ filled (from Build phase)
 3. Each Trace entry connects to Anchor
-4. Omitted list will be non-empty
+4. Omitted list must be non-empty
 
 If contract fails: phase cannot complete. Go back and fill in what's missing.
+Call the appropriate agents with context about what failed to fix the Traces and re-run.
 
 Fill in the Close section:
 
@@ -188,25 +188,26 @@ Rename: `_active` → `_complete`, `_blocked`, or `_handoff`
 
 ## Universal Constraints
 
-| Constraint | Meaning |
-|------------|---------|
-| Edit over create | Modify existing before creating new |
-| Concrete over abstract | Specific solution, not general framework |
-| Present over future | Current requirements, not anticipated |
-| Explicit over clever | Clarity beats sophistication |
+| Constraint                 | Meaning                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| **Present over future**    | Implement current requests, not future anticipated needs. |
+| **Concrete over abstract** | Build a specific solution, not abstract frameworks.       |
+| **Explicit over clever**   | Always choose clarity over sophistication.                |
+| **Edit over create**       | Modify what exists before creating something new.         |
 
 ---
 
 ## Lineage
 
-Understanding compounds. When work builds on prior work, encode the relationship:
+Understanding compounds over tasks and sessions in the Workspace.
+When we build on previous efforts, encode the relationship:
 
 ```
 workspace/004_api-auth_active_from-002.md
 workspace/005_integration_active_from-002-003.md
 ```
 
-`ls workspace/` reveals not just tasks, but structure of accumulated understanding.
+`ls workspace/` reveals not just tasks, but the structure of accumulated knowledge.
 
 ---
 
@@ -216,27 +217,28 @@ workspace/005_integration_active_from-002-003.md
 
 **Phase Flow** (orchestrated):
 ```
-[Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close]
-    ↓                  ↓                    ↓                  ↓
- haiku           verify T1           verify T2,T3      verify Omitted
+tether:assess (haiku) -> route
+tether:anchor -> file+T1 [gate: T1]
+tether:code-builder -> T2,T3+ [gate: T2,T3]
+tether:close (haiku) -> complete [gate: Omitted≠∅]
 ```
 
 **Agents**:
-- `tether:assess` — routing decision (haiku)
-- `tether:anchor` — workspace file + T1
-- `tether:code-builder` — implementation + T2, T3+
-- `tether:close` — verification + completion (haiku)
+- `tether:assess`: routing decision (haiku)
+- `tether:anchor`: workspace file + T1
+- `tether:code-builder`: implementation + T2, T3+
+- `tether:close`: verification + completion (haiku)
 
 **Contracts** (verified by orchestrator):
-- Anchor → Build: T1 must have substantive content
-- Build → Close: T2, T3 must have substantive content
+- Anchor → Build: T1 must have informative anchor content
+- Build → Close: T2, T3 must have informative implementation content
 - Close gate: Omitted must be non-empty
 
 **Pairing Rule**: Every TodoWrite update pairs with a Trace write.
 
 **Connection Requirement**: Each Trace entry must reference Anchor (Path/Scope/Delta/Excluded).
 
-**Constraints**: Edit > create | Concrete > abstract | Present > future | Explicit > clever
+**Constraints**: Present > future | Concrete > abstract | Explicit > clever | Edit > create
 
 **Creep**: Sense it → `/tether:creep` → Name it → Remove it → Continue simpler
 
