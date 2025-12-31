@@ -25,12 +25,13 @@ Opus 4.5 broke this pattern. If you're reading this then you've likely felt the 
 
 # Installation
 
-Inside of a Claude Code instance, add the marketplace from github:
+In a running Claude Code instance, first add the marketplace from github:
 ```bash
 /plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
 ```
+Then install the `tether` plugin from the `crinzo-plugins` marketplace.  
 
-Then, install the `tether` plugin from the `crinzo-plugins` marketplace.
+Once the plugin is installed, you can create with `tether` by prepending the `/tether:skills` command to your regular prompts, e.g. `/tether:skills "Your prompt here..."`.
 
 
 # Architecture
