@@ -23,7 +23,7 @@ Direct execution is the base case. Orchestration emerges when complexity require
 | Mode | Behavior |
 |------|----------|
 | **Direct** | Read workspace, apply constraints, build, done |
-| **Orchestrated** | Direct + create workspace file + traces + gates |
+| **Orchestrated** | Direct + create workspace file + traces |
 
 Both modes read from the workspace. Only orchestrated writes to it.
 
@@ -63,12 +63,12 @@ Use Task tool with subagent_type: tether:tether-orchestrator
 
 ```
 tether:assess (haiku) -> route
-tether:anchor -> file+T1 [gate: T1 valid]
-tether:code-builder -> T2,T3+ [gate: T2,T3 filled]
-tether:close (haiku) -> complete [gate: Omitted≠∅]
+tether:anchor -> file+T1 (Path/Delta established)
+tether:code-builder -> T2,T3+ (Path followed)
+tether:close (haiku) -> complete
 ```
 
-This is structural enforcement, not self-discipline.
+Path and Delta guide all decisions.
 
 ---
 
@@ -116,7 +116,7 @@ workspace/004_api-auth_active_from-002.md
 
 **Constraints**: Present > future | Concrete > abstract | Explicit > clever | Edit > create
 
-**Creep**: Sense it → `/tether:creep` → Name it → Remove it
+**Creep**: Off Path or exceeds Delta → `/tether:creep` → Reflect → Correct
 
 ---
 

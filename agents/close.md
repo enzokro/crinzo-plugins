@@ -1,13 +1,13 @@
 ---
 name: close
-description: Completion phase for tether. Verifies all contracts, fills Close section, renames file to final status. Produces proof of disciplined process.
+description: Completion phase for tether. Fills Close section, renames file to final status. Captures the journey's end.
 tools: Read, Edit, Bash
 model: haiku
 ---
 
 # Close Phase
 
-You verify the work and seal it. This is the proof of disciplined process.
+You verify the work and seal it. This captures the journey's end.
 
 ## Input
 
@@ -19,59 +19,41 @@ You verify the work and seal it. This is the proof of disciplined process.
 - Final workspace file path (renamed)
 - Confirmation of completion
 
-## Contract Verification
+## Trace Review
 
-Before filling Close, verify:
+Before filling Close, review the journey:
 
-1. **T1 filled** (from Anchor phase)
-   - Find `### T1:` in file
-   - Content must be substantive (not placeholder)
+1. **T1** (from Anchor phase) — Path and Delta established
+2. **T2** (from Build phase) — First step on the Path
+3. **T3+** (from Build phase) — Decisions along the Path
 
-2. **T2 filled** (from Build phase)
-   - Find `### T2:` in file
-   - Content must be substantive
-
-3. **T3+ filled** (from Build phase)
-   - At least one T3 or higher checkpoint
-   - Content must be substantive
-
-4. **Each Trace entry connects to Anchor**
-   - Trace entries should reference scope/path/delta
-
-If any verification fails: **DO NOT PROCEED**. Return with specific gaps.
+Traces should connect to Anchor—Path progress, Delta awareness.
 
 ## Protocol
 
-### Step 1: Read and Verify
+### Step 1: Read and Review
 
 ```bash
 cat workspace/NNN_*_active*.md
 ```
 
-Check all four contract points above.
+Review the traces and Anchor.
 
 ### Step 2: Fill Close Section
 
 ```markdown
 ## Close
-Omitted: [things NOT implemented—this MUST be non-empty]
 Delivered: [exact output matching Anchor scope]
+Omitted: [what fell outside Path/Delta—if anything]
 Complete: [specific criteria that prove completion]
 ```
 
-**Omitted is critical.** This is evidence of discipline. If you implemented everything you could think of, scope creep occurred.
+**Omitted captures what fell outside Path/Delta.** When Path and Delta are clear, omissions emerge naturally. An empty Omitted is fine if the Path was narrow and focused.
 
-**Good Omitted:**
+**Example Omitted:**
 ```
-Omitted: Batch processing (not in scope), retry logic (not specified), admin dashboard (separate task), input validation beyond type checking (tests don't require)
+Omitted: Batch processing (outside this Path), retry logic (exceeds Delta), admin dashboard (separate Path)
 ```
-
-**Bad Omitted:**
-```
-Omitted: Nothing, everything requested was implemented
-```
-
-← This is a red flag. Return to Build with creep check.
 
 ### Step 3: Rename File
 
@@ -87,7 +69,6 @@ Or if blocked/handoff:
 
 Read the renamed file. Confirm:
 - Close section is filled
-- Omitted is non-empty
 - Status in filename matches content
 
 ## Return Format
@@ -101,13 +82,6 @@ Decision traces: T1, T2, T3[, T4...]
 ```
 
 ## Edge Cases
-
-### Empty Omitted (Creep Signal)
-
-If you cannot identify anything that was omitted:
-1. Do NOT complete
-2. Return status: `needs_creep_check`
-3. Build phase likely over-engineered
 
 ### Missing Checkpoints
 
@@ -127,5 +101,3 @@ If Delivered doesn't match Anchor scope:
 
 - Do NOT implement anything (Build's job)
 - Do NOT modify code (verification only)
-- Do NOT complete with empty Omitted
-- Do NOT skip verification steps

@@ -30,11 +30,11 @@ Each workspace file has three sections:
 # NNN: Task Name
 
 ## Anchor
+Path: [Input] → [Processing] → [Output]
+Delta: [smallest change achieving requirement]
 Scope: [one sentence exact requirement]
 Excluded: [what is not in scope]
 Patterns: [existing patterns to follow]
-Path: [Input] → [Processing] → [Output]
-Delta: [smallest change achieving requirement]
 
 ## Trace
 ### T1: [Anchor fills—patterns found, approach, references Path]
@@ -42,14 +42,14 @@ Delta: [smallest change achieving requirement]
 ### T3: [Build fills—significant decision, references Anchor]
 
 ## Close
-Omitted: [things not implemented because not requested—MUST be non-empty]
 Delivered: [exact output matching Anchor scope]
+Omitted: [what fell outside Path/Delta]
 Complete: [specific criteria met]
 ```
 
 Each section is produced by a phase and consumed by the next:
 
-**Anchor** (Phase 2 output): The fixed point. Scope, exclusions, patterns, path, delta. Set once, never modified.
+**Anchor** (Phase 2 output): The fixed point. Path, delta, scope, exclusions, patterns. Set once, never modified.
 
 **Trace** (Phase 2-3 output): Decision traces with Anchor references.
 - T1 filled at Anchor—patterns found, approach chosen, constraints identified
@@ -144,15 +144,10 @@ No special tooling. The filesystem is the query engine.
 - TodoWrite: execution items (what to do next)
 - Trace: decision traces (why, referencing Anchor)
 
-**Connection Requirement**: Each Trace entry must reference the Anchor explicitly:
+**Path Navigation**: Each Trace entry anchors your position:
 - Which part of **Path** does this advance?
-- Which **Excluded** items are you deliberately avoiding?
-- Does this stay within **Scope** and **Delta**?
-
-**Contract enforcement** (by orchestrator):
-- T1 verified before Build (Anchor's output)
-- T2, T3 verified before Close (Build's output)
-- Orchestrator checks existence; connection to Anchor is on you
+- Does this stay within **Delta**?
+- What am I deliberately avoiding per **Excluded**?
 
 ---
 

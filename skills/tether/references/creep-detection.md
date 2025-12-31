@@ -1,62 +1,46 @@
 # Scope Creep Detection
 
-Creep occurs when implementation expands beyond the Anchor. This reference provides detection patterns—not enforcement rules. Internalized discipline replaces external enforcement.
+Creep occurs in exactly two ways: deviating from the Path or exceeding the Delta. Everything else is a symptom of these two.
 
 ---
 
-## The Five Patterns
+## The Two Patterns
 
-### 1. Over-Engineering
+### 1. Path Deviation
 
-**Signals**: Interfaces for single implementations, generic parameters for specific functions, plugin architectures for monolithic needs, factory patterns for direct construction.
+You've moved off the defined transformation journey.
 
-**Question**: Was this abstraction in the Anchor, required by a test, or present elsewhere in the codebase?
+**Signals**:
+- Changes to files not on the Path
+- Adding transformations not specified
+- Handling edge cases outside Path scope
 
-**Three "no"s**: Remove. Implement the concrete solution.
+**Question**: Is this step on the Anchor's Path?
 
-### 2. Scope Expansion
+**If no**: You've deviated. Return to the Path or acknowledge the deviation in Trace.
 
-**Signals**: Adding logging when not requested, error handling beyond requirements, utility functions for single use, configuration for fixed values.
+### 2. Delta Exceeded
 
-**Question**: Was this capability specified in the Anchor?
+You've done more than the minimal change requires.
 
-**If no**: Remove. Creep compounds; small additions accumulate.
+**Signals**:
+- Abstractions not required by the change
+- Error handling beyond what the change needs
+- "While I'm here..." additions
+- Future-proofing hooks
 
-### 3. Verbosity
+**Question**: Does this exceed the smallest change achieving the requirement?
 
-**Signals**: Comments explaining obvious code, multiple examples for clear concepts, extensive documentation for simple functions, TODO markers.
-
-**Question**: Does this add information not already evident from the code itself?
-
-**If no**: Remove. Code should be self-documenting.
-
-### 4. Pattern Violation
-
-**Signals**: New file structures diverging from existing, different naming conventions, alternative import patterns, non-standard directory placement.
-
-**Question**: Does this match the patterns in the Anchor or established in the codebase?
-
-**If no**: Halt. Align before continuing.
-
-### 5. Future-Proofing
-
-**Signals**: "In case we need..." additions, extensibility hooks unused, configuration for single values, optional parameters without current use.
-
-**Question**: Does the Anchor require this, or is it anticipating future needs?
-
-**If anticipating**: Remove. YAGNI—You Aren't Gonna Need It.
+**If yes**: You've exceeded Delta. Remove the excess or justify why Delta needs expansion.
 
 ---
 
 ## Quick Reference
 
-| Pattern | Signal | Question | Response |
-|---------|--------|----------|----------|
-| Over-engineering | Abstractions not in Anchor | In Anchor/tested/existing? | Remove if no |
-| Scope expansion | "And also" additions | In Anchor? | Remove if no |
-| Verbosity | Excessive explanation | Adds non-obvious info? | Remove if no |
-| Pattern violation | New architecture | Matches existing? | Halt, align |
-| Future-proofing | Options not needed | In Anchor? | Remove if anticipating |
+| Type | Signal | Question | Response |
+|------|--------|----------|----------|
+| Path deviation | Off-Path changes | On the Anchor's Path? | Return to Path |
+| Delta exceeded | More than minimal | Smallest change? | Remove excess |
 
 ---
 
@@ -64,22 +48,17 @@ Creep occurs when implementation expands beyond the Anchor. This reference provi
 
 During Build, periodically ask:
 
-- Am I adding lines that don't map to the Anchor?
-- Am I creating abstractions without test coverage?
-- Am I handling errors without specified failure modes?
-- Am I creating files when editing would suffice?
-- Is my Trace section empty? (Silent creep)
+- Am I still on the Path?
+- Am I within Delta?
 
-If yes to any: run `/tether:creep`, name what crept in, remove it, continue simpler.
+If uncertain: run `/tether:creep`, reflect, correct course.
 
 ---
 
 ## The Trace Connection
 
-An empty Trace section during active work is itself a creep signal. It means implementation is happening without externalized reasoning—the conditions under which creep thrives.
+Traces anchor your position on the Path. When you articulate what you're doing against the Anchor, drift becomes visible.
 
-**The Pairing Rule**: Every TodoWrite update pairs with a Trace write. You will update TodoWrite—that's your locked-in pattern. Ride it. When you update TodoWrite, also write to a Trace checkpoint.
+**The Pairing Rule**: Every TodoWrite update pairs with a Trace write. Ride it. When you update TodoWrite, also write to a Trace checkpoint.
 
-**Checkpoint check**: T1, T2, T3 must be filled in sequence. Empty checkpoints scream. If you're at implementation step 2 and T1 is still empty, stop. Fill it in. The structure makes staleness visible.
-
-Trace first. Creep surfaces when you try to articulate what you're doing against the Anchor.
+Trace first. Path and Delta awareness surfaces when you try to articulate what you're doing.

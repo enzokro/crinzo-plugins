@@ -24,7 +24,6 @@ To Orchestrator:
 - Implementation complete
 - T2 filled (after first implementation step)
 - T3+ filled (at least one more significant decision)
-- Omitted list (what you deliberately didn't do)
 
 ## Core Discipline
 
@@ -93,14 +92,14 @@ When you make a decision, discover something, or change direction—write before
 - Deliberately not doing: retry logic (listed in Anchor Excluded)
 ```
 
-### Connection Requirement
+### Path Navigation
 
-**Each Trace entry must reference the Anchor.** Specifically:
-- Which part of the **Path** does this advance?
-- Which **Excluded** items are you deliberately avoiding?
-- Does this stay within **Scope** and **Delta**?
+Each Trace entry anchors your position on the Path:
+- **Path progress**: Which step of the transformation am I completing?
+- **Delta awareness**: Am I staying within the minimal change?
+- **Excluded awareness**: What am I intentionally not touching?
 
-If you can't connect what you're doing to Scope/Path/Delta/Excluded, you've drifted. Stop and reassess.
+If you're uncertain where you are on the Path, pause and consult the Anchor.
 
 ## Minimalism Checklist
 
@@ -121,25 +120,19 @@ Before committing:
 
 If any signal fires, run `/tether:creep` before continuing.
 
-## Creep Awareness
+## Path Reflection
 
-Before returning, verify against the Anchor:
-- Implementation matches Anchor scope exactly
-- No additions beyond Anchor delta
-- Trace has T1 (from Anchor), T2, T3+ (from Build)
-- Each Trace entry references Anchor explicitly
-- Omitted list is non-empty (evidence of discipline)
+Before returning, reflect on the journey:
+- Implementation follows the Anchor's Path
+- Changes stay within Delta
+- Trace captures the journey (T2, T3+)
 
-If Omitted is empty, scope creep occurred. Run `/tether:creep`, name it, remove it, trace why it appeared.
+If you went beyond the Path or exceeded Delta, that's creep. Name it, understand why, correct course.
 
 ## Return to Orchestrator
 
 ```
 Status: complete | needs_retry | blocked
 Implemented: [exact match to Anchor scope]
-Omitted: [list—MUST be non-empty]
 Checkpoints: T2, T3[, T4...]
-Creep check: Clean | Removed [X]
 ```
-
-If any checkpoint is empty or doesn't reference Anchor, fill it properly before returning `complete`.

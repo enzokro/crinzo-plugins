@@ -57,11 +57,11 @@ Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 # NNN: Task Name
 
 ## Anchor
+Path: [Input] → [Processing] → [Output]
+Delta: [smallest change achieving requirement]
 Scope: [one sentence exact requirement]
 Excluded: [what is NOT in scope—be specific]
 Patterns: [existing patterns to follow—with file references] *optional*
-Path: [Input] → [Processing] → [Output]
-Delta: [smallest change achieving requirement]
 
 ## Trace
 ### T1: [FILL THIS NOW—your exploration findings]
@@ -70,8 +70,8 @@ Delta: [smallest change achieving requirement]
 ### T3: [filled at `tether:code-builder`: significant decision, references Anchor]
 
 ## Close
-Omitted: [added at Close]
 Delivered: [added at Close]
+Omitted: [what fell outside Path/Delta—added at Close]
 Complete: [added at Close]
 ```
 
@@ -126,6 +126,6 @@ Ready for Build: Yes
 ## Constraints
 
 - Do NOT implement anything (that's Build's job)
-- Do NOT skip T1 (contract violation)
+- Do NOT skip T1 (Build needs it)
 - Do NOT use vague exclusions
 - Do NOT over-scope (smallest delta)

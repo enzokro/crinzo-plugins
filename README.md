@@ -41,7 +41,7 @@ Make sure to update the marketplace.json file to include the plugin.
 ```
 [Assess] → route → [Anchor] → file+T1 → [Build] → T2,T3+ → [Close]
     ↓                  ↓                    ↓                  ↓
- decide            verify T1           verify T2,T3      verify Omitted
+ decide            verify T1           verify T2,T3         reflect
 ```
 
 Next, let's look at the agents that make up `tether`:
@@ -102,9 +102,9 @@ It must be said here that Claude Code's ToDo harness is incredibly powerful. The
 
 ## Phase 4: Close
 
-The `close` Agent verifies all contracts, fills the Close section, and renames the workspace file to its final status. Further, `close` cannot proceed unless T1, T2, and T3+ are filled. Each Trace entry must connect back to Anchor. And Omitted must contain deliberate exclusions—not oversights, but choices. The measure of discipline is what was left out on purpose.
+The `close` Agent verifies all contracts, fills the Close section, and renames the workspace file to its final status. Each Trace entry connects back to Anchor. Omitted captures deliberate exclusions—not oversights, but choices. The measure of discipline is what was left out on purpose.
 
-This is where discipline becomes visible. We fight the model's helpful but misaligned urge to implement everything they can think of and call it thoroughness. `tether` fights this: the Omitted section *must* be non-empty. If the model delivered everything and omitted nothing, scope crept in somewhere.
+This is where discipline becomes visible. The Omitted section captures what was deliberately left out—not everything relevant belongs in *this* change. When Path and Delta are clear, omissions emerge naturally.
 
 ## Tether Commands (for manual and ad hoc interventions)
 
