@@ -1,0 +1,17 @@
+{
+  "name": "crinzo-plugins",
+  "owner": {
+    "name": "crinzo"
+  },
+  "plugins": [
+    {
+      "name": "tether",
+      "source": "./tether",
+      "description": "Orchestrator for clean, focused development.",
+      "version": "1.0.0",
+      "author": {
+        "name": "crinzo"
+      }
+    }
+  ]
+}

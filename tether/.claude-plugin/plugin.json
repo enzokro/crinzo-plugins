@@ -1,9 +1,9 @@
 {
   "name": "tether",
-  "description": "Plugin for tightly scoped creation. Orchestrated phases with contract verification prevent over-engineering and scope creep.",
-  "version": "3.0.0",
+  "description": "A plugin for powerful agent orchestration that prevents over-engineering and scope creep.",
+  "version": "1.0.0",
   "author": {
-    "name": "cck"
+    "name": "crinzo"
   },
   "skills": "./skills/",
   "agents": [
