@@ -1,6 +1,7 @@
 # Project Specific
 misc/
 .orphaned_at
+scratch/
 
 # macOS
 .DS_Store

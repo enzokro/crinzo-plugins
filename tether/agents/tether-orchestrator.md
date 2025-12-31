@@ -43,11 +43,22 @@ Receive:
 - Workspace file path
 - Confirmation that Thinking Traces is filled
 
-**Gate:** Read workspace file. Verify:
-- `Path:` line has content
-- `Delta:` line has content
+**Gate:** Read workspace file. Validate before proceeding:
 
-If gate fails: re-invoke Anchor with "Path and Delta required."
+1. Parse the `## Anchor` section
+2. Find line starting with `Path:` — verify non-empty content follows the colon
+3. Find line starting with `Delta:` — verify non-empty content follows the colon
+
+**Validation criteria:**
+- `Path:` must describe a transformation (not just "TBD" or placeholder)
+- `Delta:` must specify the minimal change scope (not just "TBD" or placeholder)
+
+**If gate fails:**
+- Do NOT proceed to Build
+- Re-invoke Anchor with: "Path and Delta required. Previous attempt missing: [Path|Delta|both]"
+- Include the workspace file path so Anchor can update it
+
+**Gate pass:** Both Path and Delta contain substantive content. Proceed to Build.
 
 ### 3. Invoke Build Phase
 

@@ -93,6 +93,11 @@ If any condition is uncertain, route `full`. Workspace files are cheap; missed c
 
 ## Return Format
 
+**Debug log (emit before returning):**
+```
+[assess:debug] Q1(actionable)=${yes|no} Q2(persist)=${yes|no} Q3(path-clear)=${yes|no} -> ${route}
+```
+
 ```
 Route: [full|direct|clarify]
 Reason: [one sentence]
@@ -100,16 +105,42 @@ Lineage: [from-NNN if this builds on prior work, else "none"]
 Workspace: [existing active tasks if any]
 ```
 
-If `clarify`, include:
+### Route-Specific Messages
+
+**For `full` route, include decision trace:**
 ```
-Question: [specific question to ask user]
+Signals: [list 1-3 signals that triggered full flow]
+  - e.g., "Path requires discovery: target files unknown"
+  - e.g., "Understanding should persist: establishes pattern for future work"
+  - e.g., "Builds on prior work: extends 003_auth-refactor"
+```
+
+**For `direct` route, include verification:**
+```
+Direct-OK: [confirm all 4 conditions met]
+  - Single file: [filename or "yes, location stated"]
+  - Mechanical: [type of change]
+  - No exploration: [why path is clear]
+  - Ephemeral: [why no future value]
+```
+
+**For `clarify` route, include problem description:**
+```
+Problem: [describe what makes the request ambiguous]
+  - e.g., "Multiple interpretations: could mean X, Y, or Z"
+  - e.g., "Scope unbounded: no clear stopping point"
+  - e.g., "Target unclear: which component is 'the bugs'?"
+Question: [specific question to resolve ambiguity]
 ```
 
 If lineage found, Anchor will inherit that task's Thinking Traces.
 
 ## Constraints
 
-- Do NOT explore the codebase deeply (that's Anchor's job)
-- Do NOT start implementing (that's Build's job)
-- Do NOT create files (that's Anchor's job)
+**Boundary discipline** (see SKILL.md "Agent Constraints"):
+- No forward reach: exploring is Anchor's job, implementing is Build's job
+- No creating files: workspace creation is Anchor's job
+
+**Phase-specific:**
 - Make the routing decision quickly and return
+- Surface scan only: `ls workspace/` and request analysis, no deep dives

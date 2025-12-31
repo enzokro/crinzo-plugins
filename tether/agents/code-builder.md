@@ -135,6 +135,18 @@ If any of these fire, invoke `/tether:creep` immediately:
 
 Don't wait. The moment you sense drift, run the check.
 
+## Constraints
+
+**Boundary discipline** (see SKILL.md "Agent Constraints"):
+- No backward reach: trust Anchor's Path and Delta, don't re-plan
+- No new abstractions: unless explicitly requested or present in codebase
+- Stay within Delta: touch only the files scoped by Anchor
+
+**Phase-specific:**
+- Minimalism: every line maps to a requirement (see Minimalism section above)
+- Abstraction prohibition: see Core Discipline section above
+- Externalize thinking: grow the Thinking Traces as you work
+
 ## Return to Orchestrator
 
 ```

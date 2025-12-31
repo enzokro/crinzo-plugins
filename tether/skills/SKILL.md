@@ -117,3 +117,42 @@ workspace/004_api-auth_active_from-002.md
 
 **Creep**: Off Path or exceeds Delta. Invoke `/tether:creep` the moment you sense drift.
 
+---
+
+## Agent Constraints
+
+All agents follow the universal constraints above. Each phase also has boundary discipline:
+
+| Principle | Meaning |
+|-----------|---------|
+| **Stay in lane** | Each phase does its job, nothing more |
+| **No forward reach** | Don't do work that belongs to a later phase |
+| **No backward reach** | Don't redo work that a prior phase completed |
+
+### Phase Boundaries
+
+```
+Assess: route only     --> Anchor: plan only     --> Build: implement only
+        |                         |                         |
+        v                         v                         v
+   No exploring              No implementing          No re-planning
+   No creating files         No skipping Traces       No new abstractions
+   No implementing           No over-scoping          Stay within Delta
+```
+
+Each agent references these shared constraints, then adds phase-specific rules.
+
+---
+
+## Configuration
+
+Settings live in `tether/config.md`. Edit to customize behavior.
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `workspace_path` | `workspace/` | Where task files are stored |
+| `sequence_padding` | `3` | Digits in sequence numbers (3 = 001) |
+| `default_route` | `full` | Fallback when assess is uncertain |
+| `assess_model` | `haiku` | Model for routing phase |
+| `build_model` | `inherit` | Model for anchor/build phases |
+

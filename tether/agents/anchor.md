@@ -37,6 +37,18 @@ NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | 
 
 This outputs a zero-padded 3-digit number (001, 002, ... 999). Use it as `NNN` in your filename.
 
+**Critical:** Always use `NNN` format (e.g., `001`, `042`, `123`). Never use dates (YYYYMMDD) or other formats.
+
+**Valid filenames:**
+- `001_auth-setup_active.md`
+- `002_api-refactor_complete_from-001.md`
+- `015_bugfix_blocked.md`
+
+**Invalid filenames:**
+- `20251231_task_active.md` (date prefix, wrong)
+- `1_task_active.md` (not zero-padded, wrong)
+- `task_001_active.md` (sequence not first, wrong)
+
 ### Step 2: Explore the Codebase
 
 **If Assess provided a lineage hint**, read that task's file first. Inherit its Thinking Traces.
@@ -68,14 +80,32 @@ Delta: [smallest change achieving requirement]
 
 ### Step 4: Fill Path and Delta
 
-**Path** — the data transformation:
+**Path** — the data transformation (NOT a goal description):
+
+Path describes HOW data flows, not WHAT you're building. Use arrow notation (`→`) to show the transformation pipeline.
+
+**Good Paths (data transformations):**
 ```
 Path: User request → API endpoint → Database update → Response
+Path: Filename string → Regex parse → Structured object with (sequence, slug, status)
+Path: Config file → Load settings → Apply to agent behavior
+Path: Workspace directory → Scan files → Build lineage map → Render tree
 ```
+
+**Bad Paths (goal descriptions):**
+```
+Path: Create a configuration system for settings          <- describes WHAT, not HOW
+Path: Add validation to ensure data exists                <- describes WHAT, not HOW
+Path: Build a template generator                          <- describes WHAT, not HOW
+```
+
+If your Path doesn't have arrows (`→`), rewrite it to show the transformation flow.
 
 **Delta** — the minimal change:
 ```
 Delta: Add single endpoint, modify one handler, no new abstractions
+Delta: Create one file `config.md`, update SKILL.md documentation section
+Delta: Modify Return Format section in assess.md only
 ```
 
 ### Step 5: Fill Thinking Traces
@@ -85,11 +115,11 @@ Thinking Traces captures what you learned. Substantive content, not summaries:
 **Good Thinking Traces:**
 ```
 ## Thinking Traces
-- Auth pattern uses JWT in `src/auth/token.ts:45`
-- Similar feature exists in `src/features/export.ts` - follow that structure
-- Will need to modify `src/api/routes.ts` to add endpoint
-- Constraint: must maintain backward compat with v1 API
-- Chose REST over GraphQL because existing endpoints are REST
+1. Auth pattern uses JWT in `src/auth/token.ts:45`
+2. Similar feature exists in `src/features/export.ts` - follow that structure
+3. Will need to modify `src/api/routes.ts` to add endpoint
+4. Constraint: must maintain backward compat with v1 API
+5. Chose REST over GraphQL because existing endpoints are REST
 ```
 
 **Bad Thinking Traces:**
@@ -127,6 +157,11 @@ Ready for Build: Yes
 
 ## Constraints
 
-- Do NOT implement anything (that's Build's job)
-- Do NOT skip Thinking Traces (Build needs it)
-- Do NOT over-scope (smallest delta)
+**Boundary discipline** (see SKILL.md "Agent Constraints"):
+- No forward reach: implementing is Build's job
+- No backward reach: trust Assess's routing decision
+
+**Phase-specific:**
+- Never skip Thinking Traces: Build depends on your exploration findings
+- Smallest delta: scope to minimal change that achieves the requirement
+- Path must show transformation flow (arrows), not goal descriptions
