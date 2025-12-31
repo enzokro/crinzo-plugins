@@ -1,5 +1,5 @@
 ---
-description: Complete a workspace task. Fills in the Close section and renames to final status.
+description: Complete a workspace task. Fills in the Delivered section and renames to final status.
 allowed-tools: Bash, Edit, Read, Glob
 ---
 
@@ -17,23 +17,20 @@ Complete the workspace task identified in $ARGUMENTS.
    If not found, list all active files and ask user to specify.
 
 2. Read the file and analyze:
-   - What was the Anchor (original scope and path)?
+   - What was the Path (data transformation)?
+   - What was the Delta (minimal change)?
    - What was actually implemented?
-   - What was deliberately omitted?
 
-3. Fill in the Close section:
+3. Fill in the Delivered section:
 
 ```markdown
-## Close
-Omitted: [things not implemented because not requested - be explicit]
-Delivered: [exact output - files changed, features added]
-Complete: [specific criteria met that prove the anchor is satisfied]
+## Delivered
+[what was implemented—match the Path]
 ```
 
 4. Determine final status:
-   - `_complete`: Work is done, anchor satisfied
-   - `_blocked_needs-NNN`: Cannot proceed without another task
-   - `_handoff`: Passing to user or another agent
+   - `_complete`: Work is done
+   - `_blocked`: Cannot proceed, documented why
 
 5. Rename file:
    ```bash
@@ -42,11 +39,4 @@ Complete: [specific criteria met that prove the anchor is satisfied]
 
 6. Report to user:
    - Summary of what was delivered
-   - Summary of what was omitted (this is the discipline evidence)
    - Final file location
-
-## Omissions Principle
-
-The omissions list is the PRIMARY evidence of discipline. "Nothing omitted" is a red flag.
-
-If you cannot name things you deliberately did NOT build, the scope may have been too narrow or you may have over-built.

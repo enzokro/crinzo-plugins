@@ -1,5 +1,5 @@
 ---
-description: Create a new workspace anchor file for a task. Establishes scope and plan before implementation.
+description: Create a new workspace anchor file for a task. Establishes Path and Delta before implementation.
 allowed-tools: Bash, Write, Read, Glob
 ---
 
@@ -30,24 +30,22 @@ Create a workspace anchor file for the task described in $ARGUMENTS.
 # NNN: Task Name
 
 ## Anchor
-Scope: [one sentence exact requirement from $ARGUMENTS]
-Excluded: [what is explicitly not in scope]
-Patterns: [existing patterns to follow - search codebase]
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## Trace
-[Trace reasoning before implementing - every entry connects to Anchor]
+## T1
+[exploration findings—patterns, constraints, approach]
 
-## Close
-Omitted: [added at completion]
-Delivered: [added at completion]
-Complete: [added at completion]
+## Notes
+[optional thinking space during build]
+
+## Delivered
+[filled by Build at completion]
 ```
 
 4. Report to user:
    - File created
-   - Anchor summary
+   - Path and Delta summary
    - Confirm scope before proceeding
 
 ## Drift Check
