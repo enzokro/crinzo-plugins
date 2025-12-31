@@ -16,8 +16,8 @@ The user's request.
 ## Output
 
 One of three routes:
-- `full` — needs workspace flow (complex, multi-step, needs thinking-on-paper)
-- `direct` — obvious path (simple, single behavior, constraints still apply)
+- `full` — externalize understanding (Path needs discovery, or knowledge should persist)
+- `direct` — execute immediately (Path is clear, work is ephemeral)
 - `clarify` — cannot proceed (ambiguous, multiple interpretations, needs user input)
 
 ## Protocol
@@ -33,42 +33,51 @@ Note:
 
 ### Step 2: Evaluate the Request
 
-Ask two questions:
+Ask three questions:
 
 **Q1: Can this be anchored to a single, concrete behavior?**
-- Yes: actionable
-- No: needs clarification
+- Yes → actionable
+- No → needs clarification
 
-**Q2: Does this require thinking-on-paper?**
-- Yes: full workspace flow (complex decision traces needed)
-- No: direct execution (path is obvious)
+**Q2: Will this understanding benefit future work?**
+- Yes → externalize it (workspace persists knowledge)
+- No → execute and move on
+
+**Q3: Is the Path obvious or does it need discovery?**
+- Obvious → direct execution
+- Needs discovery → Anchor phase (explore, establish Path/Delta, fill Thinking Traces)
 
 ### Step 3: Route
 
-| Q1 (Actionable?) | Q2 (Needs thinking?) | Route |
-|------------------|----------------------|-------|
-| Yes | Yes | `full` |
-| Yes | No | `direct` |
-| No | — | `clarify` |
+| Q1 (Actionable?) | Q2 (Persist?) | Q3 (Path obvious?) | Route |
+|------------------|---------------|---------------------|-------|
+| Yes | Yes | — | `full` |
+| Yes | No | Yes | `direct` |
+| Yes | No | No | `full` |
+| No | — | — | `clarify` |
+
+**Key insight:** If understanding should persist OR Path needs discovery → `full`. Only go `direct` when the work is ephemeral AND the Path is already clear.
 
 ## Examples
 
 **Full flow signals:**
-- Multiple files will be touched
-- Architectural decision needed
-- Prior work to build on (lineage)
-- "Implement," "add feature," "refactor"
+- Understanding should persist for future tasks
+- Path requires exploration to discover
+- Prior work to build on (check lineage in workspace/)
+- Multiple files or architectural decisions
+- "Implement," "add feature," "design," "refactor"
 
 **Direct signals:**
-- Single file, obvious location
-- Pattern already exists to follow
+- Ephemeral work (no future value in persisting)
+- Path is already clear (pattern exists, location obvious)
+- Single file, mechanical change
 - "Fix typo," "add log statement," "rename X to Y"
 
 **Clarify signals:**
-- "Make it better"
-- "Fix the bugs"
+- "Make it better," "fix the bugs"
 - Multiple valid interpretations
-- Scope unclear
+- Cannot determine a concrete behavior
+- Scope is unbounded
 
 ## Return Format
 

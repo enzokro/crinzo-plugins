@@ -13,7 +13,7 @@ Three-phase flow. Assess routes. Anchor establishes Path and Delta. Build implem
 
 ```
 tether:assess (haiku) → route
-tether:anchor → Path + Delta + T1
+tether:anchor → Path + Delta + Thinking Traces
 tether:build → implement, complete
 ```
 
@@ -41,7 +41,7 @@ Spawn `tether:anchor` with:
 
 Receive:
 - Workspace file path
-- Confirmation that T1 is filled
+- Confirmation that Thinking Traces is filled
 
 **Gate:** Read workspace file. Verify:
 - `Path:` line has content
@@ -54,7 +54,7 @@ If gate fails: re-invoke Anchor with "Path and Delta required."
 Spawn `tether:build` with:
 - Workspace file path (or direct execution context)
 - Anchor section content (Path and Delta)
-- T1 content
+- Thinking Traces content
 
 Build implements, then:
 - Fills Delivered section

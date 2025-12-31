@@ -67,7 +67,7 @@ The `assess` Agent decides whether we are dealing with a simple ask that can be 
 
 ## Phase 2: Anchor
 
-The `anchor` Agent explores the codebase, establishes Path and Delta, and fills T1 with exploration findings.
+The `anchor` Agent explores the codebase, establishes Path and Delta, and fills Thinking Traces with exploration findings.
 
 **Path** — the data transformation:
 ```
@@ -79,9 +79,9 @@ Path: User request → API endpoint → Database update → Response
 Delta: Add single endpoint, modify one handler, no new abstractions
 ```
 
-**T1** — exploration findings:
+**Thinking Traces** — exploration findings:
 ```
-## T1
+## Thinking Traces
 - Auth pattern uses JWT in `src/auth/token.ts:45`
 - Similar feature exists in `src/features/export.ts` - follow that structure
 - Will need to modify `src/api/routes.ts` to add endpoint
@@ -91,7 +91,7 @@ Delta: Add single endpoint, modify one handler, no new abstractions
 
 The `build` Agent implements what the Anchor defines, nothing more and nothing less. When complete, it fills the Delivered section and renames the workspace file to `_complete`.
 
-The workspace file serves as cognitive surface. Notes section provides optional thinking space during build.
+The workspace file serves as cognitive surface. Thinking Traces captures exploration and implementation thinking.
 
 ## Tether Commands
 
@@ -129,11 +129,8 @@ workspace/NNN_task-slug_status[_from-NNN].md
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## T1
-[exploration findings]
-
-## Notes
-[optional thinking space]
+## Thinking Traces
+[exploration findings, decisions, pen and paper during build]
 
 ## Delivered
 [filled at completion]
@@ -142,8 +139,7 @@ Delta: [smallest change achieving requirement]
 | Section      | Purpose                                      |
 | ------------ | -------------------------------------------- |
 | **Anchor**   | Path and Delta. The fixed point.             |
-| **T1**       | Exploration findings. What was learned.      |
-| **Notes**    | Optional thinking space during build.        |
+| **Thinking Traces** | Externalized thinking. Exploration findings, decisions, pen and paper. Becomes crystallized knowledge. |
 | **Delivered**| What was implemented. Filled at completion.  |
 
 ## Workspaces as Persistent, Queryable Memory

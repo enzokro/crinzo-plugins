@@ -33,11 +33,8 @@ Create a workspace anchor file for the task described in $ARGUMENTS.
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## T1
-[exploration findings—patterns, constraints, approach]
-
-## Notes
-[optional thinking space during build]
+## Thinking Traces
+[exploration findings—patterns, constraints, approach. Build adds here during implementation]
 
 ## Delivered
 [filled by Build at completion]

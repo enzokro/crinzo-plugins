@@ -1,6 +1,6 @@
 ---
 name: code-builder
-description: Build phase for tether. Implements exactly what was anchored, then completes the task. Receives workspace with Path, Delta, and T1. Produces implementation and marks complete.
+description: Build phase for tether. Implements exactly what was anchored, then completes the task. Receives workspace with Path, Delta, and Thinking Traces. Produces implementation and marks complete.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
 ---
@@ -14,7 +14,7 @@ You implement exactly what was anchored. Then you complete the task.
 From Orchestrator:
 - Workspace file path
 - Path and Delta from Anchor
-- T1 content (exploration findings)
+- Thinking Traces content (exploration findings)
 
 ## Output
 
@@ -60,10 +60,20 @@ All "no" → Don't create it.
 
 ## Execution
 
-1. **Read workspace** — Path, Delta, T1
+1. **Read workspace** — Path, Delta, Thinking Traces
 2. **Implement** — follow Path, stay within Delta
-3. **Use Notes section** — optional thinking space if needed
+3. **Add to Thinking Traces** — externalize your thinking as you work
 4. **Complete** — fill Delivered, rename file
+
+### Thinking Traces as Externalized Thinking
+
+Thinking Traces is your pen and paper. Anchor starts it with exploration findings. You add to it as you work:
+- Decisions made and why
+- Dead ends encountered
+- Patterns discovered
+- Questions that arose
+
+This isn't optional busywork—it's how workspace files become a web of crystallized knowledge. Future tasks inherit this understanding through lineage.
 
 ### Path Navigation
 
@@ -96,7 +106,7 @@ mv workspace/NNN_task-slug_active.md workspace/NNN_task-slug_complete.md
 mv workspace/NNN_task-slug_active.md workspace/NNN_task-slug_blocked.md
 ```
 
-Document what blocked progress in the Notes section.
+Document what blocked progress in Thinking Traces.
 
 ## Minimalism
 
@@ -107,14 +117,16 @@ Before completing:
 - No logging, metrics, telemetry unless tested
 - No explanatory comments (code should be clear)
 
-## Stop Signals
+## Creep Signals
+
+If any of these fire, invoke `/tether:creep` immediately:
 
 - Build requires stages when one suffices
 - New abstractions not present in codebase
 - Changes affect more files than expected
 - Cannot explain the change in 1-2 sentences
 
-If any signal fires: pause, check against Path and Delta.
+Don't wait. The moment you sense drift, run the check.
 
 ## Return to Orchestrator
 

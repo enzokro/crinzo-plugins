@@ -1,13 +1,13 @@
 ---
 name: anchor
-description: Anchoring phase for tether. Creates workspace file, explores codebase, establishes Path and Delta, fills T1. Produces the foundation that Build requires.
+description: Anchoring phase for tether. Creates workspace file, explores codebase, establishes Path and Delta, fills Thinking Traces. Produces the foundation that Build requires.
 tools: Read, Write, Glob, Grep, Bash
 model: inherit
 ---
 
 # Anchor Phase
 
-You create the workspace file with Path, Delta, and T1. This is the foundation for Build.
+You create the workspace file with Path, Delta, and Thinking Traces. This is the foundation for Build.
 
 ## Input
 
@@ -18,7 +18,7 @@ You create the workspace file with Path, Delta, and T1. This is the foundation f
 
 - Workspace file path
 - Path and Delta established
-- T1 filled with exploration findings
+- Thinking Traces filled with exploration findings
 
 ## Protocol
 
@@ -51,11 +51,8 @@ Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## T1
-[FILL: exploration findings]
-
-## Notes
-[optional—thinking space during build]
+## Thinking Traces
+[FILL: exploration findings—Build adds to this during implementation]
 
 ## Delivered
 [filled by Build at completion]
@@ -73,13 +70,13 @@ Path: User request → API endpoint → Database update → Response
 Delta: Add single endpoint, modify one handler, no new abstractions
 ```
 
-### Step 5: Fill T1
+### Step 5: Fill Thinking Traces
 
-T1 captures what you learned. Substantive content, not summaries:
+Thinking Traces captures what you learned. Substantive content, not summaries:
 
-**Good T1:**
+**Good Thinking Traces:**
 ```
-## T1
+## Thinking Traces
 - Auth pattern uses JWT in `src/auth/token.ts:45`
 - Similar feature exists in `src/features/export.ts` - follow that structure
 - Will need to modify `src/api/routes.ts` to add endpoint
@@ -87,9 +84,9 @@ T1 captures what you learned. Substantive content, not summaries:
 - Chose REST over GraphQL because existing endpoints are REST
 ```
 
-**Bad T1:**
+**Bad Thinking Traces:**
 ```
-## T1
+## Thinking Traces
 Explored codebase, found patterns
 ```
 
@@ -97,7 +94,7 @@ Explored codebase, found patterns
 
 If this work builds on prior work:
 - Add `_from-NNN` suffix to filename
-- Reference the parent task in T1
+- Reference the parent task in Thinking Traces
 
 ## Return Format
 
@@ -105,7 +102,7 @@ If this work builds on prior work:
 Workspace: [full file path]
 Path: [the transformation]
 Delta: [the minimal change]
-T1: Filled with [N] findings
+Thinking Traces: Filled with [N] findings
 Lineage: [from-NNN or none]
 Ready for Build: Yes
 ```
@@ -113,5 +110,5 @@ Ready for Build: Yes
 ## Constraints
 
 - Do NOT implement anything (that's Build's job)
-- Do NOT skip T1 (Build needs it)
+- Do NOT skip Thinking Traces (Build needs it)
 - Do NOT over-scope (smallest delta)

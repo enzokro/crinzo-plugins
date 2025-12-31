@@ -21,7 +21,7 @@ Direct execution is the base case. Orchestration emerges when complexity require
 | Mode | Behavior |
 |------|----------|
 | **Direct** | Read workspace, apply constraints, build, done |
-| **Orchestrated** | Direct + create workspace file + T1 |
+| **Orchestrated** | Direct + create workspace file + Thinking Traces |
 
 Both modes read from the workspace. Only orchestrated writes to it.
 
@@ -59,7 +59,7 @@ Use Task tool with subagent_type: tether:tether-orchestrator
 
 ```
 tether:assess (haiku) → route
-tether:anchor → Path + Delta + T1
+tether:anchor → Path + Delta + Thinking Traces
 tether:build → implement, complete
 ```
 
@@ -92,11 +92,8 @@ workspace/NNN_task-slug_status[_from-NNN].md
 Path: [Input] → [Processing] → [Output]
 Delta: [smallest change achieving requirement]
 
-## T1
-[exploration findings]
-
-## Notes
-[optional thinking space]
+## Thinking Traces
+[externalized thinking—exploration, decisions, pen and paper]
 
 ## Delivered
 [filled at completion]
@@ -122,10 +119,10 @@ workspace/004_api-auth_active_from-002.md
 
 **Agents**:
 - `tether:assess`: routing (haiku)
-- `tether:anchor`: Path + Delta + T1
+- `tether:anchor`: Path + Delta + Thinking Traces
 - `tether:build`: implementation + completion
 
 **Constraints**: Present > future | Concrete > abstract | Explicit > clever | Edit > create
 
-**Creep**: Off Path or exceeds Delta. Pause, check, correct.
+**Creep**: Off Path or exceeds Delta. Invoke `/tether:creep` the moment you sense drift.
 
