@@ -25,13 +25,12 @@ Opus 4.5 broke this pattern. If you're reading this then you've likely felt the 
 
 # Installation
 
-Add the tether plugin to your marketplace and install it.
+Inside of a Claude Code instance, add the marketplace from github:
 ```bash
-claude /plugin install <your-marketplace>/tether
+/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
 ```
 
-Make sure to update the marketplace.json file to include the plugin.
-> TODO: add plugin to marketplace proper
+Then, install the `tether` plugin from the `crinzo-plugins` marketplace.
 
 
 # Architecture
@@ -48,12 +47,12 @@ Make sure to update the marketplace.json file to include the plugin.
 
 ## Tether Agents
 
-| Agent                        | Purpose                                  | Model   |
-| ---------------------------- | ---------------------------------------- | ------- |
-| `tether:tether-orchestrator` | Coordinates phases                       | inherit |
-| `tether:assess`              | Routing decision                         | haiku   |
+| Agent                        | Purpose                                   | Model   |
+| ---------------------------- | ----------------------------------------- | ------- |
+| `tether:tether-orchestrator` | Coordinates phases                        | inherit |
+| `tether:assess`              | Routing decision                          | haiku   |
 | `tether:anchor`              | Creates workspace, establishes Path/Delta | inherit |
-| `tether:code-builder`        | Implementation + completion              | inherit |
+| `tether:code-builder`        | Implementation + completion               | inherit |
 
 ## Phase 1: Assess
 
@@ -113,12 +112,12 @@ The workspace file serves as cognitive surface. Thinking Traces captures explora
 workspace/NNN_task-slug_status[_from-NNN].md
 ```
 
-| Name Part   | Purpose                       | Changes                              |
-| ----------- | ----------------------------- | ------------------------------------ |
-| `NNN`       | Sequence number (001, 002...) | Grows as work progresses             |
-| `task-slug` | Human-readable identifier     | Set at creation                      |
-| `status`    | Current state                 | `active` → `complete` or `blocked`   |
-| `_from-NNN` | Lineage suffix                | Inherits parent's Thinking Traces    |
+| Name Part   | Purpose                       | Changes                            |
+| ----------- | ----------------------------- | ---------------------------------- |
+| `NNN`       | Sequence number (001, 002...) | Grows as work progresses           |
+| `task-slug` | Human-readable identifier     | Set at creation                    |
+| `status`    | Current state                 | `active` → `complete` or `blocked` |
+| `_from-NNN` | Lineage suffix                | Inherits parent's Thinking Traces  |
 
 ### File Contents
 
@@ -136,11 +135,11 @@ Delta: [smallest change achieving requirement]
 [filled at completion]
 ```
 
-| Section      | Purpose                                      |
-| ------------ | -------------------------------------------- |
-| **Anchor**   | Path and Delta. The fixed point.             |
+| Section             | Purpose                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Anchor**          | Path and Delta. The fixed point.                                                                       |
 | **Thinking Traces** | Externalized thinking. Exploration findings, decisions, pen and paper. Becomes crystallized knowledge. |
-| **Delivered**| What was implemented. Filled at completion.  |
+| **Delivered**       | What was implemented. Filled at completion.                                                            |
 
 ## Workspaces as Persistent, Queryable Memory
 
