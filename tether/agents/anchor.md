@@ -51,9 +51,39 @@ NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | 
 
 Use this output as `NNN` in your filename.
 
-### Step 2: Explore the Codebase
+### Step 2: Workspace Context Review
 
-**If Assess provided a lineage hint**, read that task's file first. Inherit its Thinking Traces.
+**Before exploring the codebase, mine the accumulated workspace knowledge.**
+
+List completed workspace files:
+```bash
+ls -t workspace/*_complete*.md 2>/dev/null | head -20
+```
+
+Query accumulated patterns (from Reflect phase):
+```bash
+grep -h "^#pattern\|^#constraint\|^#decision\|^#antipattern" workspace/*_complete*.md 2>/dev/null | sort | uniq
+```
+
+Review process:
+1. **Scan titles** - identify files that might relate to current task (similar domain, shared files, related concepts)
+2. **Read relevant files** - for any file that might inform this work, read its Thinking Traces and Delivered sections
+3. **Extract insights** - note patterns, decisions, constraints, or gotchas that apply
+
+Document as **Inherited Context** (first entry in Thinking Traces):
+```
+## Thinking Traces
+### Inherited Context
+- From 015: Auth pattern established in src/auth/token.ts, uses JWT
+- From 018: API routes follow REST convention, see src/api/routes.ts
+- From 022: Backward compat required for v1 endpoints
+```
+
+**If Assess provided a lineage hint**, that file is required reading. But also check for non-obvious connections - the workspace is a knowledge graph.
+
+**If no relevant prior work exists**, document: "Inherited Context: None - greenfield task"
+
+### Step 3: Explore the Codebase
 
 Search for:
 - Existing patterns that apply
@@ -62,7 +92,7 @@ Search for:
 
 Use Glob/Grep/Read. Be thorough but bounded.
 
-### Step 3: Create the Workspace File
+### Step 4: Create the Workspace File
 
 Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 
@@ -76,11 +106,22 @@ Delta: [smallest change achieving requirement]
 ## Thinking Traces
 [FILL: exploration findings—Build adds to this during implementation]
 
+## Key Findings
+[FILL: queryable tags for patterns, insights, connections discovered]
+#pattern/name - description
+#insight/name - description
+#connection/name - description
+
+## Full Lineage
+[FILL if chain >2: list all ancestors with key contributions]
+- NNN_ancestor-slug: what it established
+- NNN_parent-slug: what it added
+
 ## Delivered
 [filled by Build at completion]
 ```
 
-### Step 4: Fill Path and Delta
+### Step 5: Fill Path and Delta
 
 **Path** — the data transformation (NOT a goal description):
 
@@ -110,7 +151,7 @@ Delta: Create one file `config.md`, update SKILL.md documentation section
 Delta: Modify Return Format section in assess.md only
 ```
 
-### Step 5: Fill Thinking Traces
+### Step 6: Fill Thinking Traces
 
 Thinking Traces captures what you learned. Substantive content, not summaries:
 
@@ -130,7 +171,7 @@ Thinking Traces captures what you learned. Substantive content, not summaries:
 Explored codebase, found patterns
 ```
 
-### Step 6: Determine Lineage
+### Step 7: Determine Lineage
 
 **Before finalizing the filename, ask:** Does this build on prior work?
 
@@ -143,6 +184,19 @@ If a completed task relates:
 1. Read its Thinking Traces — inherit that understanding
 2. Add `_from-NNN` suffix to your filename
 3. Reference the parent in your Thinking Traces: "Builds on NNN: [what you inherited]"
+
+**For chains >2 (grandparent exists), add Full Lineage section:**
+
+If your parent has a `_from-NNN` suffix, you're in a chain. Trace it back and document:
+
+```markdown
+## Full Lineage
+- 001_initial-spec: established core patterns
+- 002_implementation: built CheckResult pattern
+- 003_reporting (this task): adds aggregation layer
+```
+
+This prevents **inheritance fade** — the tendency for understanding to weaken across generations. Without Full Lineage, 4th-generation tasks lose context from 1st-generation decisions.
 
 Lineage is how the workspace becomes a knowledge graph. Don't orphan tasks that should be connected.
 

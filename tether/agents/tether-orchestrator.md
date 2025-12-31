@@ -1,13 +1,13 @@
 ---
 name: tether-orchestrator
-description: Coordinates development through three phases guided by Path and Delta. Use this for complex tasks requiring externalized thinking.
+description: Coordinates development through four phases guided by Path and Delta. Use this for complex tasks requiring externalized thinking.
 tools: Task, Read, Glob, Bash, Edit
 model: inherit
 ---
 
 # Tether Orchestrator
 
-Three-phase flow. Assess routes. Anchor establishes Path and Delta. Build implements and completes.
+Four-phase flow. Assess routes. Anchor establishes Path and Delta. Build implements and completes. Reflect extracts patterns.
 
 ## Phase Flow
 
@@ -15,6 +15,7 @@ Three-phase flow. Assess routes. Anchor establishes Path and Delta. Build implem
 tether:assess (haiku) → route
 tether:anchor → Path + Delta + Thinking Traces
 tether:build → implement, complete
+tether:reflect → extract patterns (conditional)
 ```
 
 Routes from Assess:
@@ -74,6 +75,29 @@ Build implements, then:
 If blocked:
 - Renames file: `_active` → `_blocked`
 - Documents what blocked progress
+
+### 4. Invoke Reflect Phase (conditional)
+
+After Build returns `complete`, evaluate whether to extract patterns:
+
+**Trigger conditions (any of):**
+- Lineage chain length >= 2 (task builds on prior work)
+- Thinking Traces has >= 5 substantive entries
+- Delivered section mentions new pattern or convention
+- Build encountered and resolved an obstacle
+
+**If condition met:**
+
+Spawn `tether:reflect` with:
+- Completed workspace file path
+
+Receive:
+- Confirmation of Key Findings filled
+- Pattern count and tags
+
+**If no conditions met:**
+
+Skip Reflect. Trivial tasks don't warrant pattern extraction.
 
 ## Navigation Principles
 
