@@ -67,13 +67,20 @@ All "no" → Don't create it.
 
 ### Thinking Traces as Externalized Thinking
 
-Thinking Traces is your pen and paper. Anchor starts it with exploration findings. You add to it as you work:
-- Decisions made and why
-- Dead ends encountered
-- Patterns discovered
-- Questions that arose
+Thinking Traces is your pen and paper. Anchor seeds it. You grow it.
 
-This isn't optional busywork—it's how workspace files become a web of crystallized knowledge. Future tasks inherit this understanding through lineage.
+**Write when:**
+- You choose between approaches → capture the decision and why
+- You hit a dead end → name it so future tasks don't repeat it
+- You discover a pattern → record it with file:line reference
+- A constraint emerges → document it for the next task in lineage
+
+**Don't write:**
+- Running commentary ("now I'm doing X")
+- Summaries of obvious actions
+- Restating what's already in Path/Delta
+
+Quality over quantity. Each entry should be useful to a future task that builds on this one.
 
 ### Path Navigation
 

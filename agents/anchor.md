@@ -13,6 +13,7 @@ You create the workspace file with Path, Delta, and Thinking Traces. This is the
 
 - User request
 - Routing decision from Assess (with workspace state)
+- Lineage hint from Assess (if this builds on prior work)
 
 ## Output
 
@@ -32,11 +33,12 @@ Next number = highest + 1 (or 001 if empty)
 
 ### Step 2: Explore the Codebase
 
+**If Assess provided a lineage hint**, read that task's file first. Inherit its Thinking Traces.
+
 Search for:
 - Existing patterns that apply
 - Files that will be touched
 - Conventions to follow
-- Prior work this builds on (lineage candidates)
 
 Use Glob/Grep/Read. Be thorough but bounded.
 
@@ -92,9 +94,19 @@ Explored codebase, found patterns
 
 ### Step 6: Determine Lineage
 
-If this work builds on prior work:
-- Add `_from-NNN` suffix to filename
-- Reference the parent task in Thinking Traces
+**Before finalizing the filename, ask:** Does this build on prior work?
+
+Check:
+```bash
+ls workspace/*_complete* 2>/dev/null
+```
+
+If a completed task relates:
+1. Read its Thinking Traces — inherit that understanding
+2. Add `_from-NNN` suffix to your filename
+3. Reference the parent in your Thinking Traces: "Builds on NNN: [what you inherited]"
+
+Lineage is how the workspace becomes a knowledge graph. Don't orphan tasks that should be connected.
 
 ## Return Format
 

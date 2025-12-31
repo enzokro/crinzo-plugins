@@ -26,10 +26,12 @@ One of three routes:
 
 Run: `ls workspace/` (if workspace folder exists)
 
-Note:
-- Active tasks that might relate
-- Patterns in existing work
-- Lineage that might apply
+**Look for lineage:**
+- Does a completed task relate to this request?
+- Would this work BUILD ON prior understanding?
+- If yes → note the parent task number for Anchor to use
+
+The workspace is accumulated knowledge. Don't start from zero if you don't have to.
 
 ### Step 2: Evaluate the Request
 
@@ -84,6 +86,7 @@ Ask three questions:
 ```
 Route: [full|direct|clarify]
 Reason: [one sentence]
+Lineage: [from-NNN if this builds on prior work, else "none"]
 Workspace: [existing active tasks if any]
 ```
 
@@ -91,6 +94,8 @@ If `clarify`, include:
 ```
 Question: [specific question to ask user]
 ```
+
+If lineage found, Anchor will inherit that task's Thinking Traces.
 
 ## Constraints
 

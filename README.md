@@ -118,7 +118,7 @@ workspace/NNN_task-slug_status[_from-NNN].md
 | `NNN`       | Sequence number (001, 002...) | Grows as work progresses             |
 | `task-slug` | Human-readable identifier     | Set at creation                      |
 | `status`    | Current state                 | `active` → `complete` or `blocked`   |
-| `_from-NNN` | Lineage suffix                | Links child tasks to parents         |
+| `_from-NNN` | Lineage suffix                | Inherits parent's Thinking Traces    |
 
 ### File Contents
 
@@ -145,6 +145,8 @@ Delta: [smallest change achieving requirement]
 ## Workspaces as Persistent, Queryable Memory
 
 With this structure, the filesystem becomes queryable memory. `ls workspace/` shows the active, ongoing work. `ls workspace/*_from-003*` reveals everything that emerged from task 003. Understanding compounds across sessions.
+
+**Lineage is inheritance.** When task 005 builds on task 003, it reads 003's Thinking Traces first. Dead ends aren't repeated. Patterns aren't rediscovered. The knowledge graph grows.
 
 ## When to Use `tether`
 
