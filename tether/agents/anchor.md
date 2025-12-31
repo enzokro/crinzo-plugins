@@ -25,19 +25,9 @@ You create the workspace file with Path, Delta, and Thinking Traces. This is the
 
 ### Step 1: Determine Sequence Number
 
-Ensure workspace exists:
-```bash
-mkdir -p workspace
-```
+**Format: `NNN` (3-digit, zero-padded)**
 
-Get next sequence number (run this exact command):
-```bash
-NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | sed 's/^0*//') + 1 )); printf "%03d\n" $NEXT
-```
-
-This outputs a zero-padded 3-digit number (001, 002, ... 999). Use it as `NNN` in your filename.
-
-**Critical:** Always use `NNN` format (e.g., `001`, `042`, `123`). Never use dates (YYYYMMDD) or other formats.
+Workspace filenames MUST start with a 3-digit sequence number. This is structural, not optional. Agents pattern-match on what they see first, so learn the format before the command.
 
 **Valid filenames:**
 - `001_auth-setup_active.md`
@@ -48,6 +38,18 @@ This outputs a zero-padded 3-digit number (001, 002, ... 999). Use it as `NNN` i
 - `20251231_task_active.md` (date prefix, wrong)
 - `1_task_active.md` (not zero-padded, wrong)
 - `task_001_active.md` (sequence not first, wrong)
+
+Now get the next sequence number:
+
+```bash
+mkdir -p workspace
+```
+
+```bash
+NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | sed 's/^0*//') + 1 )); printf "%03d\n" $NEXT
+```
+
+Use this output as `NNN` in your filename.
 
 ### Step 2: Explore the Codebase
 
