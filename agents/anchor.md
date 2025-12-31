@@ -25,11 +25,17 @@ You create the workspace file with Path, Delta, and Thinking Traces. This is the
 
 ### Step 1: Determine Sequence Number
 
+Ensure workspace exists:
 ```bash
-ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1
+mkdir -p workspace
 ```
 
-Next number = highest + 1 (or 001 if empty)
+Get next sequence number (run this exact command):
+```bash
+NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | sed 's/^0*//') + 1 )); printf "%03d\n" $NEXT
+```
+
+This outputs a zero-padded 3-digit number (001, 002, ... 999). Use it as `NNN` in your filename.
 
 ### Step 2: Explore the Codebase
 

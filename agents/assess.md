@@ -60,6 +60,16 @@ Ask three questions:
 
 **Key insight:** If understanding should persist OR Path needs discovery → `full`. Only go `direct` when the work is ephemeral AND the Path is already clear.
 
+### Default to Full
+
+`full` is the safe default. Only route `direct` when ALL of these are true:
+1. Single file, location explicitly stated or obvious
+2. Mechanical change (typo, rename, add log)
+3. No exploration or decisions needed
+4. Work has no future value
+
+If any condition is uncertain, route `full`. Workspace files are cheap; missed context is expensive.
+
 ## Examples
 
 **Full flow signals:**

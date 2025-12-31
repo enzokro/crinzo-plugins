@@ -9,22 +9,23 @@ Create a workspace anchor file for the task described in $ARGUMENTS.
 
 ## Protocol
 
-1. Query existing workspace:
-   ```bash
-   ls workspace/ 2>/dev/null | sort -n | tail -5
-   ```
-
-   If no workspace folder, create it:
+1. Ensure workspace exists:
    ```bash
    mkdir -p workspace
    ```
 
-2. Determine:
-   - **Next sequence number** (NNN): Highest existing + 1, or 001
-   - **Task slug**: Lowercase, hyphenated summary from user input
-   - **Lineage**: If building on prior work, note `from-NNN`
+2. Get next sequence number (run this exact command):
+   ```bash
+   NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | sed 's/^0*//') + 1 )); printf "%03d\n" $NEXT
+   ```
 
-3. Create file `workspace/NNN_task-slug_active[_from-NNN].md`:
+   This outputs a zero-padded 3-digit number (001, 002, ... 999). Use it as `NNN`.
+
+3. Determine:
+   - **Task slug**: Lowercase, hyphenated summary from user input
+   - **Lineage**: If building on prior work, add `_from-NNN` suffix
+
+4. Create file `workspace/NNN_task-slug_active[_from-NNN].md`:
 
 ```markdown
 # NNN: Task Name
@@ -40,7 +41,7 @@ Delta: [smallest change achieving requirement]
 [filled by Build at completion]
 ```
 
-4. Report to user:
+5. Report to user:
    - File created
    - Path and Delta summary
    - Confirm scope before proceeding

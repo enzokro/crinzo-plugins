@@ -1,7 +1,7 @@
 ---
 name: tether
 description: Use when the user asks to create, build, implement, write, design, plan, generate, draft, make, add a feature, or develop. Provides anchored development through Path and Delta. The workspace persists understanding across tasks.
-version: 9.0.0
+version: 9.1.0
 ---
 
 # Tether
@@ -12,29 +12,36 @@ Deliver exactly what was requested, nothing more. Path and Delta are your anchor
 
 ---
 
-## The Spectrum
+## First Action
 
-Direct execution is the base case. Orchestration emerges when complexity requires externalized thinking.
+**Always invoke the orchestrator:**
 
-**First action (both modes)**: `ls workspace/` — accumulated understanding.
+```
+Task tool with subagent_type: tether:tether-orchestrator
+```
 
-| Mode | Behavior |
-|------|----------|
-| **Direct** | Read workspace, apply constraints, build, done |
-| **Orchestrated** | Direct + create workspace file + Thinking Traces |
+Pass through the user's request. The orchestrator handles routing internally via assess.
 
-Both modes read from the workspace. Only orchestrated writes to it.
+Do NOT make routing decisions yourself. Do NOT implement directly. Invoke orchestrator, then step back.
 
-**Escalate to orchestrated** when:
-- Multiple files will be touched
-- Architectural decision needed
-- Prior work to build on (lineage in workspace/)
-- Complexity benefits from externalized thinking
+---
 
-**Stay direct** when:
-- Single file, obvious location
-- Pattern already exists to follow
-- Trivial change (typo, rename, log statement)
+## What Happens Inside
+
+The orchestrator runs three phases:
+
+```
+tether:assess (haiku) → route
+tether:anchor → Path + Delta + Thinking Traces
+tether:build → implement, complete
+```
+
+**Assess routes to:**
+- `full` → Anchor creates workspace file, then Build implements
+- `direct` → Build with constraints only (read workspace, no new file)
+- `clarify` → Return question to user, halt
+
+**The single gate:** Path and Delta must exist before Build proceeds.
 
 ---
 
@@ -48,22 +55,6 @@ Both modes read from the workspace. Only orchestrated writes to it.
 | **Edit over create** | Modify existing before creating new |
 
 Do NOT create new abstractions. Do NOT touch files outside the Delta.
-
----
-
-## Orchestrator
-
-```
-Use Task tool with subagent_type: tether:tether-orchestrator
-```
-
-```
-tether:assess (haiku) → route
-tether:anchor → Path + Delta + Thinking Traces
-tether:build → implement, complete
-```
-
-**The single gate:** Path and Delta must exist before Build proceeds.
 
 ---
 
