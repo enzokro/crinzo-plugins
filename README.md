@@ -1,202 +1,111 @@
-# `tether`
+# tether
 
-`tether` is a Claude Code agent orchestrator for clean and focused development. It builds on the step function jump in agentic coding capabilities unlocked by Opus 4.5.
+Agent orchestrator for focused development. Prevents scope creep and over-engineering through Path and Delta anchoring.
 
-## Background
+## Core Insight
 
-Before Opus 4.5, Agents dedicated most of their prompts and tools to working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants behaved like overeager Junior-savants that had to be carefully steered whenever projects grew even moderately complex.
+LLM agents drift. They over-engineer, anticipate future needs, build abstractions. Tether counters this with two constructs:
 
-Opus 4.5 broke this pattern. If you're reading this then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM Agents from spastic assistants to powerful, intelligent collaborators.
+- **Path**: Data transformation (`Input → Processing → Output`). Not goals; transformations.
+- **Delta**: Minimal change scope. What gets touched; what doesn't.
 
-`tether` combines the model's increased capabilities *and* their better understanding of our needs into a powerful development harness. Path and Delta anchor all work. The workspace persists understanding across sessions. And all of this fully leverages Opus 4.5's capabilities.
+Both must exist before implementation. This is the gate.
 
-# Philosophy
+## Why This Matters
 
-`tether` is based on four principles to keep Agents focused on the task at hand:
+Enterprise software captures *what happened*. It doesn't capture *why decisions were made*—the exceptions, precedents, cross-system context that lives in Slack threads and people's heads.
 
-| Principle                  | Description                                               |
-| -------------------------- | --------------------------------------------------------- |
-| **Present over future**    | Implement current requests, not anticipated future needs. |
-| **Concrete over abstract** | Build a specific solution, not abstract frameworks.       |
-| **Explicit over clever**   | Always choose clarity over sophistication.                |
-| **Edit over create**       | Modify what exists before creating something new.         |
+Tether's workspace externalizes decision traces. Each task records:
+- What transformation was needed (Path)
+- What scope was bounded (Delta)
+- What was discovered (Thinking Traces)
+- What was delivered (Delivered)
 
-None of these are new. In fact they read as the obvious 101s of software development. But anyone who's spent time building apps with LLMs knows that the models are ambitious and like to stay busy. They often deviate from these principles and tech debt quickly accumulates, especially in complex projects. `tether` turns these principles into its north star through two core constructs: **Path** (the data transformation) and **Delta** (the minimal change).
+Over time, the workspace becomes a context graph—queryable memory of how problems were solved.
 
-# Installation
+## Principles
 
-In a running Claude Code instance, first add the marketplace from github:
-```bash
-/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
-```
-Then install the `tether` plugin from the `crinzo-plugins` marketplace.  
+| Principle | Meaning |
+|-----------|---------|
+| Present over future | Current request, not anticipated needs |
+| Concrete over abstract | Specific solution, not framework |
+| Explicit over clever | Clarity over sophistication |
+| Edit over create | Modify existing before creating new |
 
-Once the plugin is installed, you can create with `tether` by prepending the `/tether:tether` command to your regular prompts, e.g. `/tether:tether "Your prompt here..."`.
-
-
-# Architecture
-
-`tether` follows a development cycle with four phases. Each phase is delegated to an agent with bounded context. For complex tasks, the orchestrator chronicles its process in a workspace file.
+## Architecture
 
 ```
 [Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
-    ↓                  ↓                        ↓                    ↓
- decide              gate                   implement            extract
 ```
 
-**The single gate:** Path and Delta must exist before Build proceeds.
+| Agent | Purpose | Model |
+|-------|---------|-------|
+| `tether:assess` | Route: full / direct / clarify | haiku |
+| `tether:anchor` | Establish Path, Delta, Thinking Traces | inherit |
+| `tether:code-builder` | Implement within constraints | inherit |
+| `tether:reflect` | Extract patterns (conditional) | inherit |
 
-## Tether Agents
+## Workspace
 
-| Agent                        | Purpose                                   | Model   |
-| ---------------------------- | ----------------------------------------- | ------- |
-| `tether:tether-orchestrator` | Coordinates phases                        | inherit |
-| `tether:assess`              | Routing decision                          | haiku   |
-| `tether:anchor`              | Creates workspace, establishes Path/Delta | inherit |
-| `tether:code-builder`        | Implementation + completion               | inherit |
-| `tether:reflect`             | Pattern extraction (conditional)          | inherit |
-
-## Phase 1: Assess
-
-The `assess` Agent decides whether we are dealing with a simple ask that can be done ad hoc or a complex task that requires more deliberation.
-
-| Actionable? | Needs thinking? | Route to           |
-| ----------- | --------------- | ------------------ |
-| Yes         | Yes             | Anchor (full flow) |
-| Yes         | No              | Build (direct)     |
-| No          | —               | User (clarify)     |
-
-## Phase 2: Anchor
-
-The `anchor` Agent explores the codebase, establishes Path and Delta, and fills Thinking Traces with exploration findings.
-
-**Path** — the data transformation:
-```
-Path: User request → API endpoint → Database update → Response
-```
-
-**Delta** — the minimal change:
-```
-Delta: Add single endpoint, modify one handler, no new abstractions
-```
-
-**Thinking Traces** — exploration findings:
-```
-## Thinking Traces
-- Auth pattern uses JWT in `src/auth/token.ts:45`
-- Similar feature exists in `src/features/export.ts` - follow that structure
-- Will need to modify `src/api/routes.ts` to add endpoint
-```
-
-## Phase 3: Build
-
-The `build` Agent implements what the Anchor defines, nothing more and nothing less. When complete, it fills the Delivered section and renames the workspace file to `_complete`.
-
-The workspace file serves as cognitive surface. Thinking Traces captures exploration and implementation thinking.
-
-## Phase 4: Reflect (Conditional)
-
-After Build completes successfully, the orchestrator evaluates whether pattern extraction is warranted. Reflect is triggered when the task involved genuine problem-solving and the Thinking Traces shows discovery, decisions, or obstacles overcome.
-
-**Key Findings** — greppable pattern tags:
-```
-#pattern/cli-output-format - command returns structured report
-#constraint/nnn-zero-padded - sequence must be 001 not 1
-#decision/python-over-bash - for complex parsing, Python preferred
-```
-
-These become queryable across the workspace:
-```bash
-grep "^#pattern" workspace/*_complete*.md
-```
-
-Most tasks are routine and skip Reflect. One good pattern is better than five mediocre ones.
-
-## Tether Commands
-
-| Command                 | Purpose                              |
-| ----------------------- | ------------------------------------ |
-| `/tether:workspace`     | Query active tasks and their lineage |
-| `/tether:anchor [task]` | Manually create a workspace file     |
-| `/tether:close [task]`  | Manually complete a task             |
-| `/tether:creep`         | Check for scope creep during Build   |
-
-
-# The Workspace: Externalized Knowledge Across Sessions
-
-`tether` builds on this agentic paradigm shift with a Workspace. Workspaces are the linked, evolving record of a project's understanding and implementations. They persist across sessions.
-
-## Workspace File Structure
+Files live in `workspace/`. Naming is structural:
 
 ```
 workspace/NNN_task-slug_status[_from-NNN].md
 ```
 
-| Name Part   | Purpose                       | Changes                            |
-| ----------- | ----------------------------- | ---------------------------------- |
-| `NNN`       | Sequence number (001, 002...) | Grows as work progresses           |
-| `task-slug` | Human-readable identifier     | Set at creation                    |
-| `status`    | Current state                 | `active` → `complete` or `blocked` |
-| `_from-NNN` | Lineage suffix                | Inherits parent's Thinking Traces  |
+- `NNN`: Sequence (001, 002...)
+- `status`: active, complete, blocked
+- `_from-NNN`: Lineage (builds on prior task)
 
-### File Contents
+### File Structure
 
 ```markdown
 # NNN: Task Name
 
 ## Anchor
 Path: [Input] → [Processing] → [Output]
-Delta: [smallest change achieving requirement]
+Delta: [smallest change]
 
 ## Thinking Traces
-[exploration findings, decisions, pen and paper during build]
+[exploration findings, decisions]
 
 ## Delivered
-[filled at completion]
+[what was implemented]
 ```
 
-| Section             | Purpose                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Anchor**          | Path and Delta. The fixed point.                                                                       |
-| **Thinking Traces** | Externalized thinking. Exploration findings, decisions, pen and paper. Becomes crystallized knowledge. |
-| **Delivered**       | What was implemented. Filled at completion.                                                            |
-
-## Workspaces as Persistent, Queryable Memory
-
-With this structure, the filesystem becomes queryable memory. The workspace is a knowledge graph that compounds understanding across sessions.
-
-**Lineage is inheritance.** When task 005 builds on task 003, it reads 003's Thinking Traces first. Dead ends aren't repeated. Patterns aren't rediscovered. The knowledge graph grows.
-
-**Query the workspace:**
+### Querying
 
 ```bash
-# List all tasks with lineage visible in filenames
-ls workspace/
+ls workspace/                                    # list all
+ls workspace/*_from-003*.md                      # lineage from 003
+grep -h "^#pattern/" workspace/*_complete*.md    # accumulated patterns
 
-# Find tasks that build on 003
-ls workspace/*_from-003*.md
-
-# Query accumulated patterns from Key Findings
-grep -h "^#pattern/\|^#constraint/\|^#decision/" workspace/*_complete*.md | sort -u
-
-# Search for related work
-grep -l "authentication" workspace/*.md
+# WQL (optional)
+python3 tether/wql/wql.py stat                   # status counts
+python3 tether/wql/wql.py lineage 003            # trace ancestry
+python3 tether/wql/wql.py graph                  # tree view
 ```
 
-Use `/tether:workspace` for structured queries including lineage trees, statistics, and tag extraction.
+## Commands
 
-## When to Use `tether`
+| Command | Purpose |
+|---------|---------|
+| `/tether:tether` | Invoke orchestrator |
+| `/tether:workspace` | Query workspace state |
+| `/tether:anchor` | Create workspace file manually |
+| `/tether:close` | Complete task manually |
+| `/tether:creep` | Check for scope drift |
 
-`tether` is the right tool when:
+## Installation
 
-- Precision matters more than speed
-- Understanding must persist across sessions
-- Path needs to be explicit before implementation
+```bash
+/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
+```
 
-## When Not to Use `tether`
+Then install `tether` from the marketplace.
 
-`tether` does add overhead. It is the wrong tool for:
+## When to Use
 
-- Exploratory prototyping where you *want* the model to wander
-- Autonomous long-running tasks
-- Simple one-off queries that need no persistence
+Use when: precision matters, understanding should persist, path needs discovery.
+
+Don't use for: exploratory prototyping, simple one-off queries, when you want the model to wander.

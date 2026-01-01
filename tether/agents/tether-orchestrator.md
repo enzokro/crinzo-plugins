@@ -1,117 +1,55 @@
 ---
 name: tether-orchestrator
-description: Coordinates development through four phases guided by Path and Delta. Use this for complex tasks requiring externalized thinking.
+description: Coordinates four-phase development flow guided by Path and Delta.
 tools: Task, Read, Glob, Bash, Edit
 model: inherit
 ---
 
-# Tether Orchestrator
+# Orchestrator
 
-Four-phase flow. Assess routes. Anchor establishes Path and Delta. Build implements and completes. Reflect extracts patterns.
-
-## Phase Flow
-
-```
-tether:assess (haiku) → route
-tether:anchor → Path + Delta + Thinking Traces
-tether:build → implement, complete
-tether:reflect → extract patterns (conditional)
-```
-
-Routes from Assess:
-- `full` → proceed to Anchor (create workspace file)
-- `direct` → Build with constraints only (read workspace, no new file)
-- `clarify` → return question to user, halt
+Four phases: Assess routes → Anchor establishes → Build implements → Reflect extracts.
 
 ## Protocol
 
-### 1. Invoke Assess Phase
+### 1. Assess
 
-Spawn `tether:assess` with the user request.
+Spawn `tether:assess` with user request.
 
-Receive routing decision:
+Returns: `full` | `direct` | `clarify`
 - `full` → proceed to Anchor
-- `direct` → skip to Build (apply constraints, no workspace file)
-- `clarify` → return question to user, halt orchestration
+- `direct` → skip to Build (apply constraints, no workspace)
+- `clarify` → return question to user, halt
 
-### 2. Invoke Anchor Phase (full flow only)
+### 2. Anchor (full flow only)
 
-Spawn `tether:anchor` with:
-- User request
-- Workspace state from Assess
+Spawn `tether:anchor` with user request and workspace state.
 
-Receive:
-- Workspace file path
-- Confirmation that Thinking Traces is filled
+**Gate validation before Build:**
+1. Read workspace file
+2. Parse `## Anchor` section
+3. Verify `Path:` has transformation content (not TBD)
+4. Verify `Delta:` has scope content (not TBD)
 
-**Gate:** Read workspace file. Validate before proceeding:
+Gate fails → re-invoke Anchor: "Path and Delta required."
+Gate passes → proceed to Build.
 
-1. Parse the `## Anchor` section
-2. Find line starting with `Path:` — verify non-empty content follows the colon
-3. Find line starting with `Delta:` — verify non-empty content follows the colon
+### 3. Build
 
-**Validation criteria:**
-- `Path:` must describe a transformation (not just "TBD" or placeholder)
-- `Delta:` must specify the minimal change scope (not just "TBD" or placeholder)
+Spawn `tether:build` with workspace file path.
 
-**If gate fails:**
-- Do NOT proceed to Build
-- Re-invoke Anchor with: "Path and Delta required. Previous attempt missing: [Path|Delta|both]"
-- Include the workspace file path so Anchor can update it
+Build implements, fills Delivered, renames:
+- `_active` → `_complete` (done)
+- `_active` → `_blocked` (stuck)
 
-**Gate pass:** Both Path and Delta contain substantive content. Proceed to Build.
+### 4. Reflect (conditional)
 
-### 3. Invoke Build Phase
+Trigger only when ALL apply:
+- Task complete (not blocked)
+- Genuine problem-solving occurred
+- Thinking Traces shows discovery or decisions
 
-Spawn `tether:build` with:
-- Workspace file path (or direct execution context)
-- Anchor section content (Path and Delta)
-- Thinking Traces content
+Skip for routine tasks. Most tasks skip Reflect.
 
-Build implements, then:
-- Fills Delivered section
-- Renames file: `_active` → `_complete`
+## Report
 
-If blocked:
-- Renames file: `_active` → `_blocked`
-- Documents what blocked progress
-
-### 4. Invoke Reflect Phase (conditional)
-
-After Build returns `complete`, evaluate whether pattern extraction is warranted:
-
-**Trigger conditions (ALL must apply):**
-- Task is complete (not blocked)
-- Task involved genuine problem-solving (not routine implementation)
-- Thinking Traces shows discovery, decisions, or obstacles overcome
-
-**Skip signals (any of these → skip Reflect):**
-- Single-file change with obvious approach
-- Fix/patch with no architectural insight
-- Task that followed an existing pattern without adaptation
-
-**If Reflect is warranted:**
-
-Spawn `tether:reflect` with completed workspace file path.
-
-Reflect may still produce no Key Findings if nothing is genuinely extractable. That's fine—silence is better than placeholder noise.
-
-**Default: Skip Reflect.** Most tasks are routine. Only significant work yields reusable patterns.
-
-## Navigation Principles
-
-- Path and Delta guide all decisions
-- Do NOT create new abstractions
-- Do NOT touch files outside the Delta
-
-## Reporting
-
-After successful completion, summarize:
-- What was delivered
-- Workspace file location
-
-## The Deeper Purpose
-
-This orchestration is a launchpad, not a cage. Path and Delta anchor. The workspace persists for lineage. Build is empowered to implement and complete.
-
-The workspace file accumulates understanding across tasks. `ls workspace/` reveals the knowledge graph.
+After completion: what was delivered, workspace file location.
