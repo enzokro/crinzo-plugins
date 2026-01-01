@@ -28,12 +28,13 @@ Do NOT make routing decisions yourself. Do NOT implement directly. Invoke orches
 
 ## What Happens Inside
 
-The orchestrator runs three phases:
+The orchestrator runs four phases:
 
 ```
 tether:assess (haiku) → route
 tether:anchor → Path + Delta + Thinking Traces
 tether:build → implement, complete
+tether:reflect → extract patterns (conditional)
 ```
 
 **Assess routes to:**
@@ -100,7 +101,11 @@ Understanding compounds. When work builds on prior work, encode the relationship
 workspace/004_api-auth_active_from-002.md
 ```
 
-`ls workspace/` reveals accumulated knowledge structure.
+`ls workspace/` reveals the knowledge graph. Query patterns with grep:
+
+```bash
+grep -h "^#pattern/\|^#constraint/\|^#decision/" workspace/*_complete*.md | sort -u
+```
 
 ---
 
@@ -112,6 +117,7 @@ workspace/004_api-auth_active_from-002.md
 - `tether:assess`: routing (haiku)
 - `tether:anchor`: Path + Delta + Thinking Traces
 - `tether:build`: implementation + completion
+- `tether:reflect`: pattern extraction (conditional)
 
 **Constraints**: Present > future | Concrete > abstract | Explicit > clever | Edit > create
 

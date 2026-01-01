@@ -62,13 +62,19 @@ ls -t workspace/*_complete*.md 2>/dev/null | head -20
 
 Query accumulated patterns (from Reflect phase):
 ```bash
-grep -h "^#pattern\|^#constraint\|^#decision\|^#antipattern" workspace/*_complete*.md 2>/dev/null | sort | uniq
+grep -h "^#pattern/\|^#constraint/\|^#decision/\|^#antipattern/" workspace/*_complete*.md 2>/dev/null | sort -u
+```
+
+Search for related prior work:
+```bash
+grep -l "RELEVANT_KEYWORD" workspace/*.md 2>/dev/null
 ```
 
 Review process:
 1. **Scan titles** - identify files that might relate to current task (similar domain, shared files, related concepts)
-2. **Read relevant files** - for any file that might inform this work, read its Thinking Traces and Delivered sections
-3. **Extract insights** - note patterns, decisions, constraints, or gotchas that apply
+2. **Query patterns** - find established patterns, constraints, decisions from Key Findings
+3. **Read relevant files** - for any file that might inform this work, read its Thinking Traces and Delivered sections
+4. **Extract insights** - note patterns, decisions, constraints, or gotchas that apply
 
 Document as **Inherited Context** (first entry in Thinking Traces):
 ```
@@ -169,9 +175,9 @@ Explored codebase, found patterns
 
 **Before finalizing the filename, ask:** Does this build on prior work?
 
-Check:
+Check completed work:
 ```bash
-ls workspace/*_complete* 2>/dev/null
+ls workspace/*_complete*.md 2>/dev/null
 ```
 
 If a completed task relates:

@@ -10,7 +10,8 @@
     "./agents/tether-orchestrator.md",
     "./agents/assess.md",
     "./agents/anchor.md",
-    "./agents/code-builder.md"
+    "./agents/code-builder.md",
+    "./agents/reflect.md"
   ],
   "commands": "./commands/"
 }

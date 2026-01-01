@@ -121,16 +121,19 @@ After Reflect runs, patterns become queryable:
 
 ```bash
 # All patterns in workspace
-grep "^#pattern" workspace/*_complete*.md
+grep -h "^#pattern/" workspace/*_complete*.md
 
 # All constraints
-grep "^#constraint" workspace/*_complete*.md
+grep -h "^#constraint/" workspace/*_complete*.md
 
 # All anti-patterns (things to avoid)
-grep "^#antipattern" workspace/*_complete*.md
+grep -h "^#antipattern/" workspace/*_complete*.md
+
+# All Key Findings tags sorted
+grep -h "^#pattern/\|^#constraint/\|^#decision/\|^#antipattern/\|^#connection/" workspace/*_complete*.md | sort -u
 
 # Patterns related to specific topic
-grep "#pattern.*cli\|#constraint.*cli" workspace/*_complete*.md
+grep -l "cli" workspace/*_complete*.md
 ```
 
-Anchor's "Workspace Context Review" step should query these patterns.
+Anchor's "Workspace Context Review" step queries these patterns.

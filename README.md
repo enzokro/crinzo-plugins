@@ -31,17 +31,17 @@ In a running Claude Code instance, first add the marketplace from github:
 ```
 Then install the `tether` plugin from the `crinzo-plugins` marketplace.  
 
-Once the plugin is installed, you can create with `tether` by prepending the `/tether:skills` command to your regular prompts, e.g. `/tether:skills "Your prompt here..."`.
+Once the plugin is installed, you can create with `tether` by prepending the `/tether:tether` command to your regular prompts, e.g. `/tether:tether "Your prompt here..."`.
 
 
 # Architecture
 
-`tether` follows a development cycle with three phases. Each phase is delegated to an agent with bounded context. For complex tasks, the orchestrator chronicles its process in a workspace file.
+`tether` follows a development cycle with four phases. Each phase is delegated to an agent with bounded context. For complex tasks, the orchestrator chronicles its process in a workspace file.
 
 ```
-[Assess] → route → [Anchor] → Path+Delta → [Build] → complete
-    ↓                  ↓                        ↓
- decide              gate                   implement
+[Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
+    ↓                  ↓                        ↓                    ↓
+ decide              gate                   implement            extract
 ```
 
 **The single gate:** Path and Delta must exist before Build proceeds.
@@ -54,6 +54,7 @@ Once the plugin is installed, you can create with `tether` by prepending the `/t
 | `tether:assess`              | Routing decision                          | haiku   |
 | `tether:anchor`              | Creates workspace, establishes Path/Delta | inherit |
 | `tether:code-builder`        | Implementation + completion               | inherit |
+| `tether:reflect`             | Pattern extraction (conditional)          | inherit |
 
 ## Phase 1: Assess
 
@@ -92,6 +93,24 @@ Delta: Add single endpoint, modify one handler, no new abstractions
 The `build` Agent implements what the Anchor defines, nothing more and nothing less. When complete, it fills the Delivered section and renames the workspace file to `_complete`.
 
 The workspace file serves as cognitive surface. Thinking Traces captures exploration and implementation thinking.
+
+## Phase 4: Reflect (Conditional)
+
+After Build completes successfully, the orchestrator evaluates whether pattern extraction is warranted. Reflect is triggered when the task involved genuine problem-solving and the Thinking Traces shows discovery, decisions, or obstacles overcome.
+
+**Key Findings** — greppable pattern tags:
+```
+#pattern/cli-output-format - command returns structured report
+#constraint/nnn-zero-padded - sequence must be 001 not 1
+#decision/python-over-bash - for complex parsing, Python preferred
+```
+
+These become queryable across the workspace:
+```bash
+grep "^#pattern" workspace/*_complete*.md
+```
+
+Most tasks are routine and skip Reflect. One good pattern is better than five mediocre ones.
 
 ## Tether Commands
 
@@ -144,9 +163,27 @@ Delta: [smallest change achieving requirement]
 
 ## Workspaces as Persistent, Queryable Memory
 
-With this structure, the filesystem becomes queryable memory. `ls workspace/` shows the active, ongoing work. `ls workspace/*_from-003*` reveals everything that emerged from task 003. Understanding compounds across sessions.
+With this structure, the filesystem becomes queryable memory. The workspace is a knowledge graph that compounds understanding across sessions.
 
 **Lineage is inheritance.** When task 005 builds on task 003, it reads 003's Thinking Traces first. Dead ends aren't repeated. Patterns aren't rediscovered. The knowledge graph grows.
+
+**Query the workspace:**
+
+```bash
+# List all tasks with lineage visible in filenames
+ls workspace/
+
+# Find tasks that build on 003
+ls workspace/*_from-003*.md
+
+# Query accumulated patterns from Key Findings
+grep -h "^#pattern/\|^#constraint/\|^#decision/" workspace/*_complete*.md | sort -u
+
+# Search for related work
+grep -l "authentication" workspace/*.md
+```
+
+Use `/tether:workspace` for structured queries including lineage trees, statistics, and tag extraction.
 
 ## When to Use `tether`
 
