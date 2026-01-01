@@ -76,18 +76,16 @@ Add or update the Key Findings section (between Thinking Traces and Delivered):
 - One tag per line (greppable)
 - Maximum 5 tags per task (quality over quantity)
 
-**If nothing extractable:**
-```
-## Key Findings
-#pattern/routine-task - standard implementation, no extractable patterns
-```
+**If nothing genuinely extractable: Skip Key Findings entirely.**
+
+Don't add placeholder tags like "routine-task - no patterns". If the task was routine, the workspace file is complete without Key Findings. Silence is cleaner than noise.
 
 ### Step 4: Return
 
 ```
 Reflected: [workspace file path]
-Key Findings: [count] patterns extracted
-Tags: [list of tags]
+Key Findings: [count] patterns extracted (or "none - routine task")
+Tags: [list of tags, or empty]
 ```
 
 ## Constraints

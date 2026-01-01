@@ -106,20 +106,14 @@ Delta: [smallest change achieving requirement]
 ## Thinking Traces
 [FILL: exploration findings—Build adds to this during implementation]
 
-## Key Findings
-[FILL: queryable tags for patterns, insights, connections discovered]
-#pattern/name - description
-#insight/name - description
-#connection/name - description
-
-## Full Lineage
-[FILL if chain >2: list all ancestors with key contributions]
-- NNN_ancestor-slug: what it established
-- NNN_parent-slug: what it added
-
 ## Delivered
 [filled by Build at completion]
 ```
+
+**Optional sections** (add only when warranted):
+
+- **Key Findings** - Add after Thinking Traces for significant work that yields reusable patterns
+- **Full Lineage** - Add before Delivered for chains >2 (when grandparent exists)
 
 ### Step 5: Fill Path and Delta
 
@@ -185,9 +179,9 @@ If a completed task relates:
 2. Add `_from-NNN` suffix to your filename
 3. Reference the parent in your Thinking Traces: "Builds on NNN: [what you inherited]"
 
-**For chains >2 (grandparent exists), add Full Lineage section:**
+**For chains >2 (grandparent exists), consider adding Full Lineage section:**
 
-If your parent has a `_from-NNN` suffix, you're in a chain. Trace it back and document:
+If your parent has a `_from-NNN` suffix, you're in a chain. For deep chains where ancestor context matters, add:
 
 ```markdown
 ## Full Lineage
@@ -196,7 +190,7 @@ If your parent has a `_from-NNN` suffix, you're in a chain. Trace it back and do
 - 003_reporting (this task): adds aggregation layer
 ```
 
-This prevents **inheritance fade** — the tendency for understanding to weaken across generations. Without Full Lineage, 4th-generation tasks lose context from 1st-generation decisions.
+This prevents **inheritance fade** — the tendency for understanding to weaken across generations. Skip for shallow chains or when ancestor context is already clear from Thinking Traces.
 
 Lineage is how the workspace becomes a knowledge graph. Don't orphan tasks that should be connected.
 

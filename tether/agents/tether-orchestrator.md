@@ -78,26 +78,25 @@ If blocked:
 
 ### 4. Invoke Reflect Phase (conditional)
 
-After Build returns `complete`, evaluate whether to extract patterns:
+After Build returns `complete`, evaluate whether pattern extraction is warranted:
 
-**Trigger conditions (any of):**
-- Lineage chain length >= 2 (task builds on prior work)
-- Thinking Traces has >= 5 substantive entries
-- Delivered section mentions new pattern or convention
-- Build encountered and resolved an obstacle
+**Trigger conditions (ALL must apply):**
+- Task is complete (not blocked)
+- Task involved genuine problem-solving (not routine implementation)
+- Thinking Traces shows discovery, decisions, or obstacles overcome
 
-**If condition met:**
+**Skip signals (any of these → skip Reflect):**
+- Single-file change with obvious approach
+- Fix/patch with no architectural insight
+- Task that followed an existing pattern without adaptation
 
-Spawn `tether:reflect` with:
-- Completed workspace file path
+**If Reflect is warranted:**
 
-Receive:
-- Confirmation of Key Findings filled
-- Pattern count and tags
+Spawn `tether:reflect` with completed workspace file path.
 
-**If no conditions met:**
+Reflect may still produce no Key Findings if nothing is genuinely extractable. That's fine—silence is better than placeholder noise.
 
-Skip Reflect. Trivial tasks don't warrant pattern extraction.
+**Default: Skip Reflect.** Most tasks are routine. Only significant work yields reusable patterns.
 
 ## Navigation Principles
 
