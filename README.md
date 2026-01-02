@@ -15,16 +15,24 @@ Opus 4.5 broke this pattern. If you're reading this, you've likely felt the shif
 
 Both must exist before implementation. This is the gate.
 
+## Installation
+
+```bash
+/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
+```
+
+Then install `tether` from the marketplace.
+
 ## Philosophy
 
 `tether` is built on four principles:
 
-| Principle | Meaning |
-|-----------|---------|
-| **Present over future** | Implement current requests, not anticipated future needs |
-| **Concrete over abstract** | Build a specific solution, not abstract frameworks |
-| **Explicit over clever** | Always choose clarity over sophistication |
-| **Edit over create** | Modify what exists before creating something new |
+| Principle                  | Meaning                                                  |
+| -------------------------- | -------------------------------------------------------- |
+| **Present over future**    | Implement current requests, not anticipated future needs |
+| **Concrete over abstract** | Build a specific solution, not abstract frameworks       |
+| **Explicit over clever**   | Always choose clarity over sophistication                |
+| **Edit over create**       | Modify what exists before creating something new         |
 
 These aren't novel. They read as obvious 101s of software development. But anyone who's spent time building with LLMs knows: agents are ambitious and like to stay busy. They often deviate from these principles and tech debt accumulates, especially in complex projects. `tether` enforces these principles through Path and Delta as fixed points that gate the entire development process.
 
@@ -40,12 +48,12 @@ Enterprise software captures *what happened*. It doesn't capture *why decisions 
 [Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
 ```
 
-| Agent | Purpose | Model |
-|-------|---------|-------|
-| `tether:assess` | Route: full / direct / clarify | haiku |
-| `tether:anchor` | Establish Path, Delta, Thinking Traces | inherit |
-| `tether:code-builder` | Implement within constraints | inherit |
-| `tether:reflect` | Extract patterns (opt-in via `#reflect` tag) | inherit |
+| Agent                 | Purpose                                      | Model   |
+| --------------------- | -------------------------------------------- | ------- |
+| `tether:assess`       | Route: full / direct / clarify               | haiku   |
+| `tether:anchor`       | Establish Path, Delta, Thinking Traces       | inherit |
+| `tether:code-builder` | Implement within constraints                 | inherit |
+| `tether:reflect`      | Extract patterns (opt-in via `#reflect` tag) | inherit |
 
 **Runtime enforcement**: The `hooks/delta-check.sh` hook blocks edits to files outside declared Delta scope.
 
@@ -93,12 +101,12 @@ python3 tether/wql/wql.py graph                  # tree view
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/tether:tether` | Invoke orchestrator |
-| `/tether:workspace` | Query workspace state |
-| `/tether:anchor` | Create workspace file manually |
-| `/tether:close` | Complete task manually |
+| Command             | Purpose                        |
+| ------------------- | ------------------------------ |
+| `/tether:tether`    | Invoke orchestrator            |
+| `/tether:workspace` | Query workspace state          |
+| `/tether:anchor`    | Create workspace file manually |
+| `/tether:close`     | Complete task manually         |
 
 ---
 
@@ -125,16 +133,16 @@ Decisions are primary. Patterns are edges connecting them.
 
 ### Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/ctx <topic>` | Surface relevant decisions |
-| `/ctx:decision NNN` | Full decision record with traces |
-| `/ctx:lineage NNN` | Decision ancestry chain |
-| `/ctx:trace <pattern>` | Find decisions using a pattern |
-| `/ctx:impact <file>` | Find decisions affecting a file |
-| `/ctx:age [days]` | Find stale decisions |
-| `/ctx:signal +/- <pattern>` | Mark pattern outcome |
-| `/ctx:mine` | Build decision index |
+| Command                     | Purpose                          |
+| --------------------------- | -------------------------------- |
+| `/ctx <topic>`              | Surface relevant decisions       |
+| `/ctx:decision NNN`         | Full decision record with traces |
+| `/ctx:lineage NNN`          | Decision ancestry chain          |
+| `/ctx:trace <pattern>`      | Find decisions using a pattern   |
+| `/ctx:impact <file>`        | Find decisions affecting a file  |
+| `/ctx:age [days]`           | Find stale decisions             |
+| `/ctx:signal +/- <pattern>` | Mark pattern outcome             |
+| `/ctx:mine`                 | Build decision index             |
 
 ### Example
 
@@ -163,11 +171,11 @@ Decisions are primary. Patterns are edges connecting them.
 
 ### Graph Relationships
 
-| Edge | Query |
-|------|-------|
-| `decision → parent` | `/ctx:lineage NNN` |
+| Edge                  | Query                      |
+| --------------------- | -------------------------- |
+| `decision → parent`   | `/ctx:lineage NNN`         |
 | `pattern → decisions` | `/ctx:trace #pattern/name` |
-| `file → decisions` | `/ctx:impact src/auth` |
+| `file → decisions`    | `/ctx:impact src/auth`     |
 
 Lineage comes from `_from-NNN` suffixes. Pattern edges come from tags. File edges come from Delta parsing.
 
@@ -191,14 +199,6 @@ The intended flow:
 For now, ctx operates parallel to tether. Integration hooks are future work.
 
 ---
-
-## Installation
-
-```bash
-/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
-```
-
-Then install `tether` from the marketplace.
 
 ## When to Use
 
