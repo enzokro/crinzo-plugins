@@ -28,6 +28,8 @@ Implement what was anchored. Complete the task.
 Write when: choosing between approaches, hitting dead ends, discovering patterns.
 Don't write: running commentary, obvious actions.
 
+If this work yielded reusable patterns worth extracting, add `#reflect` tag.
+
 ### Completion
 
 ```bash
@@ -47,12 +49,15 @@ Before completing:
 - No error handling beyond tests
 - No logging unless tested
 
-## Creep Check
+## Pre-Completion Verification
 
-Invoke `/tether:creep` immediately when:
-- More files than expected
-- New abstractions emerging
-- Cannot explain change in 1-2 sentences
+Before renaming to `_complete`:
+1. Re-read Path and Delta from workspace
+2. List files touched during this session
+3. For each file: is it in Delta? If not, revert or justify in Thinking Traces
+4. If cannot justify, rename to `_blocked` instead
+
+Creep signals: "flexible," "extensible," "while we're at it," "in case"
 
 ## Return
 

@@ -42,13 +42,19 @@ Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 
 ## Anchor
 Path: [Input] → [Processing] → [Output]
-Delta: [smallest change]
+Delta: [file paths or patterns]
+Branch: [current branch if not main]
 
 ## Thinking Traces
 [exploration findings]
 
 ## Delivered
 [filled by Build]
+```
+
+Get branch:
+```bash
+git branch --show-current 2>/dev/null
 ```
 
 ### 5. Path and Delta
@@ -59,9 +65,10 @@ Good: User request → API endpoint → Database → Response
 Bad: Create a configuration system (goal, not transformation)
 ```
 
-**Delta** = minimal scope:
+**Delta** = minimal scope with file precision:
 ```
-Add single endpoint, modify one handler, no new abstractions
+Vague: modify auth handling (hook can't enforce)
+Precise: src/auth/*.ts, tests/auth/*.test.ts (hook enforces)
 ```
 
 ### 6. Lineage

@@ -41,14 +41,16 @@ Build implements, fills Delivered, renames:
 - `_active` → `_complete` (done)
 - `_active` → `_blocked` (stuck)
 
-### 4. Reflect (conditional)
+### 4. Reflect (self-triggered)
 
-Trigger only when ALL apply:
-- Task complete (not blocked)
-- Genuine problem-solving occurred
-- Thinking Traces shows discovery or decisions
+Scan Thinking Traces for decision markers:
+- "chose", "over", "instead of"
+- "discovered", "found that"
+- "blocked by", "constraint"
+- "pattern:", "#pattern/"
 
-Skip for routine tasks. Most tasks skip Reflect.
+If any present → spawn `tether:reflect` with completed workspace file.
+If absent → skip. Routine work needs no extraction.
 
 ## Report
 

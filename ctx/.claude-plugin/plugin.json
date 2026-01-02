@@ -1,0 +1,14 @@
+{
+  "name": "ctx",
+  "description": "Builds context graphs from tether workspaces..",
+  "version": "1.0.0",
+  "author": {
+    "name": "crinzo"
+  },
+  "skills": "./skills/",
+  "agents": [
+    "./agents/miner.md",
+    "./agents/surface.md"
+  ],
+  "commands": "./commands/"
+}

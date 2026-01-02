@@ -8,19 +8,12 @@ allowed-tools: Bash, Read, Glob
 ## Protocol
 
 ```bash
-ls workspace/ 2>/dev/null || echo "No workspace"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" stat
 ```
 
+Additional metrics:
 ```bash
-echo "Active:   $(ls workspace/*_active* 2>/dev/null | wc -l | tr -d ' ')"
-echo "Blocked:  $(ls workspace/*_blocked* 2>/dev/null | wc -l | tr -d ' ')"
-echo "Complete: $(ls workspace/*_complete* 2>/dev/null | wc -l | tr -d ' ')"
-echo "Total:    $(ls workspace/*.md 2>/dev/null | wc -l | tr -d ' ')"
 echo "Size:     $(du -sh workspace/ 2>/dev/null | cut -f1)"
-```
-
-Oldest/newest:
-```bash
-ls -t workspace/*.md 2>/dev/null | tail -1  # oldest
-ls -t workspace/*.md 2>/dev/null | head -1  # newest
+echo "Oldest:   $(ls -t workspace/*.md 2>/dev/null | tail -1 | xargs basename 2>/dev/null)"
+echo "Newest:   $(ls -t workspace/*.md 2>/dev/null | head -1 | xargs basename 2>/dev/null)"
 ```

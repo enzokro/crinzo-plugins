@@ -13,15 +13,14 @@ def parse_workspace(ws: Path) -> dict:
     files = {}
     children = defaultdict(list)
 
+    # First pass: collect all files
     for p in sorted(ws.glob("*.md")):
         m = re.match(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$', p.stem)
         if m:
             seq, slug, status, parent = m.groups()
             files[seq] = {"path": p.name, "slug": slug, "status": status, "parent": parent}
-            if parent and parent in files:
-                children[parent].append(seq)
 
-    # Second pass for children
+    # Second pass: build children map
     for seq, f in files.items():
         if f["parent"] and f["parent"] in files:
             children[f["parent"]].append(seq)

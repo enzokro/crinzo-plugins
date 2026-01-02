@@ -7,49 +7,26 @@ allowed-tools: Bash, Read, Glob, Grep
 
 ## Protocol
 
-Check workspace exists:
-```bash
-ls workspace/*.md 2>/dev/null || echo "No workspace"
-```
-
 Parse $ARGUMENTS:
 
 **No args** — overview:
 ```bash
-echo "complete: $(ls workspace/*_complete*.md 2>/dev/null | wc -l | tr -d ' ')"
-echo "active:   $(ls workspace/*_active*.md 2>/dev/null | wc -l | tr -d ' ')"
-echo "blocked:  $(ls workspace/*_blocked*.md 2>/dev/null | wc -l | tr -d ' ')"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" stat
+```
+
+**"graph"** — tree view:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" graph
+```
+
+**Number (e.g., "003")** — lineage:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" lineage $SELECTOR
 ```
 
 **"active" | "blocked" | "complete"** — filter:
 ```bash
 ls -la workspace/*_${STATUS}*.md 2>/dev/null
-```
-
-**Number (e.g., "003")** — lineage:
-```bash
-python3 << 'EOF'
-import re
-from pathlib import Path
-
-target = "$SELECTOR"
-files = {}
-for p in Path("workspace").glob("*.md"):
-    m = re.match(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$', p.stem)
-    if m:
-        seq, slug, status, parent = m.groups()
-        files[seq] = {"path": p.name, "parent": parent}
-
-chain = []
-current = target
-while current and current in files:
-    chain.append(current)
-    current = files[current]["parent"]
-chain.reverse()
-print("Ancestors:", " → ".join(chain))
-for seq in chain:
-    print(f"  {files[seq]['path']}")
-EOF
 ```
 
 **"roots"** — no parent:

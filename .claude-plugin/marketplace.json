@@ -7,7 +7,16 @@
     {
       "name": "tether",
       "source": "./tether",
-      "description": "Orchestrator for clean, focused development.",
+      "description": "An orchestrator for clean, focused development.",
+      "version": "1.0.3",
+      "author": {
+        "name": "crinzo"
+      }
+    },
+    {
+      "name": "ctx",
+      "source": "./ctx",
+      "description": "Builds context graphs from tether workspaces.",
       "version": "1.0.0",
       "author": {
         "name": "crinzo"

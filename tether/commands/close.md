@@ -14,6 +14,11 @@ ls workspace/*$ARGUMENTS*_active* 2>/dev/null
 
 Read file. Fill Delivered section with what was implemented.
 
+Link to git:
+```bash
+echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'none')" >> workspace/NNN_slug_complete.md
+```
+
 Rename:
 ```bash
 mv workspace/NNN_slug_active.md workspace/NNN_slug_complete.md
