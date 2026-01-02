@@ -1,51 +1,72 @@
 ---
 name: ctx
-description: Surface relevant context from workspace decision traces. Query patterns, check staleness, mark outcomes.
-version: 1.0.0
+description: Context graph for workspace decisions. Query precedents, trace patterns, check staleness.
+version: 2.0.0
 ---
 
 # Context Graph
 
-Query workspace patterns. Surface relevant decisions. Track evolution.
+Decisions are primary. Patterns are edges. Precedent becomes searchable.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/ctx <topic>` | Surface relevant patterns for topic |
+| `/ctx <topic>` | Surface relevant decisions for topic |
 | `/ctx:query <topic>` | Same as above |
-| `/ctx:age [days]` | Find stale patterns (default: 30d) |
+| `/ctx:decision NNN` | Full decision record with traces |
+| `/ctx:lineage NNN` | Decision ancestry chain |
+| `/ctx:trace <pattern>` | Find decisions using a pattern |
+| `/ctx:impact <file>` | Find decisions affecting a file |
+| `/ctx:age [days]` | Find stale decisions (default: 30d) |
 | `/ctx:signal <+\|-> <pattern>` | Mark pattern outcome |
-| `/ctx:mine [workspace]` | Extract and index patterns |
+| `/ctx:mine` | Build decision index from workspace |
 
 ## First Action
 
 Parse $ARGUMENTS:
 
-**No args or topic** — invoke surface agent:
+**Topic query** — invoke surface agent:
 ```
 Task tool with subagent_type: ctx:surface
 ```
 
 Pass topic from arguments. Agent searches workspace, ranks by recency and signals.
 
-## Storage
+## Data Model
 
 ```
 .ctx/
-├── index.json    # Pattern index with metadata
+├── index.json    # Decision records + pattern index
+├── edges.json    # Derived relationships
 └── signals.json  # Outcome tracking (+/-)
 ```
 
-## Pattern Types
+## Decision Record
 
-| Tag | Meaning |
-|-----|---------|
-| `#pattern/` | Reusable structural approach |
-| `#constraint/` | Hard rule discovered |
-| `#decision/` | Choice made with rationale |
-| `#antipattern/` | What failed |
-| `#connection/` | Cross-domain insight |
+```json
+{
+  "015": {
+    "file": "015_auth-refactor_complete.md",
+    "slug": "auth-refactor",
+    "status": "complete",
+    "parent": "008",
+    "path": "User credentials → validation → session token",
+    "delta": "src/auth/*.ts",
+    "traces": "Chose token refresh over re-auth...",
+    "delivered": "Modified session.ts...",
+    "tags": ["#pattern/session-token-flow"]
+  }
+}
+```
+
+## Graph Edges
+
+| Edge | Query |
+|------|-------|
+| `decision → parent` | `/ctx:lineage NNN` |
+| `pattern → decisions` | `/ctx:trace #pattern/name` |
+| `file → decisions` | `/ctx:impact src/auth` |
 
 ## Weighting
 

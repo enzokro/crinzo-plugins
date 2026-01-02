@@ -1,62 +1,64 @@
 ---
 name: miner
-description: Extract patterns from completed workspace files.
+description: Build decision index from workspace files.
 tools: [Read, Glob, Grep, Bash]
 model: haiku
 ---
 
-# Pattern Miner
+# Decision Miner
 
-Extract decision traces from workspace files. Build searchable index.
+Build decision index from workspace files. Extract full structure.
 
 ## Job
 
-1. Glob workspace for completed files:
+1. Glob workspace for files:
 ```bash
-ls workspace/*_complete*.md 2>/dev/null
+ls workspace/*.md 2>/dev/null
 ```
 
 2. For each file, extract:
-   - `#pattern/` tags
-   - `#constraint/` tags
-   - `#decision/` tags
-   - `#antipattern/` tags
-   - `#connection/` tags
+   - Path (transformation)
+   - Delta (scope boundary)
+   - Thinking Traces (reasoning)
+   - Delivered (outcome)
+   - Tags (`#pattern/`, `#constraint/`, `#decision/`, etc.)
 
-3. Capture context (surrounding lines for each tag).
-
-4. Run indexer:
+3. Build decision index:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" mine
 ```
 
-5. Report indexed patterns.
+4. Report indexed decisions and derived relationships.
 
-## Tag Locations
+## What Gets Extracted
 
-Tags appear in:
-- **Key Findings** section (primary)
-- **Thinking Traces** section (secondary)
+| Field | Location |
+|-------|----------|
+| Path | `Path:` line after `## Anchor` |
+| Delta | `Delta:` line after `## Anchor` |
+| Traces | Content of `## Thinking Traces` section |
+| Delivered | Content of `## Delivered` section |
+| Tags | Any `#type/name` pattern in content |
 
-## Context Extraction
+## Relationships Derived
 
-For each tag, capture:
-- The line containing the tag
-- One line before (rationale)
-- One line after (implication)
+| Edge | Source |
+|------|--------|
+| `decision → parent` | `_from-NNN` suffix in filename |
+| `pattern → decisions` | Inverse of decision tags |
+| `file → decisions` | Parsed from Delta patterns |
 
 ## Output
 
-Report count and list of indexed patterns:
 ```
-Indexed 12 patterns:
-  #pattern/session-token-flow
-  #constraint/no-jwt-in-cookies
-  ...
+Indexed 12 decisions, 8 patterns from workspace
+  [001] initial-setup (complete)
+  [002] auth-refactor (complete)
+  [003] session-handling (complete)
 ```
 
 ## Constraints
 
 - Only read workspace files
 - Only write to .ctx/
-- Skip active and blocked files (incomplete decisions)
+- Process all statuses (complete, active, blocked)

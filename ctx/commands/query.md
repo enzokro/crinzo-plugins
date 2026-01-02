@@ -1,11 +1,11 @@
 ---
-description: Surface relevant patterns for a topic.
+description: Surface relevant decisions for a topic.
 allowed-tools: Bash, Read, Glob, Grep
 ---
 
-# Query Context
+# Query Decisions
 
-Surface relevant patterns from workspace decision traces.
+Surface relevant decisions from workspace decision traces.
 
 ## Protocol
 
@@ -16,7 +16,7 @@ Surface relevant patterns from workspace decision traces.
 
 2. Parse $ARGUMENTS for topic.
 
-3. Query patterns:
+3. Query decisions:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" query "$TOPIC"
 ```
@@ -30,21 +30,28 @@ Then re-query.
 ## Output Format
 
 ```
-Patterns matching 'auth':
-  #pattern/session-token-flow (3d, +2) from 015_auth-refactor_complete.md
-    Chose token refresh over re-auth for UX...
-  #constraint/no-jwt-in-cookies (12d, +1) from 008_security-audit_complete.md
-    Security audit found cookie exposure risk...
+Decisions for 'auth':
+
+[015] auth-refactor (3d ago, complete)
+  Path: User credentials → validation → session token
+  Delta: src/auth/*.ts
+  Tags: #pattern/session-token-flow (+2)
+  Builds on: 008
+
+[008] security-audit (12d ago, complete)
+  Path: Codebase → security review → findings
+  Delta: src/**/*.ts
+  Tags: #constraint/no-jwt-in-cookies
 ```
 
-## Weighting
+## Ranking
 
-Patterns ranked by:
+Decisions ranked by:
 - Recency (newer = higher)
-- Signals (more + = higher)
+- Pattern signals (more + = higher)
 - Relevance to topic
 
 ## Constraints
 
 - Read-only on workspace
-- No modification to patterns
+- Returns full decision context, not just patterns

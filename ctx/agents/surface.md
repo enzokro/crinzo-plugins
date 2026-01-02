@@ -1,13 +1,13 @@
 ---
 name: surface
-description: Surface relevant patterns for a topic or task.
+description: Surface relevant decisions for a topic or task.
 tools: [Read, Glob, Grep, Bash]
 model: haiku
 ---
 
 # Context Surface
 
-Find relevant patterns for current work. Rank by recency and signals.
+Find relevant decisions for current work. Rank by recency and signals.
 
 ## Job
 
@@ -23,14 +23,14 @@ Given a topic (from prompt or $ARGUMENTS):
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" mine
 ```
 
-3. Query patterns:
+3. Query decisions:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" query "$TOPIC"
 ```
 
-4. For top results, read source files to provide richer context.
+4. For top results, read source workspace files to provide richer context.
 
-5. Report ranked patterns with context.
+5. Report ranked decisions with full context.
 
 ## Semantic Matching
 
@@ -39,7 +39,7 @@ Beyond substring matching, consider:
 - Parent concepts (validation → input, sanitize, check)
 - Domain connections (API → endpoint, route, handler)
 
-Use Grep to find related patterns:
+Use Grep to find related decisions:
 ```bash
 grep -l "$RELATED_TERM" workspace/*_complete*.md
 ```
@@ -47,16 +47,24 @@ grep -l "$RELATED_TERM" workspace/*_complete*.md
 ## Output Format
 
 ```
-Relevant context for "auth":
+Relevant decisions for "auth":
 
-#pattern/session-token-flow (3d ago, +2)
-  Source: 015_auth-refactor_complete.md
-  Context: Chose token refresh over re-auth to preserve UX during long sessions.
-  Path: User session → token validation → refresh or redirect
+[015] auth-refactor (3d ago, complete)
+  Path: User credentials → validation → session token
+  Delta: src/auth/*.ts
+  Tags: #pattern/session-token-flow (+2)
+  Builds on: 008
 
-#constraint/no-jwt-in-cookies (12d ago, +1)
-  Source: 008_security-audit_complete.md
-  Context: Security audit found httpOnly cookies safer than localStorage for tokens.
+  Thinking Traces (excerpt):
+  Chose token refresh over re-auth to preserve UX during long sessions.
+
+[008] security-audit (12d ago, complete)
+  Path: Codebase → security review → findings
+  Delta: src/**/*.ts
+  Tags: #constraint/no-jwt-in-cookies
+
+  Thinking Traces (excerpt):
+  Security audit found httpOnly cookies safer than localStorage for tokens.
 ```
 
 ## Ranking
@@ -65,12 +73,12 @@ Relevant context for "auth":
 score = relevance * recency_factor * signal_factor
 ```
 
-- **Relevance**: How closely pattern matches topic
-- **Recency**: Newer patterns weighted higher
+- **Relevance**: How closely decision matches topic
+- **Recency**: Newer decisions weighted higher
 - **Signals**: Positively-signaled patterns weighted higher
 
 ## Constraints
 
 - Read-only
-- Return top 5-10 most relevant patterns
-- Include source file and context for each
+- Return top 5-10 most relevant decisions
+- Include Path, Delta, Tags, and Traces excerpt for each

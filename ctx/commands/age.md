@@ -1,37 +1,38 @@
 ---
-description: Find stale patterns that may need review.
+description: Find stale decisions that may need review.
 allowed-tools: Bash, Read, Glob
 ---
 
 # Age Check
 
-Find patterns older than threshold. Stale decisions may no longer apply.
+Find decisions older than threshold. Stale decisions may no longer apply.
 
 ## Protocol
 
 1. Parse $ARGUMENTS for days (default: 30).
 
-2. Query stale patterns:
+2. Query stale decisions:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" age $DAYS
 ```
 
-3. Report findings with source files.
+3. Report findings with source files and tags.
 
 ## Output Format
 
 ```
-Stale patterns (>30d):
-  #pattern/cache-invalidation (45d) from 012_cache-layer_complete.md
-  #constraint/max-batch-size (60d) from 005_batch-processing_complete.md
+Stale decisions (>30d):
+
+  [012] cache-layer (45d) - #pattern/cache-invalidation
+  [005] batch-processing (60d) - #constraint/max-batch-size
 ```
 
 ## Usage
 
 ```
-/ctx:age        # Patterns older than 30 days
-/ctx:age 14     # Patterns older than 14 days
-/ctx:age 90     # Patterns older than 90 days
+/ctx:age        # Decisions older than 30 days
+/ctx:age 14     # Decisions older than 14 days
+/ctx:age 90     # Decisions older than 90 days
 ```
 
 ## Constraints

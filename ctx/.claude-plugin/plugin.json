@@ -1,7 +1,7 @@
 {
   "name": "ctx",
-  "description": "Builds context graphs from tether workspaces..",
-  "version": "1.0.0",
+  "description": "Context graph for workspace decisions. Query precedents, trace patterns, check staleness.",
+  "version": "2.0.0",
   "author": {
     "name": "crinzo"
   },

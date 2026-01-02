@@ -100,6 +100,98 @@ python3 tether/wql/wql.py graph                  # tree view
 | `/tether:anchor` | Create workspace file manually |
 | `/tether:close` | Complete task manually |
 
+---
+
+## ctx
+
+A companion plugin that transforms tether's workspace into a queryable context graph. Decisions become primary entities. Patterns become edges.
+
+### The Gap ctx Closes
+
+tether externalizes decision traces. Each completed file captures Path, Delta, Thinking Traces, and Delivered. But without tooling, this knowledge sits inert—grep works, but precedent retrieval requires reading files.
+
+ctx indexes workspace files as decision records. It extracts structure (Path, Delta), captures reasoning (Thinking Traces), tracks patterns (`#pattern/`, `#constraint/`, `#decision/`), and derives relationships (lineage chains, file impact, pattern usage).
+
+### Data Model
+
+```
+.ctx/
+├── index.json    # Decision records with full context
+├── edges.json    # Derived relationships
+└── signals.json  # Outcome tracking (+/-)
+```
+
+Decisions are primary. Patterns are edges connecting them.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/ctx <topic>` | Surface relevant decisions |
+| `/ctx:decision NNN` | Full decision record with traces |
+| `/ctx:lineage NNN` | Decision ancestry chain |
+| `/ctx:trace <pattern>` | Find decisions using a pattern |
+| `/ctx:impact <file>` | Find decisions affecting a file |
+| `/ctx:age [days]` | Find stale decisions |
+| `/ctx:signal +/- <pattern>` | Mark pattern outcome |
+| `/ctx:mine` | Build decision index |
+
+### Example
+
+```bash
+# Build the index
+/ctx:mine
+# Indexed 12 decisions, 8 patterns from workspace
+
+# Query precedent
+/ctx auth
+# [015] auth-refactor (3d ago, complete)
+#   Path: User credentials → validation → session token
+#   Delta: src/auth/*.ts
+#   Builds on: 008
+
+# Trace a pattern's usage
+/ctx:trace #pattern/session-token-flow
+# Decisions using #pattern/session-token-flow:
+#   [015] auth-refactor (3d, complete)
+#   [023] session-timeout (1d, complete)
+
+# Track outcomes
+/ctx:signal + #pattern/session-token-flow
+# Signal added: #pattern/session-token-flow -> net 2
+```
+
+### Graph Relationships
+
+| Edge | Query |
+|------|-------|
+| `decision → parent` | `/ctx:lineage NNN` |
+| `pattern → decisions` | `/ctx:trace #pattern/name` |
+| `file → decisions` | `/ctx:impact src/auth` |
+
+Lineage comes from `_from-NNN` suffixes. Pattern edges come from tags. File edges come from Delta parsing.
+
+### Weighting
+
+```
+score = relevance * recency_factor * signal_factor
+```
+
+Recent, positively-signaled patterns rank highest. Stale decisions surface via `/ctx:age`.
+
+### Integration with tether
+
+ctx reads workspace files. It doesn't modify them. tether writes the decision traces; ctx makes them queryable.
+
+The intended flow:
+1. tether's Anchor phase could query ctx for relevant precedent
+2. tether's Reflect phase produces the patterns ctx indexes
+3. ctx surfaces what tether accumulated
+
+For now, ctx operates parallel to tether. Integration hooks are future work.
+
+---
+
 ## Installation
 
 ```bash
