@@ -11,6 +11,14 @@ import time
 from pathlib import Path
 from collections import defaultdict
 
+# Bootstrap: ensure lib/ is in path when run directly
+_lib_dir = Path(__file__).parent
+if str(_lib_dir) not in sys.path:
+    sys.path.insert(0, str(_lib_dir))
+
+# Now imports work whether run as module or script
+from concepts import expand_query
+
 LATTICE_DIR = ".lattice"
 INDEX_FILE = "index.json"
 EDGES_FILE = "edges.json"
@@ -124,6 +132,13 @@ def parse_workspace_file(path: Path) -> dict:
     traces_content = extract_section(content, "Thinking Traces")
     delivered_content = extract_section(content, "Delivered")
 
+    # Extract semantic memory fields (v2)
+    rationale = extract_section(content, "Rationale")
+    concepts_raw = extract_section(content, "Concepts")
+    concepts = [c.strip() for c in concepts_raw.split(",")] if concepts_raw else []
+    failure_modes = extract_section(content, "Failure modes")
+    success_conditions = extract_section(content, "Success conditions")
+
     # Parse Delta into file patterns
     delta_files = parse_delta_patterns(delta_content)
 
@@ -141,6 +156,11 @@ def parse_workspace_file(path: Path) -> dict:
         "traces": traces_content,
         "delivered": delivered_content,
         "tags": tags,
+        # Semantic memory (v2)
+        "rationale": rationale,
+        "concepts": concepts,
+        "failure_modes": failure_modes,
+        "success_conditions": success_conditions,
     }
 
 
@@ -171,6 +191,11 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
             "traces": parsed["traces"][:500] if parsed["traces"] else "",  # Truncate for index
             "delivered": parsed["delivered"][:500] if parsed["delivered"] else "",
             "tags": parsed["tags"],
+            # Semantic memory (v2)
+            "rationale": parsed.get("rationale", ""),
+            "concepts": parsed.get("concepts", []),
+            "failure_modes": parsed.get("failure_modes", ""),
+            "success_conditions": parsed.get("success_conditions", ""),
         }
 
         # Build pattern index (inverse)
@@ -191,6 +216,32 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
     # Build edges
     edges = build_edges(decisions)
     save_edges(edges, base)
+
+    # Embed decisions for semantic search (v2)
+    try:
+        from embeddings import EmbeddingStore
+        store = EmbeddingStore(base / LATTICE_DIR)
+        embeddings_available = store.available
+    except ImportError:
+        embeddings_available = False
+        store = None
+
+    if embeddings_available:
+        # Read full content (not truncated) for embedding
+        full_decisions = {}
+        for seq, d in decisions.items():
+            filepath = workspace / d["file"]
+            if filepath.exists():
+                content = filepath.read_text()
+                full_decisions[seq] = {
+                    **d,
+                    "traces": extract_section(content, "Thinking Traces") or "",
+                }
+
+        embedded_count = store.embed_decisions(full_decisions)
+        print(f"  Embedded {embedded_count} decisions")
+    else:
+        print("  (Embeddings disabled - install sentence-transformers)")
 
     return index
 
@@ -261,29 +312,102 @@ def calculate_score(mtime: float, signals: dict, pattern: str) -> float:
     return recency_factor * max(0.1, signal_factor)
 
 
+def calculate_hybrid_score(decision: dict, signals: dict, is_exact: bool, semantic_score: float) -> float:
+    """Calculate hybrid score combining recency, signals, and semantic similarity.
+
+    Exact matches get semantic=1.0. Semantic-only matches get their similarity score.
+    This ensures grep behavior is preserved while semantic matches surface when relevant.
+    """
+    days_old = (time.time() - decision.get("mtime", 0)) / 86400
+    recency_factor = 1 / (1 + days_old / 30)
+
+    # Signal factor from best pattern
+    max_signal = 0
+    for tag in decision.get("tags", []):
+        net = signals.get(tag, {}).get("net", 0)
+        max_signal = max(max_signal, net)
+    signal_factor = 1 + (max_signal * 0.2)
+
+    # Semantic factor: exact matches get full weight
+    semantic_factor = 1.0 if is_exact else semantic_score
+
+    return recency_factor * max(0.1, signal_factor) * semantic_factor
+
+
 def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
-    """Query decisions, optionally filtered by topic."""
+    """Query decisions, optionally filtered by topic.
+
+    Uses hybrid retrieval: exact matches + semantic similarity (v2).
+    """
     index = load_index(base)
     signals = load_signals(base)
+    decisions = index.get("decisions", {})
+
+    # No topic - return all decisions ranked by recency
+    if not topic:
+        results = []
+        for seq, d in decisions.items():
+            age_days = int((time.time() - d["mtime"]) / 86400)
+            results.append({
+                "seq": seq,
+                "slug": d.get("slug", ""),
+                "status": d.get("status", ""),
+                "parent": d.get("parent"),
+                "age_days": age_days,
+                "score": calculate_score(d["mtime"], signals, ""),
+                "path": d.get("path", ""),
+                "delta": d.get("delta", ""),
+                "tags": d.get("tags", []),
+                "file": d.get("file", ""),
+            })
+        return sorted(results, key=lambda x: -x["score"])
+
+    # Expand topic to related concepts
+    expanded_topics = expand_query(topic)
+
+    # Find exact matches (existing behavior)
+    exact_matches = set()
+    for seq, d in decisions.items():
+        searchable = " ".join([
+            d.get('slug', ''),
+            d.get('path', ''),
+            d.get('traces', ''),
+            d.get('rationale', ''),
+            ' '.join(d.get('concepts', [])),
+            ' '.join(d.get('tags', [])),
+        ]).lower()
+
+        if any(t in searchable for t in expanded_topics):
+            exact_matches.add(seq)
+
+    # Get semantic matches (v2)
+    semantic_results = {}
+    try:
+        from embeddings import EmbeddingStore
+        store = EmbeddingStore(base / LATTICE_DIR)
+        if store.available:
+            semantic_results = dict(store.query(topic, top_k=20))
+    except ImportError:
+        pass  # Graceful degradation - use exact matches only
+
+    # Merge exact and semantic matches
+    all_seqs = exact_matches | set(semantic_results.keys())
 
     results = []
-    for seq, d in index.get("decisions", {}).items():
-        # Topic matching: check slug, path, traces, tags
-        if topic:
-            topic_lower = topic.lower()
-            searchable = f"{d.get('slug', '')} {d.get('path', '')} {d.get('traces', '')} {' '.join(d.get('tags', []))}".lower()
-            if topic_lower not in searchable:
-                continue
+    for seq in all_seqs:
+        if seq not in decisions:
+            continue
 
-        # Calculate score based on patterns
-        max_score = 0
-        for tag in d.get("tags", []):
-            score = calculate_score(d["mtime"], signals, tag)
-            max_score = max(max_score, score)
+        d = decisions[seq]
+        is_exact = seq in exact_matches
+        semantic_score = semantic_results.get(seq, 0.5 if is_exact else 0)
 
-        if not d.get("tags"):
-            max_score = calculate_score(d["mtime"], signals, "")
+        # Filter low-relevance semantic-only matches
+        if not is_exact and semantic_score < 0.5:
+            continue
 
+        # Calculate hybrid score
+        score = calculate_hybrid_score(d, signals, is_exact, semantic_score)
         age_days = int((time.time() - d["mtime"]) / 86400)
 
         results.append({
@@ -292,11 +416,12 @@ def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
             "status": d.get("status", ""),
             "parent": d.get("parent"),
             "age_days": age_days,
-            "score": max_score,
+            "score": score,
             "path": d.get("path", ""),
             "delta": d.get("delta", ""),
             "tags": d.get("tags", []),
             "file": d.get("file", ""),
+            "match_type": "exact" if is_exact else "semantic",
         })
 
     return sorted(results, key=lambda x: -x["score"])

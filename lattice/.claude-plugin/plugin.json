@@ -1,6 +1,6 @@
 {
   "name": "lattice",
-  "description": "Turns tether workspaces into context graphs.",
+  "description": "Semantic memory for tether workspaces. Hybrid retrieval with embeddings.",
   "version": "2.0.0",
   "author": {
     "name": "crinzo"
@@ -10,5 +10,14 @@
     "./agents/miner.md",
     "./agents/surface.md"
   ],
-  "commands": "./commands/"
+  "commands": "./commands/",
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup.sh"
+      }
+    ]
+  },
+  "outputStyles": ["./output-style.md"]
 }

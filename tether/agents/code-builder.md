@@ -52,6 +52,8 @@ Before completing:
 ## Pre-Completion Verification
 
 Before renaming to `_complete`:
+
+### Scope Check
 1. Re-read Path and Delta from workspace
 2. List files touched during this session
 3. For each file: is it in Delta? If not, revert or justify in Thinking Traces
@@ -59,11 +61,30 @@ Before renaming to `_complete`:
 
 Creep signals: "flexible," "extensible," "while we're at it," "in case"
 
+### Functional Verification
+If Verify field present in Anchor:
+```bash
+VERIFY=$(grep "^Verify:" $WORKSPACE | sed 's/Verify:[[:space:]]*//')
+if [ -n "$VERIFY" ]; then
+  eval "$VERIFY"
+fi
+```
+
+**Exit 0** → Verification passed, proceed to rename _complete
+
+**Exit non-zero** →
+1. Append failure output to Thinking Traces
+2. If verification_attempts < 3: Loop back to implementation with feedback
+3. If verification_attempts >= 3: Rename to _blocked, report
+
+**Verify field empty** → Skip functional verification (graceful degradation)
+
 ## Return
 
 ```
 Status: complete | blocked
 Delivered: [what was implemented]
+Verified: pass | skip | fail (attempts: N)
 Workspace: [final path]
 ```
 

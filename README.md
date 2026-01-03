@@ -35,13 +35,60 @@ However, context can still disappear. Agents can build up a full understanding o
 
 ## Installation
 
-Add this repo as a marketplace from inside Claude Code:
+### Option 1: Direct from GitHub (Recommended)
+
+Install crinzo-plugins directly without cloning:
 
 ```bash
-/plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
+# Add crinzo-plugins marketplace from GitHub
+claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
+
+# Install tether (core orchestrator - recommended starting point)
+claude plugin install tether
+
+# Install lattice (semantic memory for workspaces)
+claude plugin install lattice
+
+# Install forge (meta-orchestrator for campaigns)
+claude plugin install forge
 ```
 
-Then install `tether` from the marketplace.
+### Option 2: From within Claude Code
+
+```bash
+/plugin marketplace add https://github.com/enzokro/crinzo-plugins
+/plugin install tether
+/plugin install lattice
+/plugin install forge
+```
+
+### What's Included
+
+| Plugin | Description |
+|--------|-------------|
+| **tether** | Core orchestrator with 5 agents (tether-orchestrator, assess, anchor, code-builder, reflect), 4 commands, and output style. Prevents scope creep via Path+Delta anchoring. |
+| **lattice** | Semantic memory with 2 agents (miner, surface), 7 commands, session hooks, and output style. Makes workspace decisions queryable. |
+| **forge** | Meta-orchestrator with 5 agents (forge-orchestrator, planner, reflector, synthesizer, scout), 4 commands, and output style. Coordinates multi-task campaigns. |
+
+### Recommended Setup
+
+For most users, start with just `tether`:
+
+```bash
+/plugin install tether
+```
+
+Add `lattice` when your workspace accumulates enough decisions to benefit from semantic search:
+
+```bash
+/plugin install lattice
+```
+
+Add `forge` when you're working on multi-task objectives that span sessions:
+
+```bash
+/plugin install forge
+```
 
 
 ## Philosophy
@@ -172,6 +219,234 @@ Results are ranked by recency and signal history. Recent work surfaces first, an
 ### Integration with tether
 
 `lattice` reads workspace files but never modifies them. `tether` writes the decision traces; `lattice` makes them searchable. The two plugins operate in parallel for now, though the natural integration point is obvious: Anchor could query for relevant precedent before planning, and Reflect could surface which patterns are emerging.
+
+---
+
+## forge
+
+`forge` is the meta-orchestrator that binds `tether` and `lattice` together. Where Ralph Wiggum is a dumb re-injection loop, `forge` compounds knowledge across sessions.
+
+### Core Concept: Campaign
+
+Not project (too permanent). Not task (too granular). A **campaign** is a bounded objective spanning multiple tether tasks:
+- "Add OAuth with Google and GitHub"
+- "Refactor auth module"
+- "Implement real-time notifications"
+
+Each campaign has clear success criteria and decomposes into sequenced tether tasks.
+
+### Architecture (v5)
+
+Forge is a loop, not a collection of agents:
+
+```
+objective → plan → execute → learn → [inform next plan]
+```
+
+```
+/forge "Add OAuth support"
+  ↓
+forge:planner                         ← VERIFICATION-FIRST PLANNING
+  │ (reads project, queries memory,
+  │  decomposes, self-validates)
+  ↓
+[confidence gate: PROCEED/CONFIRM/CLARIFY]
+  ↓
+forge:orchestrator                    ← FLOW WITH OBSERVATION
+  │ (delegates to tether, tracks metrics,
+  │  surfaces concerning trends)
+  ↓
+tether:tether-orchestrator → per-task execution
+  ↓
+forge:synthesizer                     ← PATTERN CRYSTALLIZATION
+  │ (extracts patterns, writes retrospective,
+  │  receives campaign metrics)
+  ↓
+memory (lattice + synthesis.json)     ← SUBSTRATE
+  │
+  └──────────────────────────────────→ [informs next planning]
+```
+
+| Agent                  | Purpose                        | Model   |
+| ---------------------- | ------------------------------ | ------- |
+| `forge:forge-orchestrator` | Flow with observation      | inherit |
+| `forge:planner`        | Verification-first planning    | inherit |
+| `forge:synthesizer`    | Pattern crystallization        | inherit |
+| `forge:scout`          | Proactive suggestions          | haiku   |
+
+Three core agents + one optional. Capability emerges from the loop.
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/forge <objective>` | Start or resume campaign |
+| `/forge:status` | Campaign + active workspace status |
+| `/forge:learn` | Force synthesis manually |
+| `/forge:scout` | Get proactive suggestions for what to work on |
+
+### State
+
+```
+.forge/
+├── campaigns/
+│   ├── active/      # Current campaigns
+│   └── complete/    # Finished campaigns
+└── synthesis.json   # Meta-patterns
+```
+
+### Example
+
+```bash
+# Start a campaign
+/forge "Add OAuth support with Google and GitHub"
+# Creating campaign: add-oauth-support
+# Planning tasks...
+#   1. oauth-models
+#   2. google-provider
+#   3. github-provider
+#   4. callback-handling
+#   5. session-integration
+# Querying precedent...
+# Delegating to tether...
+
+# Check status
+/forge:status
+# Campaign: add-oauth-support (3/5 tasks)
+#   [+] 015_oauth-models
+#   [+] 016_google-provider
+#   [~] 017_github-provider (current)
+#   [ ] 018_callback-handling
+#   [ ] 019_session-integration
+
+# Resume work
+/forge
+# Resuming campaign: add-oauth-support
+# Next task: github-provider
+
+# Get proactive suggestions
+/forge:scout
+# Scout Report:
+# ### Immediate
+# 1. Campaign "add-oauth-support" has 2 pending tasks → /forge
+# ### Opportunities
+# 2. Pattern #pattern/retry-backoff (net +3) untested in API domain
+# ### Warnings
+# 3. Pattern #pattern/jwt-storage has net -2 signals
+```
+
+### v2 Capabilities
+
+**Critic (Multi-Agent Consensus)**
+
+Before execution, critic reviews the planner's task breakdown:
+- Checks scope, ordering, and dependencies
+- Queries lattice for contradicting precedent
+- Returns APPROVE or OBJECT with actionable feedback
+- Max 2 revision cycles before human arbitration
+
+**Semantic Memory**
+
+Lattice now expands queries conceptually:
+```bash
+/lattice auth
+# Expands to: auth, authentication, session, login, credential, token, identity, oauth, jwt
+# Finds #pattern/session-token-flow even though "auth" isn't in the name
+```
+
+Workspace files can capture rationale:
+```markdown
+#pattern/session-token-flow
+Rationale: Use refresh tokens to maintain sessions without re-authentication
+Concepts: authentication, session, token, refresh
+Failure modes: Token theft if cookies not httpOnly; refresh race conditions
+```
+
+**Scout (Initiative)**
+
+Surface work proactively instead of waiting for commands:
+```bash
+/forge:scout
+```
+
+Scout checks:
+- Pending campaign tasks
+- Patterns with negative signals
+- Stale workspace files
+- Synthesis opportunities (3+ campaigns complete)
+
+Returns prioritized suggestions with a recommended next action.
+
+### Verification in the Loop
+
+Every task carries its verification criteria:
+```markdown
+1. **oauth-models**: Define OAuth data structures
+   Delta: src/auth/types.ts
+   Depends: none
+   Done when: Types compile, tests pass
+   Verify: npm run typecheck && npm test src/auth
+```
+
+Build runs verification before completing. Failed verification triggers retry loop (max 3 attempts).
+
+`/forge:status` shows campaign health:
+```
+Tasks: 3/5
+  [+] 015_oauth-models (verified)
+  [+] 016_google-provider (verified)
+  [~] 017_github-provider (current)
+      Verify: npm test src/auth/github
+
+Metrics: 2/2 verified first attempt
+```
+
+Synthesizer receives campaign metrics for retrospective:
+- Verification pass rates
+- Revision counts
+- Precedent usefulness
+
+### v5 Philosophy: Emergent Simplicity
+
+v5 consolidates v4's capabilities into fewer, more capable units.
+
+**Verification First**
+
+Planner's first act is understanding how the project proves correctness. Verification landscape shapes ALL task design - not discovered per-task, but architected from start.
+
+**Full Context Planning**
+
+Planner reads project files, queries memory, decomposes objective, and self-validates - all in one pass with full context. No delegation to specialists, no summary loss.
+
+**Flow with Observation**
+
+Orchestrator tracks campaign metrics inline (verification success rate, revision rate, precedent usefulness). Surfaces concerning trends to user without blocking. Metrics flow to synthesizer for retrospective.
+
+**Confidence Routing**
+
+Planner signals confidence: PROCEED (execute immediately), CONFIRM (show plan, await approval), CLARIFY (need more input). Orchestrator routes by signal - no deliberation.
+
+### Why Forge
+
+| Ralph Wiggum | Forge v5 |
+|--------------|----------|
+| Re-inject same prompt | Verification-first planning → execute → learn |
+| No memory between sessions | Lattice + synthesis.json persist patterns |
+| Single-session bound | Workspace-based coordination |
+| Purely reactive | Scout suggests work proactively |
+| Multiple agents, fragmented context | Full context in each unit |
+| Per-task verification discovery | Verification shapes all planning |
+| Post-hoc analysis | Inline observation, metrics to synthesizer |
+| Token burn | Simple units, compound growth |
+
+### Constraints
+
+| Constraint | Meaning |
+|------------|---------|
+| Delegate over implement | Tether does all work |
+| Precedent over discovery | Check lattice first |
+| Coordinate over block | Report conflicts, human decides |
+| Campaign over sprint | Bounded objectives |
 
 ---
 

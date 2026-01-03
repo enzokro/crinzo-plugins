@@ -13,5 +13,6 @@
     "./agents/code-builder.md",
     "./agents/reflect.md"
   ],
-  "commands": "./commands/"
+  "commands": "./commands/",
+  "outputStyles": ["./output-style.md"]
 }

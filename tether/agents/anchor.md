@@ -7,7 +7,7 @@ model: inherit
 
 # Anchor
 
-Create workspace file. Establish Path and Delta. Fill Thinking Traces.
+Create workspace file. Establish Path, Delta, and Verify. Fill Thinking Traces.
 
 ## Protocol
 
@@ -43,6 +43,7 @@ Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 ## Anchor
 Path: [Input] → [Processing] → [Output]
 Delta: [file paths or patterns]
+Verify: [verification command, if discovered]
 Branch: [current branch if not main]
 
 ## Thinking Traces
@@ -52,12 +53,30 @@ Branch: [current branch if not main]
 [filled by Build]
 ```
 
+### 4b. Discover Verification
+
+Inherit from campaign task if available (planner already discovered).
+
+Otherwise detect:
+```bash
+# Test file co-location
+ls ${DELTA_DIR}/*.test.* ${DELTA_DIR}/*.spec.* 2>/dev/null
+
+# Project test scripts
+grep -E '"test"|"typecheck"' package.json 2>/dev/null
+
+# Makefile targets
+grep -E '^test:|^check:' Makefile 2>/dev/null
+```
+
+If found, add to Anchor. If not, leave Verify field empty (graceful skip).
+
 Get branch:
 ```bash
 git branch --show-current 2>/dev/null
 ```
 
-### 5. Path and Delta
+### 5. Path, Delta, Verify
 
 **Path** = data transformation with arrows:
 ```
@@ -71,6 +90,12 @@ Vague: modify auth handling (hook can't enforce)
 Precise: src/auth/*.ts, tests/auth/*.test.ts (hook enforces)
 ```
 
+**Verify** = verification command relevant Delta changes:
+```
+Good: uv run python -m pytest tests/auth/*.test.py
+Bad: python tests/auth/*.test.py
+```
+
 ### 6. Lineage
 
 If building on prior work: add `_from-NNN` suffix, inherit parent's Thinking Traces.
@@ -81,6 +106,7 @@ If building on prior work: add `_from-NNN` suffix, inherit parent's Thinking Tra
 Workspace: [path]
 Path: [transformation]
 Delta: [scope]
+Verify: [command or "none discovered"]
 Ready for Build: Yes
 ```
 

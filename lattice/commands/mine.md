@@ -43,19 +43,28 @@ python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" mine
 
 ```
 Indexed 12 decisions, 8 patterns from workspace
+  Embedded 12 decisions
   [001] initial-setup (complete)
   [002] auth-refactor (complete)
   [003] session-handling (complete)
   ...
 ```
 
+If sentence-transformers is not installed:
+```
+  (Embeddings disabled - install sentence-transformers)
+```
+
 ## Storage
 
 ```
 .lattice/
-├── index.json    # Decision records + pattern index
-├── edges.json    # Derived relationships
-└── signals.json  # Outcome tracking
+├── index.json      # Decision records + pattern index
+├── edges.json      # Derived relationships
+├── signals.json    # Outcome tracking
+└── vectors/        # Semantic embeddings (v2)
+    ├── decisions.npz   # Decision vectors
+    └── meta.json       # Embedding metadata
 ```
 
 ## Constraints

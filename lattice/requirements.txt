@@ -1,0 +1,6 @@
+# Lattice v2: Semantic Memory
+# These dependencies enable embedding-based semantic search.
+# Without them, lattice falls back to grep-based search (still works).
+
+sentence-transformers>=2.2.0
+numpy>=1.24.0
