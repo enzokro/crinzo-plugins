@@ -33,6 +33,13 @@ Task tool with subagent_type: forge:forge-orchestrator
 
 Pass campaign objective or "resume" for continuation.
 
+**CRITICAL**: The orchestrator must:
+1. Use `forge.py` CLI for ALL state changes (never write JSON directly)
+2. Delegate ALL implementation to `tether:tether-orchestrator` (never implement directly)
+3. Gate on workspace file existence before marking tasks complete
+
+If these are violated, the ftl system breaks.
+
 ## Flow
 
 ```

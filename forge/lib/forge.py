@@ -15,6 +15,20 @@ FORGE_DIR = ".forge"
 CAMPAIGNS_DIR = "campaigns"
 WORKSPACE_DIR = "workspace"
 
+# Required fields for valid campaign schema
+REQUIRED_CAMPAIGN_FIELDS = [
+    "id", "objective", "started", "session", "status", "tasks",
+    "precedent_used", "patterns_emerged", "signals_given",
+    "revisions", "critic_verdicts"
+]
+
+
+def validate_campaign_schema(campaign: dict) -> None:
+    """Validate campaign has required fields. Raises ValueError if invalid."""
+    missing = [f for f in REQUIRED_CAMPAIGN_FIELDS if f not in campaign]
+    if missing:
+        raise ValueError(f"Invalid campaign schema - missing: {', '.join(missing)}")
+
 
 def ensure_forge_dir(base: Path = Path(".")) -> Path:
     """Ensure .forge directory structure exists."""
@@ -78,7 +92,9 @@ def load_active_campaign(base: Path = Path(".")) -> Optional[dict]:
     if not campaigns:
         return None
 
-    return json.loads(campaigns[0].read_text())
+    campaign = json.loads(campaigns[0].read_text())
+    validate_campaign_schema(campaign)
+    return campaign
 
 
 def load_campaign_by_id(campaign_id: str, base: Path = Path(".")) -> Optional[dict]:
@@ -88,12 +104,16 @@ def load_campaign_by_id(campaign_id: str, base: Path = Path(".")) -> Optional[di
     # Check active first
     path = forge / CAMPAIGNS_DIR / "active" / f"{campaign_id}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        campaign = json.loads(path.read_text())
+        validate_campaign_schema(campaign)
+        return campaign
 
     # Check complete
     path = forge / CAMPAIGNS_DIR / "complete" / f"{campaign_id}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        campaign = json.loads(path.read_text())
+        validate_campaign_schema(campaign)
+        return campaign
 
     return None
 
@@ -515,10 +535,21 @@ def main():
     elif args.cmd == "update-task":
         campaign = load_active_campaign(args.base)
         if campaign:
+            # ENFORCE workspace gate for completion
+            if args.status == "complete":
+                workspace = args.base / WORKSPACE_DIR
+                pattern = f"{args.seq}_*_complete*.md"
+                matches = list(workspace.glob(pattern))
+                if not matches:
+                    print(f"ERROR: Cannot mark complete - no workspace file", file=sys.stderr)
+                    print(f"Expected: workspace/{pattern}", file=sys.stderr)
+                    print(f"Tether must create workspace file before task can be marked complete.", file=sys.stderr)
+                    sys.exit(1)
             update_task_status(campaign, args.seq, args.status, args.base)
             print(f"Updated task {args.seq}: {args.status}")
         else:
-            print("No active campaign")
+            print("No active campaign", file=sys.stderr)
+            sys.exit(1)
 
     elif args.cmd == "complete":
         campaign = load_active_campaign(args.base)

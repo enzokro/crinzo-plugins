@@ -38,12 +38,24 @@ Options:
 3. Resume existing
 ```
 
-If no active campaign → start new:
-```
-Task tool with subagent_type: forge:forge-orchestrator
+If no active campaign → create via CLI (MANDATORY):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" campaign "$OBJECTIVE"
 ```
 
-Pass objective.
+Verify campaign was created:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" active
+```
+
+Then invoke orchestrator:
+```
+Task tool with subagent_type: forge:forge-orchestrator
+Prompt: "Resume campaign: $OBJECTIVE"
+```
+
+**NEVER write campaign JSON directly. The CLI is the only valid interface.**
 
 ## Output
 

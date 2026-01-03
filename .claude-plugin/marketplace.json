@@ -21,6 +21,15 @@
       "author": {
         "name": "crinzo"
       }
+    },
+    {
+      "name": "forge",
+      "source": "./forge",
+      "description": "Coordinates multi-task campaigns with verification-first task decomposition.",
+      "version": "1.0.0",
+      "author": {
+        "name": "crinzo"
+      }
     }
   ]
 }
