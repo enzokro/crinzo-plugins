@@ -2,6 +2,7 @@
 misc/
 .orphaned_at
 scratch/
+workspace/ 
 
 # macOS
 .DS_Store

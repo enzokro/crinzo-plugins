@@ -11,19 +11,19 @@ Surface relevant decisions from workspace decision traces.
 
 1. Check for index:
 ```bash
-[ -f .ctx/index.json ] || echo "Run /ctx:mine first"
+[ -f .lattice/index.json ] || echo "Run /lattice:mine first"
 ```
 
 2. Parse $ARGUMENTS for topic.
 
 3. Query decisions:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" query "$TOPIC"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" query "$TOPIC"
 ```
 
 4. If no index exists, invoke miner first:
 ```
-Task tool with subagent_type: ctx:miner
+Task tool with subagent_type: lattice:miner
 ```
 Then re-query.
 

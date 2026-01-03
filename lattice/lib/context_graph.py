@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ctx v2.0 - Context graph for workspace decision traces.
+"""lattice - Context graph for workspace decision traces.
 
 Evolution: Decisions are primary. Patterns are edges.
 """
@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from collections import defaultdict
 
-CTX_DIR = ".ctx"
+LATTICE_DIR = ".lattice"
 INDEX_FILE = "index.json"
 EDGES_FILE = "edges.json"
 SIGNALS_FILE = "signals.json"
@@ -22,16 +22,16 @@ FILENAME_PATTERN = re.compile(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$')
 
 # --- Storage ---
 
-def ensure_ctx_dir(base: Path = Path(".")) -> Path:
-    """Ensure .ctx directory exists."""
-    ctx = base / CTX_DIR
-    ctx.mkdir(parents=True, exist_ok=True)
-    return ctx
+def ensure_lattice_dir(base: Path = Path(".")) -> Path:
+    """Ensure .lattice directory exists."""
+    lattice = base / LATTICE_DIR
+    lattice.mkdir(parents=True, exist_ok=True)
+    return lattice
 
 
 def load_index(base: Path = Path(".")) -> dict:
     """Load decision index."""
-    path = base / CTX_DIR / INDEX_FILE
+    path = base / LATTICE_DIR / INDEX_FILE
     if path.exists():
         return json.loads(path.read_text())
     return {"decisions": {}, "patterns": {}}
@@ -39,13 +39,13 @@ def load_index(base: Path = Path(".")) -> dict:
 
 def save_index(index: dict, base: Path = Path(".")):
     """Save decision index."""
-    ctx = ensure_ctx_dir(base)
-    (ctx / INDEX_FILE).write_text(json.dumps(index, indent=2))
+    lattice = ensure_lattice_dir(base)
+    (lattice / INDEX_FILE).write_text(json.dumps(index, indent=2))
 
 
 def load_edges(base: Path = Path(".")) -> dict:
     """Load relationship edges."""
-    path = base / CTX_DIR / EDGES_FILE
+    path = base / LATTICE_DIR / EDGES_FILE
     if path.exists():
         return json.loads(path.read_text())
     return {"lineage": {}, "pattern_use": {}, "file_impact": {}}
@@ -53,13 +53,13 @@ def load_edges(base: Path = Path(".")) -> dict:
 
 def save_edges(edges: dict, base: Path = Path(".")):
     """Save relationship edges."""
-    ctx = ensure_ctx_dir(base)
-    (ctx / EDGES_FILE).write_text(json.dumps(edges, indent=2))
+    lattice = ensure_lattice_dir(base)
+    (lattice / EDGES_FILE).write_text(json.dumps(edges, indent=2))
 
 
 def load_signals(base: Path = Path(".")) -> dict:
     """Load outcome signals."""
-    path = base / CTX_DIR / SIGNALS_FILE
+    path = base / LATTICE_DIR / SIGNALS_FILE
     if path.exists():
         return json.loads(path.read_text())
     return {}
@@ -67,8 +67,8 @@ def load_signals(base: Path = Path(".")) -> dict:
 
 def save_signals(signals: dict, base: Path = Path(".")):
     """Save outcome signals."""
-    ctx = ensure_ctx_dir(base)
-    (ctx / SIGNALS_FILE).write_text(json.dumps(signals, indent=2))
+    lattice = ensure_lattice_dir(base)
+    (lattice / SIGNALS_FILE).write_text(json.dumps(signals, indent=2))
 
 
 # --- Parsing ---
@@ -455,7 +455,7 @@ def format_decisions(results: list, limit: int = 10, signals: dict = None) -> st
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(prog='ctx', description='Context graph for workspace decisions')
+    parser = argparse.ArgumentParser(prog='lattice', description='Context graph for workspace decisions')
     parser.add_argument('-w', '--workspace', type=Path, default=Path('workspace'))
     parser.add_argument('-b', '--base', type=Path, default=Path('.'))
 

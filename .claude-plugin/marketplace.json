@@ -14,8 +14,8 @@
       }
     },
     {
-      "name": "ctx",
-      "source": "./ctx",
+      "name": "lattice",
+      "source": "./lattice",
       "description": "Builds context graphs from tether workspaces.",
       "version": "1.0.0",
       "author": {

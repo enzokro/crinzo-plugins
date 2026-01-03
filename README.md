@@ -1,21 +1,23 @@
 # tether
 
-A Claude Code plugin for focused, scope-controlled development. Prevents over-engineering and scope creep through Path and Delta anchoring.
+A Claude Code orchestrator for clean, focused development.
 
-## Background
+## Introduction
 
-Before Opus 4.5, agents spent most of their prompt budget working *around* the worst tendencies of LLMs: scope creep and over-engineering. Coding assistants behaved like overeager savants that had to be carefully steered whenever projects grew even moderately complex.
+Before Opus 4.5, agentic tools and harnesses were focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully managed whenever projects grew even moderately complex.
 
-Opus 4.5 broke this pattern. If you're reading this, you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM agents from spastic assistants to powerful, intelligent collaborators.
+Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
 
-`tether` leverages this shift. It combines the model's increased capabilities with structural discipline through two core constructs:
+`tether` is built on this shift. It combines the model's breakthrough capabilities and its improved understanding of our requests into a powerful, focused development workflow. It achieves this using two key concepts: `Path` and `Delta`:
 
-- **Path**: Data transformation (`Input → Processing → Output`). Not goals—transformations.
-- **Delta**: Minimal change scope. What gets touched; what doesn't.
+- **Path**: The core data flow touched by a request: (`Input → Processing → Output`).
+- **Delta**: The minimal, targeted change that fulfils a request.
 
-Both must exist before implementation. This is the gate.
+The `tether` orchestrator externalizes its thinking into a workspace, which over time becomes a living store of decisions and knowledge. Workspaces can be queried to understand how problems were solved, trace their lineage, and find patterns that are emerging.
 
 ## Installation
+
+Add this repo as a marketplace from inside Claude Code:
 
 ```bash
 /plugin marketplace add https://github.com/enzokro/crinzo-plugins.git
@@ -34,15 +36,11 @@ Then install `tether` from the marketplace.
 | **Explicit over clever**   | Always choose clarity over sophistication                |
 | **Edit over create**       | Modify what exists before creating something new         |
 
-These aren't novel. They read as obvious 101s of software development. But anyone who's spent time building with LLMs knows: agents are ambitious and like to stay busy. They often deviate from these principles and tech debt accumulates, especially in complex projects. `tether` enforces these principles through Path and Delta as fixed points that gate the entire development process.
-
-## Why This Matters
-
-Enterprise software captures *what happened*. It doesn't capture *why decisions were made*—the exceptions, precedents, cross-system context that lives in Slack threads and people's heads.
-
-`tether`'s workspace externalizes decision traces. Each task records what transformation was needed, what scope was bounded, what was discovered, and what was delivered. Over time, the workspace becomes a context graph—queryable memory of how problems were solved.
+None of these are new. In fact, they read like the 101s of software development. But anyone who's spent time building with LLMs knows that agents are ambitious and like to stay busy. They often stray from these principles and quickly accumulate tech debt, especially in complex projects. `tether` anchors on `Path` and `Delta` to turn these principles into its north star.
 
 ## Architecture
+
+`tether` follows a four stage development process:
 
 ```
 [Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
@@ -55,7 +53,7 @@ Enterprise software captures *what happened*. It doesn't capture *why decisions 
 | `tether:code-builder` | Implement within constraints                 | inherit |
 | `tether:reflect`      | Extract patterns (opt-in via `#reflect` tag) | inherit |
 
-**Runtime enforcement**: The `hooks/delta-check.sh` hook blocks edits to files outside declared Delta scope.
+**Delta check**: The hook `hooks/delta-check.sh` blocks changes to files outside of Delta's scope.
 
 ## Workspace
 
@@ -110,104 +108,73 @@ python3 tether/wql/wql.py graph                  # tree view
 
 ---
 
-## ctx
+## lattice
 
-A companion plugin that transforms tether's workspace into a queryable context graph. Decisions become primary entities. Patterns become edges.
+Over time, `tether` workspaces accumulate decision traces. Each completed task captures Path, Delta, Thinking Traces, and Delivered. This is valuable context, but without tooling it sits inert. You can grep for patterns, but actually *retrieving* relevant precedent means reading through files manually.
 
-### The Gap ctx Closes
-
-tether externalizes decision traces. Each completed file captures Path, Delta, Thinking Traces, and Delivered. But without tooling, this knowledge sits inert—grep works, but precedent retrieval requires reading files.
-
-ctx indexes workspace files as decision records. It extracts structure (Path, Delta), captures reasoning (Thinking Traces), tracks patterns (`#pattern/`, `#constraint/`, `#decision/`), and derives relationships (lineage chains, file impact, pattern usage).
+`lattice` turns your workspace into a queryable context graph. It indexes decision records, extracts their structure, tracks the patterns you've tagged (`#pattern/`, `#constraint/`, `#decision/`), and derives relationships between them. When you're starting new work, you can ask lattice what you've done before that's relevant.
 
 ### Data Model
 
 ```
-.ctx/
+.lattice/
 ├── index.json    # Decision records with full context
-├── edges.json    # Derived relationships
+├── edges.json    # Derived relationships (lineage, patterns, files)
 └── signals.json  # Outcome tracking (+/-)
 ```
 
-Decisions are primary. Patterns are edges connecting them.
+The graph treats decisions as nodes and patterns as edges connecting them. Lineage chains (from `_from-NNN` suffixes), pattern usage (from tags), and file impact (from Delta parsing) all become queryable relationships.
 
 ### Commands
 
-| Command                     | Purpose                          |
-| --------------------------- | -------------------------------- |
-| `/ctx <topic>`              | Surface relevant decisions       |
-| `/ctx:decision NNN`         | Full decision record with traces |
-| `/ctx:lineage NNN`          | Decision ancestry chain          |
-| `/ctx:trace <pattern>`      | Find decisions using a pattern   |
-| `/ctx:impact <file>`        | Find decisions affecting a file  |
-| `/ctx:age [days]`           | Find stale decisions             |
-| `/ctx:signal +/- <pattern>` | Mark pattern outcome             |
-| `/ctx:mine`                 | Build decision index             |
+| Command                         | Purpose                          |
+| ------------------------------- | -------------------------------- |
+| `/lattice <topic>`              | Surface relevant decisions       |
+| `/lattice:decision NNN`         | Full decision record with traces |
+| `/lattice:lineage NNN`          | Decision ancestry chain          |
+| `/lattice:trace <pattern>`      | Find decisions using a pattern   |
+| `/lattice:impact <file>`        | Find decisions affecting a file  |
+| `/lattice:age [days]`           | Find stale decisions             |
+| `/lattice:signal +/- <pattern>` | Mark pattern outcome             |
+| `/lattice:mine`                 | Build decision index             |
 
 ### Example
 
 ```bash
 # Build the index
-/ctx:mine
+/lattice:mine
 # Indexed 12 decisions, 8 patterns from workspace
 
 # Query precedent
-/ctx auth
+/lattice auth
 # [015] auth-refactor (3d ago, complete)
 #   Path: User credentials → validation → session token
 #   Delta: src/auth/*.ts
 #   Builds on: 008
 
 # Trace a pattern's usage
-/ctx:trace #pattern/session-token-flow
+/lattice:trace #pattern/session-token-flow
 # Decisions using #pattern/session-token-flow:
 #   [015] auth-refactor (3d, complete)
 #   [023] session-timeout (1d, complete)
 
 # Track outcomes
-/ctx:signal + #pattern/session-token-flow
+/lattice:signal + #pattern/session-token-flow
 # Signal added: #pattern/session-token-flow -> net 2
 ```
 
-### Graph Relationships
-
-| Edge                  | Query                      |
-| --------------------- | -------------------------- |
-| `decision → parent`   | `/ctx:lineage NNN`         |
-| `pattern → decisions` | `/ctx:trace #pattern/name` |
-| `file → decisions`    | `/ctx:impact src/auth`     |
-
-Lineage comes from `_from-NNN` suffixes. Pattern edges come from tags. File edges come from Delta parsing.
-
 ### Weighting
 
-```
-score = relevance * recency_factor * signal_factor
-```
-
-Recent, positively-signaled patterns rank highest. Stale decisions surface via `/ctx:age`.
+Results are ranked by recency and signal history. Recent work surfaces first, and patterns you've marked as successful (`/lattice:signal +`) get weighted higher. Patterns that caused problems (`/lattice:signal -`) fade from view. Over time, the graph learns which approaches work in your codebase.
 
 ### Integration with tether
 
-ctx reads workspace files. It doesn't modify them. tether writes the decision traces; ctx makes them queryable.
-
-The intended flow:
-1. tether's Anchor phase could query ctx for relevant precedent
-2. tether's Reflect phase produces the patterns ctx indexes
-3. ctx surfaces what tether accumulated
-
-For now, ctx operates parallel to tether. Integration hooks are future work.
+`lattice` reads workspace files but never modifies them. `tether` writes the decision traces; `lattice` makes them searchable. The two plugins operate in parallel for now, though the natural integration point is obvious: Anchor could query for relevant precedent before planning, and Reflect could surface which patterns are emerging.
 
 ---
 
 ## When to Use
 
-Use `tether` when:
-- Precision matters more than speed
-- Understanding must persist across sessions
-- Path needs to be explicit before implementation
+`tether` shines when precision matters more than speed, when understanding needs to persist across sessions, and when you want Path explicit before implementation begins. It's the right choice for complex features, architectural changes, and work that will be built upon later.
 
-Don't use for:
-- Exploratory prototyping (where you *want* the model to wander)
-- Simple one-off queries that need no persistence
-- Quick fixes or mechanical changes
+It's overkill for exploratory prototyping (where you *want* the model to wander), simple one-off queries, and quick mechanical fixes. Know when to reach for it.

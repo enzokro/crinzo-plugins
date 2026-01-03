@@ -16,7 +16,7 @@ ls workspace/*.md 2>/dev/null || echo "No workspace"
 
 2. Build decision index:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" mine
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" mine
 ```
 
 3. Report indexed decisions and patterns.
@@ -52,7 +52,7 @@ Indexed 12 decisions, 8 patterns from workspace
 ## Storage
 
 ```
-.ctx/
+.lattice/
 ├── index.json    # Decision records + pattern index
 ├── edges.json    # Derived relationships
 └── signals.json  # Outcome tracking
@@ -61,4 +61,4 @@ Indexed 12 decisions, 8 patterns from workspace
 ## Constraints
 
 - Only reads workspace files
-- Only writes to .ctx/
+- Only writes to .lattice/

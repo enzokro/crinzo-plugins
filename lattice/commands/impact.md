@@ -13,7 +13,7 @@ Find decisions that touched a file pattern.
 
 2. Query file impact:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" impact "$FILE"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" impact "$FILE"
 ```
 
 ## Output Format
@@ -31,9 +31,9 @@ Decisions affecting 'auth':
 ## Usage
 
 ```
-/ctx:impact auth           # Files containing "auth"
-/ctx:impact src/api        # Files in src/api/
-/ctx:impact session.ts     # Specific file
+/lattice:impact auth           # Files containing "auth"
+/lattice:impact src/api        # Files in src/api/
+/lattice:impact session.ts     # Specific file
 ```
 
 ## Graph Query

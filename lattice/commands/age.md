@@ -13,7 +13,7 @@ Find decisions older than threshold. Stale decisions may no longer apply.
 
 2. Query stale decisions:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" age $DAYS
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" age $DAYS
 ```
 
 3. Report findings with source files and tags.
@@ -30,9 +30,9 @@ Stale decisions (>30d):
 ## Usage
 
 ```
-/ctx:age        # Decisions older than 30 days
-/ctx:age 14     # Decisions older than 14 days
-/ctx:age 90     # Decisions older than 90 days
+/lattice:age        # Decisions older than 30 days
+/lattice:age 14     # Decisions older than 14 days
+/lattice:age 90     # Decisions older than 90 days
 ```
 
 ## Constraints

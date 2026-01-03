@@ -15,7 +15,7 @@ Mark a pattern as successful (+) or problematic (-). Signals influence future ra
 
 2. Add signal:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" signal "$SIGN" "$PATTERN"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" signal "$SIGN" "$PATTERN"
 ```
 
 3. Confirm result.
@@ -23,8 +23,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" signal "$SIGN" "$PATTERN"
 ## Usage
 
 ```
-/ctx:signal + #pattern/session-token-flow    # Pattern worked well
-/ctx:signal - #constraint/max-batch-size     # Constraint caused issues
+/lattice:signal + #pattern/session-token-flow    # Pattern worked well
+/lattice:signal - #constraint/max-batch-size     # Constraint caused issues
 ```
 
 ## Output Format
@@ -35,7 +35,7 @@ Signal added: #pattern/session-token-flow -> net +2
 
 ## Storage
 
-Signals stored in `.ctx/signals.json`:
+Signals stored in `.lattice/signals.json`:
 ```json
 {
   "#pattern/session-token-flow": {
@@ -57,5 +57,5 @@ signal_factor = 1 + (net_signals * 0.2)
 
 ## Constraints
 
-- Only writes to .ctx/signals.json
+- Only writes to .lattice/signals.json
 - Does not modify workspace files

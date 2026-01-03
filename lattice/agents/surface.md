@@ -15,17 +15,17 @@ Given a topic (from prompt or $ARGUMENTS):
 
 1. Check index exists:
 ```bash
-[ -f .ctx/index.json ] && echo "Index found" || echo "No index"
+[ -f .lattice/index.json ] && echo "Index found" || echo "No index"
 ```
 
 2. If no index, run miner first:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" mine
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" mine
 ```
 
 3. Query decisions:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" query "$TOPIC"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" query "$TOPIC"
 ```
 
 4. For top results, read source workspace files to provide richer context.

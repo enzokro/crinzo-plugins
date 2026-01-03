@@ -1,5 +1,5 @@
 ---
-name: ctx
+name: lattice
 description: Context graph for workspace decisions. Query precedents, trace patterns, check staleness.
 version: 2.0.0
 ---
@@ -10,17 +10,17 @@ Decisions are primary. Patterns are edges. Precedent becomes searchable.
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/ctx <topic>` | Surface relevant decisions for topic |
-| `/ctx:query <topic>` | Same as above |
-| `/ctx:decision NNN` | Full decision record with traces |
-| `/ctx:lineage NNN` | Decision ancestry chain |
-| `/ctx:trace <pattern>` | Find decisions using a pattern |
-| `/ctx:impact <file>` | Find decisions affecting a file |
-| `/ctx:age [days]` | Find stale decisions (default: 30d) |
-| `/ctx:signal <+\|-> <pattern>` | Mark pattern outcome |
-| `/ctx:mine` | Build decision index from workspace |
+| Command                            | Purpose                              |
+| ---------------------------------- | ------------------------------------ |
+| `/lattice <topic>`                 | Surface relevant decisions for topic |
+| `/lattice:query <topic>`           | Same as above                        |
+| `/lattice:decision NNN`            | Full decision record with traces     |
+| `/lattice:lineage NNN`             | Decision ancestry chain              |
+| `/lattice:trace <pattern>`         | Find decisions using a pattern       |
+| `/lattice:impact <file>`           | Find decisions affecting a file      |
+| `/lattice:age [days]`              | Find stale decisions (default: 30d)  |
+| `/lattice:signal <+\|-> <pattern>` | Mark pattern outcome                 |
+| `/lattice:mine`                    | Build decision index from workspace  |
 
 ## First Action
 
@@ -28,7 +28,7 @@ Parse $ARGUMENTS:
 
 **Topic query** — invoke surface agent:
 ```
-Task tool with subagent_type: ctx:surface
+Task tool with subagent_type: lattice:surface
 ```
 
 Pass topic from arguments. Agent searches workspace, ranks by recency and signals.
@@ -36,7 +36,7 @@ Pass topic from arguments. Agent searches workspace, ranks by recency and signal
 ## Data Model
 
 ```
-.ctx/
+.lattice/
 ├── index.json    # Decision records + pattern index
 ├── edges.json    # Derived relationships
 └── signals.json  # Outcome tracking (+/-)
@@ -62,11 +62,11 @@ Pass topic from arguments. Agent searches workspace, ranks by recency and signal
 
 ## Graph Edges
 
-| Edge | Query |
-|------|-------|
-| `decision → parent` | `/ctx:lineage NNN` |
-| `pattern → decisions` | `/ctx:trace #pattern/name` |
-| `file → decisions` | `/ctx:impact src/auth` |
+| Edge                  | Query                          |
+| --------------------- | ------------------------------ |
+| `decision → parent`   | `/lattice:lineage NNN`         |
+| `pattern → decisions` | `/lattice:trace #pattern/name` |
+| `file → decisions`    | `/lattice:impact src/auth`     |
 
 ## Weighting
 
@@ -81,5 +81,5 @@ Recent, positively-signaled patterns rank highest.
 ## Constraints
 
 - Read-only on workspace files
-- Writes only to .ctx/
+- Writes only to .lattice/
 - No modification to tether

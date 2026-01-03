@@ -13,7 +13,7 @@ Find all decisions that applied a specific pattern.
 
 2. Trace pattern usage:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" trace "$PATTERN"
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" trace "$PATTERN"
 ```
 
 ## Output Format
@@ -29,9 +29,9 @@ Decisions using #pattern/session-token-flow:
 ## Usage
 
 ```
-/ctx:trace #pattern/session-token-flow
-/ctx:trace #constraint/no-jwt-in-cookies
-/ctx:trace #decision/use-httponly
+/lattice:trace #pattern/session-token-flow
+/lattice:trace #constraint/no-jwt-in-cookies
+/lattice:trace #decision/use-httponly
 ```
 
 ## Graph Query

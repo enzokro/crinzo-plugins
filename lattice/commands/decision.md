@@ -13,7 +13,7 @@ Show complete decision record including Thinking Traces and Delivered.
 
 2. Get decision:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/ctx.py" decision $SEQ
+python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" decision $SEQ
 ```
 
 ## Output Format
@@ -38,8 +38,8 @@ Added refresh endpoint in src/api/auth.ts.
 ## Usage
 
 ```
-/ctx:decision 015    # Show decision 015
-/ctx:decision 3      # Show decision 003 (zero-padded)
+/lattice:decision 015    # Show decision 015
+/lattice:decision 3      # Show decision 003 (zero-padded)
 ```
 
 ## Constraints
