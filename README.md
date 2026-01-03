@@ -15,7 +15,7 @@ Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the
 
 However, context can still disappear. Agents can build up a full understanding of the codebase but, after a session ends, we're forced to start from scratch.
 
-`tether` provides that missing memory. The orchestrator externalizes its thinking into a workspace. Tasks produce files with the Path, Delta, and exploration that led there. Over time, `tether` turns these files into a living store of decisions and knowledge. Understanding persists because it's actively transformed into a structured graph. This allows `tether` to grow with its projects by tracing the lineage of solutions to find emerging patterns. 
+`tether` provides that missing memory with its sister plugin: `lattice`. The main orchestrator externalizes its thinking into a workspace. Tasks produce files with the Path, Delta, and exploration that led there. Over time, `lattice` turns these files into a living store of decisions and knowledge. Understanding persists because it's actively being transformed and structured. This allows `tether` to grow with its projects by tracing the lineage of solutions to find emerging patterns. 
 
 ## Architecture
 
