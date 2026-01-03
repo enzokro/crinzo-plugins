@@ -4,6 +4,22 @@ description: Context graph for workspace decisions. Query precedents, trace patt
 version: 2.0.0
 ---
 
+## Output Style: Ranked Memory
+
+Order communicates relevance. Numbers attribute. Signals quantify.
+
+| Principle | Expression |
+|-----------|------------|
+| **Position is ranking** | First result is most relevant; order matters |
+| **Attribution is mandatory** | Every fact traces to `[NNN]` |
+| **Signals not opinions** | `(net +3)` not "this worked well" |
+| **Quote, don't paraphrase** | Excerpt Thinking Traces with quotation marks |
+| **Absence is information** | "No decisions match" is valid, useful output |
+
+Apply these principles to all lattice work.
+
+---
+
 # Context Graph
 
 Decisions are primary. Patterns are edges. Precedent becomes searchable.

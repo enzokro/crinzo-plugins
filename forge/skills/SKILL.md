@@ -4,6 +4,22 @@ description: Meta-orchestrator for compound development. Campaigns over tasks.
 version: 1.0.0
 ---
 
+## Output Style: Gated Orchestration
+
+Confidence routes action. Diagnosis classifies. Escalation succeeds.
+
+| Principle | Expression |
+|-----------|------------|
+| **Confidence gates** | `PROCEED`, `CONFIRM`, `CLARIFY` — signal determines action |
+| **Diagnosis not excuse** | `Execution`, `Approach`, `Scope`, `Environment` — classify, don't narrate |
+| **Metrics inline** | `3/5 tasks`, `80% verified` — numbers in flow, not buried |
+| **Escalation is success** | Human judgment requested = system working |
+| **Present choices** | Options with tradeoffs; don't decide for human |
+
+Apply these principles to all forge work.
+
+---
+
 # Forge
 
 Campaigns. Precedent. Synthesis. Growth.

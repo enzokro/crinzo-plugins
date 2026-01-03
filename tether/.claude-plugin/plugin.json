@@ -14,13 +14,5 @@
     "./agents/reflect.md"
   ],
   "commands": "./commands/",
-  "outputStyles": "./output-styles/",
-  "hooks": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/set-output-style.sh"
-      }
-    ]
-  }
+  "outputStyles": "./output-styles/"
 }

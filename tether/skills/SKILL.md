@@ -4,6 +4,22 @@ description: Use for creation tasks. Anchors work to Path and Delta; workspace p
 version: 9.2.0
 ---
 
+## Output Style: Bounded Execution
+
+Structure communicates. State signals. Scope constrains.
+
+| Principle | Expression |
+|-----------|------------|
+| **Structure over narrative** | Key-value blocks; prose adds nothing status doesn't |
+| **State as signal** | `active`, `complete`, `blocked` — the return IS the message |
+| **Scope is boundary** | Delta defines what exists; outside Delta doesn't |
+| **Lineage is explicit** | `from-NNN` in filename, not implicit reference |
+| **Traces capture, don't justify** | Working memory, not persuasion |
+
+Apply these principles to all tether work.
+
+---
+
 # Tether
 
 Deliver exactly what was requested. Path and Delta are your anchors.
