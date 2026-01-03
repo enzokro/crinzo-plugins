@@ -4,16 +4,35 @@ A Claude Code orchestrator for clean, focused development.
 
 ## Introduction
 
-Before Opus 4.5, agentic tools and harnesses were focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully managed whenever projects grew even moderately complex.
+Before Opus 4.5, agentic tools and harnesses focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants felt like overeager Junior-savants that had to be carefully managed whenever projects became even moderately complex.
 
-Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. Talking to Opus 4.5, it *gets* it. The ineffable *it*. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
+Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
 
-`tether` is built on this shift. It combines the model's breakthrough capabilities and its improved understanding of our requests into a powerful, focused development workflow. It achieves this using two key concepts: `Path` and `Delta`:
+`tether` is built on this shift. It combines the model's breakthrough capabilities and its improved understanding of our requests into a powerful, focused development workflow. It achieves this with two key concepts: `Path` and `Delta`.
 
-- **Path**: The core data flow touched by a request: (`Input → Processing → Output`).
-- **Delta**: The minimal, targeted change that fulfils a request.
+- **Path**: The core data flow touched by a request.
+- **Delta**: The minimal, targeted changes that fulfil that request.
 
-The `tether` orchestrator externalizes its thinking into a workspace, which over time becomes a living store of decisions and knowledge. Workspaces can be queried to understand how problems were solved, trace their lineage, and find patterns that are emerging.
+However, context can still disappear. The agent may build up a full understanding of the codebase but when the session ends, we're forced to start from scratch.
+
+`tether` provides that missing memory. The orchestrator externalizes its thinking into a workspace. Tasks produce files with the Path, Delta, and exploration that led there. Over time, `tether` turns these files into a living store of decisions and knowledge. Workspace graphs can be queried to understand how problems were solved, trace their lineage, and find their emerging patterns. Understanding persists because it's been actively transformed into a persistent, structured graph.
+
+
+## Architecture
+
+`tether` orchestrates a four stage development process:
+
+```
+[Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
+```
+
+| Agent                 | Purpose                                      | Model   |
+| --------------------- | -------------------------------------------- | ------- |
+| `tether:assess`       | Route: full / direct / clarify               | haiku   |
+| `tether:anchor`       | Establish Path, Delta, Thinking Traces       | inherit |
+| `tether:code-builder` | Implement within constraints                 | inherit |
+| `tether:reflect`      | Extract patterns (opt-in via `#reflect` tag) | inherit |
+
 
 ## Installation
 
@@ -24,6 +43,7 @@ Add this repo as a marketplace from inside Claude Code:
 ```
 
 Then install `tether` from the marketplace.
+
 
 ## Philosophy
 
@@ -37,23 +57,6 @@ Then install `tether` from the marketplace.
 | **Edit over create**       | Modify what exists before creating something new         |
 
 None of these are new. In fact, they read like the 101s of software development. But anyone who's spent time building with LLMs knows that agents are ambitious and like to stay busy. They often stray from these principles and quickly accumulate tech debt, especially in complex projects. `tether` anchors on `Path` and `Delta` to turn these principles into its north star.
-
-## Architecture
-
-`tether` follows a four stage development process:
-
-```
-[Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
-```
-
-| Agent                 | Purpose                                      | Model   |
-| --------------------- | -------------------------------------------- | ------- |
-| `tether:assess`       | Route: full / direct / clarify               | haiku   |
-| `tether:anchor`       | Establish Path, Delta, Thinking Traces       | inherit |
-| `tether:code-builder` | Implement within constraints                 | inherit |
-| `tether:reflect`      | Extract patterns (opt-in via `#reflect` tag) | inherit |
-
-**Delta check**: The hook `hooks/delta-check.sh` blocks changes to files outside of Delta's scope.
 
 ## Workspace
 
