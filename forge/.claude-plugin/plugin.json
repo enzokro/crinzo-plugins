@@ -1,7 +1,7 @@
 {
   "name": "forge",
   "description": "Intelligence-first orchestration. Human+agent collaboration, not autonomous recovery.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": {
     "name": "crinzo"
   },

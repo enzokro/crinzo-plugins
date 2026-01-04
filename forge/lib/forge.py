@@ -140,14 +140,110 @@ def complete_campaign(campaign: dict, base: Path = Path(".")) -> None:
         src.unlink()
 
 
-def add_task_to_campaign(campaign: dict, seq: str, slug: str, base: Path = Path(".")) -> None:
+def add_task_to_campaign(campaign: dict, seq: str, slug: str,
+                         delta: str = "", verify: str = "", depends: str = "",
+                         base: Path = Path(".")) -> None:
     """Add task to campaign."""
-    campaign["tasks"].append({
+    task = {
         "seq": seq,
         "slug": slug,
-        "status": "active"
-    })
+        "status": "pending"
+    }
+    if delta:
+        task["delta"] = delta
+    if verify:
+        task["verify"] = verify
+    if depends:
+        task["depends"] = depends
+    campaign["tasks"].append(task)
     update_campaign(campaign, base)
+
+
+def parse_planner_output(text: str) -> list:
+    """Parse planner markdown output into task list.
+
+    Expected format:
+    ### Tasks
+
+    1. **slug**: description
+       Delta: src/file.ts
+       Depends: none
+       Done when: observable
+       Verify: command
+    """
+    tasks = []
+
+    # Find Tasks section
+    lines = text.split('\n')
+    in_tasks = False
+    current_task = None
+
+    for line in lines:
+        # Start of Tasks section
+        if line.strip().startswith('### Tasks'):
+            in_tasks = True
+            continue
+
+        # Next section ends Tasks
+        if in_tasks and line.strip().startswith('### '):
+            break
+
+        if not in_tasks:
+            continue
+
+        # New task line: "1. **slug**: description"
+        task_match = re.match(r'^\d+\.\s+\*\*([^*]+)\*\*:\s*(.+)', line.strip())
+        if task_match:
+            if current_task:
+                tasks.append(current_task)
+            current_task = {
+                'slug': task_match.group(1).strip(),
+                'description': task_match.group(2).strip(),
+                'delta': '',
+                'verify': '',
+                'depends': ''
+            }
+            continue
+
+        # Task property lines
+        if current_task and line.strip():
+            prop_match = re.match(r'^(Delta|Verify|Depends|Done when):\s*(.+)', line.strip())
+            if prop_match:
+                key = prop_match.group(1).lower().replace(' ', '_')
+                value = prop_match.group(2).strip()
+                if key in ['delta', 'verify', 'depends']:
+                    current_task[key] = value
+
+    # Don't forget last task
+    if current_task:
+        tasks.append(current_task)
+
+    return tasks
+
+
+def add_tasks_from_plan(plan_text: str, base: Path = Path(".")) -> list:
+    """Parse planner output and add tasks to active campaign."""
+    campaign = load_active_campaign(base)
+    if not campaign:
+        raise ValueError("No active campaign")
+
+    tasks = parse_planner_output(plan_text)
+    if not tasks:
+        raise ValueError("No tasks found in plan")
+
+    added = []
+    for i, task in enumerate(tasks, start=1):
+        seq = f"{i:03d}"
+        add_task_to_campaign(
+            campaign, seq, task['slug'],
+            delta=task.get('delta', ''),
+            verify=task.get('verify', ''),
+            depends=task.get('depends', ''),
+            base=base
+        )
+        added.append(f"{seq}_{task['slug']}")
+
+    return added
 
 
 def update_task_status(campaign: dict, seq: str, status: str, base: Path = Path(".")) -> None:
@@ -449,6 +545,9 @@ def main():
     add_p.add_argument("seq")
     add_p.add_argument("slug")
 
+    # Add tasks from planner output
+    sub.add_parser("add-tasks-from-plan", help="Parse planner output (stdin) and add tasks")
+
     # Update task
     upd_p = sub.add_parser("update-task", help="Update task status")
     upd_p.add_argument("seq")
@@ -527,10 +626,21 @@ def main():
     elif args.cmd == "add-task":
         campaign = load_active_campaign(args.base)
         if campaign:
-            add_task_to_campaign(campaign, args.seq, args.slug, args.base)
+            add_task_to_campaign(campaign, args.seq, args.slug, base=args.base)
             print(f"Added task: {args.seq}_{args.slug}")
         else:
             print("No active campaign")
+
+    elif args.cmd == "add-tasks-from-plan":
+        try:
+            plan_text = sys.stdin.read()
+            added = add_tasks_from_plan(plan_text, args.base)
+            print(f"Added {len(added)} tasks:")
+            for task in added:
+                print(f"  {task}")
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
 
     elif args.cmd == "update-task":
         campaign = load_active_campaign(args.base)

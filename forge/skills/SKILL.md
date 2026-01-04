@@ -41,27 +41,34 @@ Read these first. Violations break the ftl system.
    source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
    ```
 
-2. **Query lattice before each task**:
+2. **Insert planner tasks via CLI** (after campaign creation):
+   ```bash
+   cat <<'EOF' | python3 "$FORGE_LIB/forge.py" add-tasks-from-plan
+   [PLANNER OUTPUT WITH ### Tasks SECTION]
+   EOF
+   ```
+
+3. **Query lattice before each task**:
    ```bash
    source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TASK_KEYWORDS"
    ```
 
-3. **Spawn tether phases from main thread** (not tether-orchestrator):
+4. **Spawn tether phases from main thread** (not tether-orchestrator):
    ```
    Task(tether:assess) → Task(tether:anchor) → Task(tether:code-builder) → Task(tether:reflect)
    ```
 
-4. **Gate on workspace file before recording**:
+5. **Gate on workspace file before recording**:
    ```bash
    ls workspace/${SEQ}_*_complete*.md 2>/dev/null || exit 1
    ```
 
-5. **Update state via CLI only**:
+6. **Update state via CLI only**:
    ```bash
    source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" update-task "$SEQ" "complete"
    ```
 
-6. **Signal patterns to lattice after task completion**:
+7. **Signal patterns to lattice after task completion**:
    ```bash
    source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "$PATTERN"
    ```
@@ -91,10 +98,27 @@ Planner returns: **PROCEED** | **CONFIRM** | **CLARIFY**
 - CONFIRM → Show plan, await user approval
 - CLARIFY → Show questions, await input, re-invoke planner
 
-After approval:
+After approval, two steps (BOTH REQUIRED):
+
+**Step 1: Create campaign (empty)**
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
 ```
+
+**Step 2: Insert tasks from planner output**
+
+The planner output contains a `### Tasks` section. Pipe it to the CLI:
+```bash
+cat <<'EOF' | python3 "$FORGE_LIB/forge.py" add-tasks-from-plan
+[PASTE FULL PLANNER OUTPUT HERE]
+EOF
+```
+
+This parses the planner's task list and inserts each task into campaign.json with:
+- `seq`: 001, 002, etc.
+- `slug`: from `**slug**:` format
+- `delta`, `verify`, `depends`: from task properties
+- `status`: pending
 
 ## 2. EXECUTE (for each pending task)
 
