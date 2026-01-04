@@ -17,6 +17,7 @@ Read these first. Violations break the ftl system.
 4. **Never use Bash for file creation** — No echo, cat, heredoc to files
 5. **Never skip lattice query** — Precedent informs every task
 6. **Never create workspace files** — tether's anchor owns workspace creation
+7. **Never spawn as subagent from skill** — Main thread must execute protocol (subagents can't spawn subagents)
 
 ## ALWAYS DO
 

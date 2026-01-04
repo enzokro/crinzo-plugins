@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Meta-orchestrator for compound development. Campaigns over tasks.
-version: 1.0.0
+version: 1.0.1
 ---
 
 ## Output Style: Gated Orchestration
@@ -24,35 +24,88 @@ Apply these principles to all forge work.
 
 Campaigns. Precedent. Synthesis. Growth.
 
-## First Action
+## Protocol
 
-Invoke orchestrator:
+Execute directly in main thread. Do NOT spawn forge-orchestrator as subagent — subagents cannot spawn other subagents, which breaks tether delegation.
+
+### 1. ROUTE
+
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
 ```
-Task tool with subagent_type: forge:forge-orchestrator
+
+- **Active campaign exists** → Load state, resume at pending task
+- **No campaign** → Create via CLI:
+  ```bash
+  source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
+  ```
+
+If campaign needs task decomposition, use planner for analysis only:
+```
+Task tool with subagent_type: forge:planner
+Prompt: "Plan tasks for: $OBJECTIVE"
+```
+Then add tasks via CLI based on planner output.
+
+### 2. EXECUTE (for each pending task)
+
+**2a. Query Lattice**
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TASK_KEYWORDS"
 ```
 
-Pass campaign objective or "resume" for continuation.
-
-**CRITICAL**: The orchestrator must:
-1. Use `forge.py` CLI for ALL state changes (never write JSON directly)
-2. Delegate ALL implementation to `tether:tether-orchestrator` (never implement directly)
-3. Gate on workspace file existence before marking tasks complete
-
-If these are violated, the ftl system breaks.
-
-## Flow
-
+**2b. Delegate to Tether**
 ```
-forge:planner → task breakdown
-  ↓
-lattice:surface → precedent query (before each task)
-  ↓
-tether:tether-orchestrator → task execution (loop)
-  ↓
-lattice:signal → feedback (after patterns emerge)
-  ↓
-forge:synthesizer → meta-learning (on campaign complete)
+Task tool with subagent_type: tether:tether-orchestrator
+Prompt: |
+  Task: $DESCRIPTION
+  Delta: $FILES
+  Verify: $COMMAND
+  Campaign context: Task $N of $M for "$OBJECTIVE"
+  Precedent: $LATTICE_RESULTS
 ```
+
+**2c. Gate on Workspace**
+```bash
+ls workspace/*_complete*.md 2>/dev/null | grep "$SEQ"
+```
+- File exists → proceed to 2d
+- No file → invoke reflector, retry or escalate
+
+**2d. Record Completion**
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" update-task "$SEQ" "complete"
+```
+
+**2e. Signal Patterns**
+Extract tags from workspace file, signal each:
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "$PATTERN"
+```
+
+### 3. CLOSE (when all tasks complete)
+
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" complete
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" mine
+```
+
+Optionally invoke synthesizer for meta-learning:
+```
+Task tool with subagent_type: forge:synthesizer
+```
+
+---
+
+## Constraints
+
+| Constraint | Meaning |
+|------------|---------|
+| **Execute in main thread** | Do not spawn forge-orchestrator — it can't spawn tether |
+| **Delegate over implement** | Tether does all implementation work |
+| **Precedent over discovery** | Query lattice before each task |
+| **Gate before record** | Workspace file must exist before marking complete |
+| **Mine on close** | Always mine workspace after campaign completion |
 
 ## Commands
 
@@ -61,15 +114,6 @@ forge:synthesizer → meta-learning (on campaign complete)
 | `/forge <objective>` | Start or resume campaign |
 | `/forge:status` | Campaign + active workspace status |
 | `/forge:learn` | Force synthesis manually |
-
-## Constraints
-
-| Constraint | Meaning |
-|------------|---------|
-| Delegate over implement | Tether does all work |
-| Precedent over discovery | Check lattice first |
-| Coordinate over block | Report conflicts, human decides |
-| Campaign over sprint | Bounded objectives |
 
 ## State
 
@@ -83,36 +127,8 @@ forge:synthesizer → meta-learning (on campaign complete)
 
 Coordination via tether's `workspace/*_active*.md` files.
 
-## Integration
+## Why This Architecture
 
-### Tether
-```
-Task tool with subagent_type: tether:tether-orchestrator
-```
-Inject precedent context. Capture patterns. Update campaign.
+Claude Code constraint: **subagents cannot spawn other subagents**.
 
-### Lattice
-```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TOPIC"
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "#pattern/name"
-```
-Query before work. Signal after.
-
-## Campaign
-
-Not project (too permanent). Not task (too granular). A campaign has:
-- Clear objective
-- Multiple tether tasks
-- Bounded scope
-- Success criteria
-
-## Why Forge
-
-Ralph Wiggum re-injected prompts. No memory. No learning. No coordination.
-
-Forge:
-- Remembers through lattice
-- Learns through synthesis
-- Compounds through campaigns
-
-Each campaign leaves the system smarter.
+Previous design spawned forge-orchestrator as subagent, which then couldn't spawn tether-orchestrator. By executing the forge protocol in main thread, tether delegation works correctly.

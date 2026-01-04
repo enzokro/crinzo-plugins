@@ -1,7 +1,7 @@
 {
   "name": "lattice",
   "description": "Semantic memory for tether workspaces. Hybrid retrieval with embeddings.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": {
     "name": "crinzo"
   },

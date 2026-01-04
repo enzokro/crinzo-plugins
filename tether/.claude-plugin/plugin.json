@@ -1,7 +1,7 @@
 {
   "name": "tether",
   "description": "A plugin for powerful agent orchestration that prevents over-engineering and scope creep.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "author": {
     "name": "crinzo"
   },
