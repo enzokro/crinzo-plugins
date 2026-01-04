@@ -10,7 +10,7 @@ Before Opus 4.5, agentic harnesses focused on working *around* the two worst ten
 
 Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators. 
 
-`ftl` is built on this shift and persists knowledge across Claude Code sessions. This helps us build on all the work we've already done, instead of starting from an empty context window every time. Three plugins work together to achieve this:
+`ftl` is built on this shift and persists knowledge across Claude Code sessions. This helps us build on all the work we've already done instead of starting from an empty context window every time. The following three plugins drive this workflow:
 
 - **forge**: Coordinates multi-task campaigns across sessions. Breaks down large goals into concrete tasks, delegates to `tether`, and learns from the outcomes.
 - **tether**: Executes single tasks with focused scope and precisions based on two main concepts:  
