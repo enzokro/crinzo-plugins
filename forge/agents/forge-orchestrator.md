@@ -16,6 +16,7 @@ Read these first. Violations break the ftl system.
 3. **Never mark task complete without workspace file** — Gate is mandatory
 4. **Never use Bash for file creation** — No echo, cat, heredoc to files
 5. **Never skip lattice query** — Precedent informs every task
+6. **Never create workspace files** — tether's anchor owns workspace creation
 
 ## ALWAYS DO
 

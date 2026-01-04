@@ -174,6 +174,7 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
     for path in sorted(workspace.glob("*.md")):
         parsed = parse_workspace_file(path)
         if not parsed:
+            print(f"skip: {path.name} (naming)", file=sys.stderr)
             continue
 
         seq = parsed["seq"]

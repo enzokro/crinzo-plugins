@@ -31,6 +31,7 @@ Look for lineage: does completed task relate? Note parent task number if so.
 - No → `clarify`
 
 **Q2**: Will understanding benefit future work?
+- Campaign task (prompt contains "Campaign context:") → Yes
 - Yes → `full`
 
 **Q3**: Is Path obvious?
