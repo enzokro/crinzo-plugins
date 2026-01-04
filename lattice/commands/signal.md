@@ -15,7 +15,7 @@ Mark a pattern as successful (+) or problematic (-). Signals influence future ra
 
 2. Add signal:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" signal "$SIGN" "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal "$SIGN" "$PATTERN"
 ```
 
 3. Confirm result.

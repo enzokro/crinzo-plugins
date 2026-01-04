@@ -93,8 +93,8 @@ Inject precedent context. Capture patterns. Update campaign.
 
 ### Lattice
 ```bash
-python3 ../lattice/lib/context_graph.py query "$TOPIC"
-python3 ../lattice/lib/context_graph.py signal + "#pattern/name"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "#pattern/name"
 ```
 Query before work. Signal after.
 

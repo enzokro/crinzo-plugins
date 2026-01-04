@@ -11,7 +11,7 @@ Show campaign progress and workspace state.
 ## Protocol
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" status
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" status
 ```
 
 ## Output Format
@@ -81,14 +81,14 @@ For next pending task, show:
 - Available precedent from lattice query
 
 ```bash
-python3 "../lattice/lib/context_graph.py" query "$NEXT_TASK_KEYWORDS"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$NEXT_TASK_KEYWORDS"
 ```
 
 ## Details
 
 Check for conflicts:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" conflicts
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" conflicts
 ```
 
 If conflicts detected:

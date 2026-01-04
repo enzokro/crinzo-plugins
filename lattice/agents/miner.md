@@ -25,7 +25,7 @@ ls workspace/*.md 2>/dev/null
 
 3. Build decision index:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" mine
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" mine
 ```
 
 4. Report indexed decisions and derived relationships.

@@ -1,7 +1,7 @@
 {
   "name": "forge",
   "description": "Intelligence-first orchestration. Human+agent collaboration, not autonomous recovery.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "crinzo"
   },
@@ -14,5 +14,17 @@
     "./agents/scout.md"
   ],
   "commands": "./commands/",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/register.sh FORGE"
+          }
+        ]
+      }
+    ]
+  },
   "outputStyles": "./output-styles/"
 }

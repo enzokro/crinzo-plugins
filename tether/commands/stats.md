@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob
 ## Protocol
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" stat
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$TETHER_LIB/wql.py" stat
 ```
 
 Additional metrics:

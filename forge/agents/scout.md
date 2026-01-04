@@ -14,7 +14,7 @@ Surface opportunities. Suggest work. Enable initiative.
 ### 1. Check Active Campaigns
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
 ```
 
 If campaign has pending tasks → high priority suggestion.
@@ -22,7 +22,7 @@ If campaign has pending tasks → high priority suggestion.
 ### 2. Check Stale Patterns
 
 ```bash
-python3 "../lattice/lib/context_graph.py" age 30
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" age 30
 ```
 
 Patterns not validated in 30+ days may need review.
@@ -30,7 +30,7 @@ Patterns not validated in 30+ days may need review.
 ### 3. Check Negative Signals
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" negative-patterns
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" negative-patterns
 ```
 
 Patterns with negative signals → suggest investigation or deprecation.

@@ -11,17 +11,17 @@ Parse $ARGUMENTS:
 
 **No args** — overview:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" stat
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$TETHER_LIB/wql.py" stat
 ```
 
 **"graph"** — tree view:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" graph
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$TETHER_LIB/wql.py" graph
 ```
 
 **Number (e.g., "003")** — lineage:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/wql.py" lineage $SELECTOR
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$TETHER_LIB/wql.py" lineage $SELECTOR
 ```
 
 **"active" | "blocked" | "complete"** — filter:

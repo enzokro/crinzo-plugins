@@ -13,7 +13,7 @@ Find all decisions that applied a specific pattern.
 
 2. Trace pattern usage:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" trace "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" trace "$PATTERN"
 ```
 
 ## Output Format

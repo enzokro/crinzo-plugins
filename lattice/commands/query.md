@@ -18,7 +18,7 @@ Surface relevant decisions from workspace decision traces.
 
 3. Query decisions:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TOPIC"
 ```
 
 4. If no index exists, invoke miner first:

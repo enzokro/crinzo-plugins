@@ -1,7 +1,7 @@
 {
   "name": "tether",
   "description": "A plugin for powerful agent orchestration that prevents over-engineering and scope creep.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": {
     "name": "crinzo"
   },
@@ -14,5 +14,17 @@
     "./agents/reflect.md"
   ],
   "commands": "./commands/",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/register.sh TETHER"
+          }
+        ]
+      }
+    ]
+  },
   "outputStyles": "./output-styles/"
 }

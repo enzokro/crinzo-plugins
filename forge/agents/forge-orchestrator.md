@@ -21,12 +21,12 @@ Read these first. Violations break the ftl system.
 
 1. **Create campaigns via CLI**:
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" campaign "$OBJECTIVE"
+   source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
    ```
 
 2. **Query lattice before each task**:
    ```bash
-   python3 "../lattice/lib/context_graph.py" query "$TASK_KEYWORDS"
+   source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TASK_KEYWORDS"
    ```
 
 3. **Delegate ALL tasks to tether**:
@@ -46,12 +46,12 @@ Read these first. Violations break the ftl system.
 
 5. **Update state via CLI only**:
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" update-task "$SEQ" "complete"
+   source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" update-task "$SEQ" "complete"
    ```
 
 6. **Signal patterns to lattice after task completion**:
    ```bash
-   python3 "../lattice/lib/context_graph.py" signal + "#pattern/name"
+   source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "#pattern/name"
    ```
 
 ---
@@ -61,7 +61,7 @@ Read these first. Violations break the ftl system.
 ## 1. ROUTE
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
 ```
 
 - **Active campaign exists** → Load state, resume at current task (skip to EXECUTE)
@@ -81,7 +81,7 @@ Planner returns confidence signal:
 
 After approval:
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" campaign "$OBJECTIVE"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
 ```
 
 ## 3. EXECUTE
@@ -91,7 +91,7 @@ For each pending task:
 ### 3a. Query Lattice (REQUIRED)
 
 ```bash
-python3 "../lattice/lib/context_graph.py" query "$TASK_KEYWORDS" 2>/dev/null
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TASK_KEYWORDS" 2>/dev/null
 ```
 
 Capture output as `$PRECEDENT`. If no results, proceed with empty precedent.
@@ -153,7 +153,7 @@ Reflector returns: **RETRY** (with strategy) or **ESCALATE** (to human)
 ### 3e. Record Completion
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" update-task "$SEQ" "complete"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" update-task "$SEQ" "complete"
 ```
 
 Extract patterns from workspace:
@@ -165,7 +165,7 @@ PATTERNS=$(grep "^#pattern/\|^#constraint/" workspace/${SEQ}_*_complete*.md 2>/d
 
 For each pattern extracted:
 ```bash
-python3 "../lattice/lib/context_graph.py" signal + "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal + "$PATTERN"
 ```
 
 ### 3g. Continue
@@ -178,13 +178,13 @@ All complete → Proceed to CLOSE
 ### 4a. Complete Campaign
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/lib/forge.py" complete
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" complete
 ```
 
 ### 4b. Mine Workspace into Lattice
 
 ```bash
-python3 "../lattice/lib/context_graph.py" mine
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" mine
 ```
 
 ### 4c. Synthesize
