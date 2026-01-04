@@ -1,22 +1,24 @@
-# ftl
+# `ftl`
 
-**forge · tether · lattice**
+**forge | tether | lattice**
 
-Orchestration plugins for Claude Code. Campaigns that persist. Tasks that stay bounded. Memory that compounds.
+Orchestration plugins for Claude Code that compound knowledge over time.
 
 ## Introduction
 
-Before Opus 4.5, agentic tools and harnesses focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding assistants felt like overeager junior-savants that had to be carefully managed whenever projects became even moderately complex.
+Before Opus 4.5, agentic harnesses focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding agents felt like overeager junior-savants that had to be carefully managed whenever projects became even moderately complex.
 
-Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
+Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators. 
 
-`ftl` is built on this shift. Three plugins that work together:
+`ftl` is built on this shift and persists knowledge across Claude Code sessions. This helps us build on all the work we've already done, instead of starting from an empty context window every time. Three plugins work together to achieve this:
 
-- **forge**: Coordinates multi-task campaigns spanning sessions. Decomposes objectives, delegates to tether, learns from outcomes.
-- **tether**: Executes single tasks with precision. Anchors work to `Path` (what data transforms) and `Delta` (what files change).
-- **lattice**: Remembers decisions. Indexes workspace files, tracks pattern success via signals, surfaces relevant precedent.
+- **forge**: Coordinates multi-task campaigns across sessions. Breaks down large goals into concrete tasks, delegates to `tether`, and learns from the outcomes.
+- **tether**: Executes single tasks with focused scope and precisions based on two main concepts:  
+    - `Path`: the specific data flow touched by a request
+    - `Delta`: the minimal changes that fullfill the request
+- **lattice**: Indexes and actively processes workspace files to track how decisions and knowledge evolve over time.
 
-Context still disappears between sessions. `ftl` solves this. Tasks produce workspace files capturing Path, Delta, and the exploration that led there. `lattice` indexes these into a queryable decision graph. `forge` queries this graph before planning new work. Understanding persists because it's actively transformed and structured.
+ `tether` tasks produce workspace files capturing `Path`, `Delta`, and the exploration that led there. `lattice` indexes these files into a queryable, causal decision graph. `forge` queries this graph before planning new work. Understanding persists because it's actively transformed and structured.
 
 ## Overview
 
@@ -28,24 +30,25 @@ forge (campaign) → tether (task) → workspace/ → lattice (memory)
 
 | Plugin      | Level    | Purpose                                         |
 | ----------- | -------- | ----------------------------------------------- |
-| **forge**   | Campaign | Multi-task objectives spanning sessions         |
-| **tether**  | Task     | Single-task execution with Path+Delta anchoring |
-| **lattice** | Memory   | Queryable decision index with signal evolution  |
+| **forge**   | Campaign | Complex goals spanning multiple sessions        |
+| **tether**  | Task     | Single task executions anchored on Path + Delta |
+| **lattice** | Memory   | The queryable, evolving project knowledge base  |
 
 ## Philosophy
 
-`ftl` is built on eight principles:
+`ftl` is built on the following principles:
 
-| Principle                  | Meaning                                                       |
-| -------------------------- | ------------------------------------------------------------- |
-| **Present over future**    | Implement current requests, not anticipated needs             |
-| **Concrete over abstract** | Build specific solutions, not abstract frameworks             |
-| **Explicit over clever**   | Choose clarity over sophistication                            |
-| **Edit over create**       | Modify what exists before creating new                        |
-| **Verification-first**     | Shape work by starting with proof-of-success                  |
-| **Scope-bounded**          | Delta files are explicit so humans can audit agent boundaries |
-| **Memory compounds**       | Each campaign leaves the system smarter                       |
-| **Escalation as success**  | Honest escalation beats confident failure                     |
+| Principle                  | Meaning                                                           |
+| -------------------------- | ----------------------------------------------------------------- |
+| **Memory compounds**       | Each campaign leaves the system smarter                           |
+| **Verify First**           | Shape work by starting with proof-of-success                      |
+| **Bounded Scope**          | Workspace files are explicit so humans can audit agent boundaries |
+| **Present over Future**    | Implement current requests, not anticipated needs                 |
+| **Explicit over Clever**   | Focus on clarity over sophistication                              |
+| **Concrete over Abstract** | Build specific solutions, not abstract frameworks                 |
+| **Edit over Create**       | Modify what exists before creating something new                  |
+
+None of these are new. In fact they read like the 101s of good software development. However, anyone who's worked with coding agents knows that the models like to work and stay busy. Every part of `ftl` is built around these principles to turn them into its north star.
 
 ## Installation
 
@@ -78,11 +81,12 @@ claude plugin install forge@crinzo-plugins
 
 ### What's Included
 
-| Plugin      | Description                                                                                                                                                                |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **tether**  | Core orchestrator with 5 agents (tether-orchestrator, assess, anchor, code-builder, reflect), 4 commands, and output style. Prevents scope creep via Path+Delta anchoring. |
-| **lattice** | Semantic memory with 2 agents (miner, surface), 7 commands, session hooks, and output style. Makes workspace decisions queryable.                                          |
-| **forge**   | Meta-orchestrator with 5 agents (forge-orchestrator, planner, reflector, synthesizer, scout), 4 commands, and output style. Coordinates multi-task campaigns.              |
+| Plugin      | Description                                                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **forge**   | Orchestrator for complex goals with 4 agents: planner, reflector, synthesizer, scout. Coordinates multi-task campaigns.          |
+| **tether**  | Single-task orchestrator with 4 agents: assess, anchor, code-builder, reflect. Prevents scope creep via Path + Delta anchoring.  |
+| **lattice** | Semantic memory with 2 agents: miner, surface. Learns about decisions over time and makes the growing project context queryable. |
+
 
 ### Recommended Setup
 
