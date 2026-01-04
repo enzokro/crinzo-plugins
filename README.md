@@ -71,9 +71,9 @@ claude plugin install forge@crinzo-plugins
 
 ```bash
 /plugin marketplace add https://github.com/enzokro/crinzo-plugins
-/plugin install tether
-/plugin install lattice
-/plugin install forge
+/plugin install tether@crinzo-plugins
+/plugin install lattice@crinzo-plugins
+/plugin install forge@crinzo-plugins
 ```
 
 ### What's Included
@@ -89,19 +89,19 @@ claude plugin install forge@crinzo-plugins
 For most users, start with just `tether`:
 
 ```bash
-/plugin install tether
+/plugin install tether@crinzo-plugins
 ```
 
 Add `lattice` when your workspace accumulates enough decisions to benefit from semantic search:
 
 ```bash
-/plugin install lattice
+/plugin install lattice@crinzo-plugins
 ```
 
 Add `forge` when you're working on multi-task objectives that span sessions:
 
 ```bash
-/plugin install forge
+/plugin install forge@crinzo-plugins
 ```
 
 ---
