@@ -15,7 +15,9 @@ Create workspace file. Establish Path, Delta, and Verify. Fill Thinking Traces.
 
 ```bash
 mkdir -p workspace
-NEXT=$(( $(ls workspace/ 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1 | sed 's/^0*//') + 1 )); printf "%03d\n" $NEXT
+LAST=`ls workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1`
+NEXT=$((${LAST:-0} + 1))
+printf "%03d\n" $NEXT
 ```
 
 Format: 3-digit zero-padded (001, 002...).

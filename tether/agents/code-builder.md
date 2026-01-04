@@ -64,7 +64,7 @@ Creep signals: "flexible," "extensible," "while we're at it," "in case"
 ### Functional Verification
 If Verify field present in Anchor:
 ```bash
-VERIFY=$(grep "^Verify:" $WORKSPACE | sed 's/Verify:[[:space:]]*//')
+VERIFY=`grep "^Verify:" $WORKSPACE | sed 's/Verify:[[:space:]]*//'`
 if [ -n "$VERIFY" ]; then
   eval "$VERIFY"
 fi
