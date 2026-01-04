@@ -26,26 +26,26 @@ forge (campaign) → tether (task) → workspace/ → lattice (memory)
       └──────────── queries precedent ───────────────┘
 ```
 
-| Plugin | Level | Purpose |
-|--------|-------|---------|
-| **forge** | Campaign | Multi-task objectives spanning sessions |
-| **tether** | Task | Single-task execution with Path+Delta anchoring |
-| **lattice** | Memory | Queryable decision index with signal evolution |
+| Plugin      | Level    | Purpose                                         |
+| ----------- | -------- | ----------------------------------------------- |
+| **forge**   | Campaign | Multi-task objectives spanning sessions         |
+| **tether**  | Task     | Single-task execution with Path+Delta anchoring |
+| **lattice** | Memory   | Queryable decision index with signal evolution  |
 
 ## Philosophy
 
 `ftl` is built on eight principles:
 
-| Principle | Meaning |
-|-----------|---------|
-| **Present over future** | Implement current requests, not anticipated needs |
-| **Concrete over abstract** | Build specific solutions, not abstract frameworks |
-| **Explicit over clever** | Choose clarity over sophistication |
-| **Edit over create** | Modify what exists before creating new |
-| **Verification-first** | Shape work by starting with proof-of-success |
-| **Scope-bounded** | Delta files are explicit so humans can audit agent boundaries |
-| **Memory compounds** | Each campaign leaves the system smarter |
-| **Escalation as success** | Honest escalation beats confident failure |
+| Principle                  | Meaning                                                       |
+| -------------------------- | ------------------------------------------------------------- |
+| **Present over future**    | Implement current requests, not anticipated needs             |
+| **Concrete over abstract** | Build specific solutions, not abstract frameworks             |
+| **Explicit over clever**   | Choose clarity over sophistication                            |
+| **Edit over create**       | Modify what exists before creating new                        |
+| **Verification-first**     | Shape work by starting with proof-of-success                  |
+| **Scope-bounded**          | Delta files are explicit so humans can audit agent boundaries |
+| **Memory compounds**       | Each campaign leaves the system smarter                       |
+| **Escalation as success**  | Honest escalation beats confident failure                     |
 
 ## Installation
 
@@ -58,13 +58,13 @@ Install crinzo-plugins directly without cloning:
 claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
 
 # Install tether (core orchestrator - recommended starting point)
-claude plugin install tether
+claude plugin install tether@crinzo-plugins
 
 # Install lattice (semantic memory for workspaces)
-claude plugin install lattice
+claude plugin install lattice@crinzo-plugins
 
 # Install forge (meta-orchestrator for campaigns)
-claude plugin install forge
+claude plugin install forge@crinzo-plugins
 ```
 
 ### Option 2: From within Claude Code
@@ -78,11 +78,11 @@ claude plugin install forge
 
 ### What's Included
 
-| Plugin | Description |
-|--------|-------------|
-| **tether** | Core orchestrator with 5 agents (tether-orchestrator, assess, anchor, code-builder, reflect), 4 commands, and output style. Prevents scope creep via Path+Delta anchoring. |
-| **lattice** | Semantic memory with 2 agents (miner, surface), 7 commands, session hooks, and output style. Makes workspace decisions queryable. |
-| **forge** | Meta-orchestrator with 5 agents (forge-orchestrator, planner, reflector, synthesizer, scout), 4 commands, and output style. Coordinates multi-task campaigns. |
+| Plugin      | Description                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **tether**  | Core orchestrator with 5 agents (tether-orchestrator, assess, anchor, code-builder, reflect), 4 commands, and output style. Prevents scope creep via Path+Delta anchoring. |
+| **lattice** | Semantic memory with 2 agents (miner, surface), 7 commands, session hooks, and output style. Makes workspace decisions queryable.                                          |
+| **forge**   | Meta-orchestrator with 5 agents (forge-orchestrator, planner, reflector, synthesizer, scout), 4 commands, and output style. Coordinates multi-task campaigns.              |
 
 ### Recommended Setup
 
@@ -116,13 +116,13 @@ Coordinates bounded development objectives through campaigns. Not projects (too 
 objective → plan → execute → learn → [inform next plan]
 ```
 
-| Agent | Purpose | Model |
-|-------|---------|-------|
-| `forge:forge-orchestrator` | Campaign coordination and flow | inherit |
-| `forge:planner` | Verification-first task decomposition | inherit |
-| `forge:reflector` | Failure diagnosis and escalation | inherit |
-| `forge:synthesizer` | Cross-campaign meta-learning | inherit |
-| `forge:scout` | Proactive work suggestions | haiku |
+| Agent                      | Purpose                               | Model   |
+| -------------------------- | ------------------------------------- | ------- |
+| `forge:forge-orchestrator` | Campaign coordination and flow        | inherit |
+| `forge:planner`            | Verification-first task decomposition | inherit |
+| `forge:reflector`          | Failure diagnosis and escalation      | inherit |
+| `forge:synthesizer`        | Cross-campaign meta-learning          | inherit |
+| `forge:scout`              | Proactive work suggestions            | haiku   |
 
 ### Flow
 
@@ -159,12 +159,12 @@ Planner returns a confidence signal:
 
 ### Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/forge <objective>` | Start or resume campaign |
-| `/forge:status` | Campaign + workspace status |
-| `/forge:learn` | Force synthesis manually |
-| `/forge:scout` | Get proactive suggestions |
+| Command              | Purpose                     |
+| -------------------- | --------------------------- |
+| `/forge <objective>` | Start or resume campaign    |
+| `/forge:status`      | Campaign + workspace status |
+| `/forge:learn`       | Force synthesis manually    |
+| `/forge:scout`       | Get proactive suggestions   |
 
 ### Example
 
@@ -216,12 +216,12 @@ Executes single tasks with precision. Anchors work to two concepts that prevent 
 [Assess] → route → [Anchor] → Path+Delta → [Build] → complete → [Reflect]
 ```
 
-| Agent | Purpose | Model |
-|-------|---------|-------|
-| `tether:assess` | Route: full / direct / clarify | haiku |
-| `tether:anchor` | Establish Path, Delta, Thinking Traces | inherit |
-| `tether:code-builder` | Implement within constraints | inherit |
-| `tether:reflect` | Extract patterns (conditional) | inherit |
+| Agent                 | Purpose                                | Model   |
+| --------------------- | -------------------------------------- | ------- |
+| `tether:assess`       | Route: full / direct / clarify         | haiku   |
+| `tether:anchor`       | Establish Path, Delta, Thinking Traces | inherit |
+| `tether:code-builder` | Implement within constraints           | inherit |
+| `tether:reflect`      | Extract patterns (conditional)         | inherit |
 
 ### Flow
 
@@ -272,12 +272,12 @@ Branch: [git branch]
 
 ### Commands
 
-| Command | Purpose |
-|---------|---------|
+| Command             | Purpose                           |
+| ------------------- | --------------------------------- |
 | `/tether:workspace` | Query workspace state and lineage |
-| `/tether:anchor` | Create workspace file manually |
-| `/tether:close` | Complete task manually |
-| `/tether:stats` | Workspace statistics |
+| `/tether:anchor`    | Create workspace file manually    |
+| `/tether:close`     | Complete task manually            |
+| `/tether:stats`     | Workspace statistics              |
 
 ### Example
 
@@ -320,10 +320,10 @@ The graph treats decisions as nodes and patterns as edges. Lineage chains, patte
 
 ### Agents
 
-| Agent | Purpose | Model |
-|-------|---------|-------|
-| `lattice:miner` | Extract and index decisions from workspace | haiku |
-| `lattice:surface` | Find relevant decisions for a topic | haiku |
+| Agent             | Purpose                                    | Model |
+| ----------------- | ------------------------------------------ | ----- |
+| `lattice:miner`   | Extract and index decisions from workspace | haiku |
+| `lattice:surface` | Find relevant decisions for a topic        | haiku |
 
 ### Hybrid Retrieval
 
@@ -341,16 +341,16 @@ Query expansion maps related concepts: `auth` finds decisions tagged with `sessi
 
 ### Commands
 
-| Command | Purpose |
-|---------|---------|
-| `/lattice <topic>` | Surface relevant decisions |
-| `/lattice:mine` | Build decision index |
-| `/lattice:decision NNN` | Full decision record with traces |
-| `/lattice:lineage NNN` | Decision ancestry chain |
-| `/lattice:trace #pattern/X` | Find decisions using a pattern |
-| `/lattice:impact <file>` | Find decisions affecting a file |
-| `/lattice:age [days]` | Find stale decisions |
-| `/lattice:signal +/- #pattern/X` | Mark pattern outcome |
+| Command                          | Purpose                          |
+| -------------------------------- | -------------------------------- |
+| `/lattice <topic>`               | Surface relevant decisions       |
+| `/lattice:mine`                  | Build decision index             |
+| `/lattice:decision NNN`          | Full decision record with traces |
+| `/lattice:lineage NNN`           | Decision ancestry chain          |
+| `/lattice:trace #pattern/X`      | Find decisions using a pattern   |
+| `/lattice:impact <file>`         | Find decisions affecting a file  |
+| `/lattice:age [days]`            | Find stale decisions             |
+| `/lattice:signal +/- #pattern/X` | Mark pattern outcome             |
 
 ### Example
 
