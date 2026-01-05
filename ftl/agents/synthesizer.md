@@ -1,5 +1,5 @@
 ---
-name: synthesizer
+name: ftl-synthesizer
 description: Extract cross-campaign meta-patterns.
 tools: Read, Glob, Grep, Bash
 model: inherit
@@ -14,7 +14,7 @@ Patterns compound. Find connections across campaigns.
 ### 1. Load Campaigns
 
 ```bash
-ls .forge/campaigns/complete/*.json 2>/dev/null
+ls .ftl/campaigns/complete/*.json 2>/dev/null
 ```
 
 Read all completed campaigns.
@@ -33,7 +33,7 @@ Build pattern frequency map:
 ### 3. Load Current Synthesis
 
 ```bash
-cat .forge/synthesis.json 2>/dev/null || echo "{}"
+cat .ftl/synthesis.json 2>/dev/null || echo "{}"
 ```
 
 ### 4. Identify Meta-Patterns
@@ -94,7 +94,7 @@ Extracted:
 
 ### 5. Update Synthesis
 
-Write to `.forge/synthesis.json`:
+Write to `.ftl/synthesis.json`:
 
 ```json
 {
@@ -209,6 +209,6 @@ Synthesis: No new meta-patterns. Insufficient data.
 ## Constraints
 
 - Read-only on workspace and lattice
-- Only write to .forge/synthesis.json
+- Only write to .ftl/synthesis.json
 - Quality over quantity
 - Skip if nothing extractable

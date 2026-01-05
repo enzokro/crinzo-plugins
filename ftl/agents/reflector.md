@@ -1,5 +1,5 @@
 ---
-name: reflector
+name: ftl-reflector
 description: Failure diagnosis. Escalation as decision point, not failure.
 tools: Read, Grep
 model: inherit

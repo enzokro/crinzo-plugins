@@ -1,5 +1,5 @@
 ---
-name: scout
+name: ftl-scout
 description: Analyze state and suggest work proactively.
 tools: Read, Glob, Grep, Bash
 model: haiku
@@ -38,7 +38,7 @@ Patterns with negative signals → suggest investigation or deprecation.
 ### 4. Check Synthesis Opportunities
 
 ```bash
-ls .forge/campaigns/complete/*.json 2>/dev/null | wc -l
+ls .ftl/campaigns/complete/*.json 2>/dev/null | wc -l
 ```
 
 If 3+ campaigns complete since last synthesis → suggest `/ftl:learn`.

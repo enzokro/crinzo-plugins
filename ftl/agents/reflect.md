@@ -1,5 +1,5 @@
 ---
-name: reflect
+name: ftl-reflect
 description: Extracts reusable patterns from completed work. Conditional.
 tools: Read, Edit
 model: inherit

@@ -1,5 +1,5 @@
 ---
-name: anchor
+name: ftl-anchor
 description: Creates workspace file with Path, Delta, Thinking Traces.
 tools: Read, Write, Glob, Grep, Bash
 model: inherit

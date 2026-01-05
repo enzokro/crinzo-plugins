@@ -30,9 +30,9 @@ class EmbeddingStore:
     and hybrid retrieval (exact + semantic matches).
     """
 
-    def __init__(self, lattice_dir=".lattice"):
-        self.lattice_dir = Path(lattice_dir)
-        self.vectors_dir = self.lattice_dir / "vectors"
+    def __init__(self, ftl_dir=".ftl"):
+        self.ftl_dir = Path(ftl_dir)
+        self.vectors_dir = self.ftl_dir / "vectors"
         self._model = None  # Lazy load
 
     @property

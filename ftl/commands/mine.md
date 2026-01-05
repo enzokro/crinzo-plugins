@@ -58,7 +58,7 @@ If sentence-transformers is not installed:
 ## Storage
 
 ```
-.lattice/
+.ftl/
 ├── index.json      # Decision records + pattern index
 ├── edges.json      # Derived relationships
 ├── signals.json    # Outcome tracking
@@ -70,4 +70,4 @@ If sentence-transformers is not installed:
 ## Constraints
 
 - Only reads workspace files
-- Only writes to .lattice/
+- Only writes to .ftl/

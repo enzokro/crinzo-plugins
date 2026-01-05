@@ -1,5 +1,5 @@
 ---
-name: miner
+name: ftl-miner
 description: Build decision index from workspace files.
 tools: [Read, Glob, Grep, Bash]
 model: haiku
@@ -60,5 +60,5 @@ Indexed 12 decisions, 8 patterns from workspace
 ## Constraints
 
 - Only read workspace files
-- Only write to .lattice/
+- Only write to .ftl/
 - Process all statuses (complete, active, blocked)

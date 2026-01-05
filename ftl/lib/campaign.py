@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-FORGE_DIR = ".forge"
+FORGE_DIR = ".ftl"
 CAMPAIGNS_DIR = "campaigns"
 WORKSPACE_DIR = "workspace"
 
@@ -31,7 +31,7 @@ def validate_campaign_schema(campaign: dict) -> None:
 
 
 def ensure_forge_dir(base: Path = Path(".")) -> Path:
-    """Ensure .forge directory structure exists."""
+    """Ensure .ftl directory structure exists."""
     forge = base / FORGE_DIR
     (forge / CAMPAIGNS_DIR / "active").mkdir(parents=True, exist_ok=True)
     (forge / CAMPAIGNS_DIR / "complete").mkdir(parents=True, exist_ok=True)
@@ -444,7 +444,7 @@ def get_pending_work(base: Path = Path(".")) -> list:
 
 def get_negative_patterns(base: Path = Path(".")) -> list:
     """Get patterns with negative net signals."""
-    lattice_dir = base / ".lattice"
+    lattice_dir = base / ".ftl"
     signals_path = lattice_dir / "signals.json"
 
     if not signals_path.exists():

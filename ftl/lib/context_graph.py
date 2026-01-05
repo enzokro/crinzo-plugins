@@ -19,7 +19,7 @@ if str(_lib_dir) not in sys.path:
 # Now imports work whether run as module or script
 from concepts import expand_query
 
-LATTICE_DIR = ".lattice"
+LATTICE_DIR = ".ftl"
 INDEX_FILE = "index.json"
 EDGES_FILE = "edges.json"
 SIGNALS_FILE = "signals.json"
@@ -31,7 +31,7 @@ FILENAME_PATTERN = re.compile(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$')
 # --- Storage ---
 
 def ensure_lattice_dir(base: Path = Path(".")) -> Path:
-    """Ensure .lattice directory exists."""
+    """Ensure .ftl directory exists."""
     lattice = base / LATTICE_DIR
     lattice.mkdir(parents=True, exist_ok=True)
     return lattice

@@ -1,5 +1,5 @@
 ---
-name: planner
+name: ftl-planner
 description: Verification drives design. How will we prove success?
 tools: Read, Glob, Grep, Bash
 model: inherit
@@ -52,7 +52,7 @@ If you can't answer these, the objective is too vague. Clarify before proceeding
 
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" query "$OBJECTIVE"
-cat .forge/synthesis.json 2>/dev/null
+cat .ftl/synthesis.json 2>/dev/null
 ```
 
 - Which verification strategies worked for similar objectives?

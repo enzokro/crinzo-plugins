@@ -35,7 +35,7 @@ Signal added: #pattern/session-token-flow -> net +2
 
 ## Storage
 
-Signals stored in `.lattice/signals.json`:
+Signals stored in `.ftl/signals.json`:
 ```json
 {
   "#pattern/session-token-flow": {
@@ -57,5 +57,5 @@ signal_factor = 1 + (net_signals * 0.2)
 
 ## Constraints
 
-- Only writes to .lattice/signals.json
+- Only writes to .ftl/signals.json
 - Does not modify workspace files

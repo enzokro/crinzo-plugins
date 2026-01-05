@@ -1,5 +1,5 @@
 ---
-name: assess
+name: ftl-assess
 description: Lightweight routing. Determines full/direct/clarify.
 tools: Bash, Glob, Read
 model: haiku

@@ -30,7 +30,7 @@ Evolution:
 Bridges:
   - retry-with-backoff: auth → api, external-services
 
-Updated: .forge/synthesis.json
+Updated: .ftl/synthesis.json
 ```
 
 ## When to Use

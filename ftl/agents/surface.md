@@ -1,5 +1,5 @@
 ---
-name: surface
+name: ftl-surface
 description: Surface relevant decisions for a topic or task.
 tools: [Read, Glob, Grep, Bash]
 model: haiku
@@ -15,7 +15,7 @@ Given a topic (from prompt or $ARGUMENTS):
 
 1. Check index exists:
 ```bash
-[ -f .lattice/index.json ] && echo "Index found" || echo "No index"
+[ -f .ftl/index.json ] && echo "Index found" || echo "No index"
 ```
 
 2. If no index, run miner first:

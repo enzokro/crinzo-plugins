@@ -11,7 +11,7 @@ Surface relevant decisions from workspace decision traces.
 
 1. Check for index:
 ```bash
-[ -f .lattice/index.json ] || echo "Run /ftl:mine first"
+[ -f .ftl/index.json ] || echo "Run /ftl:mine first"
 ```
 
 2. Parse $ARGUMENTS for topic.
