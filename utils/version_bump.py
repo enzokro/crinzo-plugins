@@ -23,7 +23,7 @@ with open(os.path.join(plugin_path, '.claude-plugin/marketplace.json'), 'r') as 
         json.dump(new_marketplace, f, indent=2)
 
 # change the versions in forge, tether, and lattice 
-for plugin in ['forge', 'tether', 'lattice']:
+for plugin in ['ftl']:
     with open(os.path.join(plugin_path, plugin, '.claude-plugin/plugin.json'), 'r') as f:
         plugin_json = json.load(f)
         new_plugin_json = copy.deepcopy(plugin_json)

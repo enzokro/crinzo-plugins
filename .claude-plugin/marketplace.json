@@ -5,28 +5,10 @@
   },
   "plugins": [
     {
-      "name": "tether",
-      "source": "./tether",
-      "description": "An orchestrator for clean, focused development.",
+      "name": "ftl",
+      "source": "./ftl",
+      "description": "Claude Code orchestrators that build knowledge over time.",
       "version": "1.0.8",
-      "author": {
-        "name": "crinzo"
-      }
-    },
-    {
-      "name": "lattice",
-      "source": "./lattice",
-      "description": "Builds context graphs from tether workspaces.",
-      "version": "1.0.5",
-      "author": {
-        "name": "crinzo"
-      }
-    },
-    {
-      "name": "forge",
-      "source": "./forge",
-      "description": "Coordinates multi-task campaigns with verification-first task decomposition.",
-      "version": "1.0.5",
       "author": {
         "name": "crinzo"
       }

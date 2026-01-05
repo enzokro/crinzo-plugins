@@ -1,6 +1,6 @@
 {
   "name": "ftl",
-  "description": "Unified development orchestration. Tasks, campaigns, memory.",
+  "description": "Claude Code orchestrators that build knowledge over time.",
   "version": "1.0.0",
   "author": {
     "name": "crinzo"
