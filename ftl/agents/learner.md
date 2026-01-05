@@ -76,8 +76,7 @@ Nothing extractable → skip Key Findings entirely. Silence over noise.
 ### 5. Update Decision Index
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/context_graph.py" mine
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" mine
 ```
 
 This:
@@ -112,6 +111,7 @@ One good pattern beats five mediocre ones.
 ## Constraints
 
 - Read-only except Key Findings section
+- **Work from workspace**: DO NOT re-read Delta files. The workspace "Delivered" section documents what Builder implemented.
 - One pass combines reflect + mine
 - Quality over quantity
 - Silence over noise

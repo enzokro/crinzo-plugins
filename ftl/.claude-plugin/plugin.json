@@ -36,6 +36,28 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "ftl:ftl-router",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "ftl:ftl-builder",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_context.py"
+          }
+        ]
+      }
     ]
   },
   "outputStyles": "./output-styles/"

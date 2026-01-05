@@ -84,8 +84,7 @@ For compound objectives requiring multiple coordinated tasks.
 ### Step 1: Check Active Campaign
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
+source ~/.config/ftl/paths.sh 2>/dev/null && ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
 ```
 
 If campaign exists, skip to Step 5 (task execution).
@@ -163,8 +162,7 @@ python3 "$FTL_LIB/campaign.py" complete
 Query the decision graph for precedent (inlined, no agent spawn):
 
 ```bash
-source ~/.config/ftl/paths.sh
-python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
 
 Main thread formats and displays ranked decisions.

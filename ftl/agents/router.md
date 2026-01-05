@@ -102,9 +102,8 @@ Format: 3-digit zero-padded (001, 002...).
 #### 5b. Query Memory for Precedent
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-# Extract keywords from task description
-python3 "$FTL_LIB/context_graph.py" query "$TASK_KEYWORDS" --format=inject 2>/dev/null
+# Extract keywords from task description and query memory for precedent
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" query "$TASK_KEYWORDS" --format=inject 2>/dev/null
 ```
 
 Query returns precedent block for injection:

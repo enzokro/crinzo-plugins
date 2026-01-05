@@ -107,8 +107,7 @@ Return question to user, halt.
 #### Step 1: Check for Active Campaign
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
+source ~/.config/ftl/paths.sh 2>/dev/null && ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
 ```
 
 If campaign exists, skip to Step 5 (task execution).
@@ -152,8 +151,7 @@ PLAN_OUTPUT="[full planner response including ### Tasks section]"
 
 Create campaign file (**command is `campaign`, NOT `create`**):
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 ```
 
 #### Step 4: Add Tasks from Planner Output
@@ -234,8 +232,7 @@ Task tool with subagent_type: ftl:synthesizer
 No agent spawn. Main thread executes:
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
 
 Format and display ranked decisions with Path, Delta, Tags, and Traces excerpt.

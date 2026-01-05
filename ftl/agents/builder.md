@@ -11,6 +11,7 @@ Implement what was anchored. Complete the task.
 
 ## Core Discipline
 
+- **Use cached contents**: If Delta file contents are pre-loaded in your context, DO NOT re-read those files. Only use Read for files outside the cached Delta.
 - **Test-first**: identify behavior, write test, minimal code to pass
 - **Edit over create**: search for existing location before creating
 - **Line question**: "If I remove this line, does a test fail?"
