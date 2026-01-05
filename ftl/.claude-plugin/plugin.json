@@ -7,16 +7,12 @@
   },
   "skills": "./skills/",
   "agents": [
-    "./agents/assess.md",
-    "./agents/anchor.md",
-    "./agents/code-builder.md",
-    "./agents/reflect.md",
-    "./agents/planner.md",
+    "./agents/router.md",
+    "./agents/builder.md",
     "./agents/reflector.md",
-    "./agents/synthesizer.md",
-    "./agents/scout.md",
-    "./agents/miner.md",
-    "./agents/surface.md"
+    "./agents/learner.md",
+    "./agents/planner.md",
+    "./agents/synthesizer.md"
   ],
   "commands": "./commands/",
   "hooks": {

@@ -12,10 +12,10 @@ Unified entry point for task execution, campaign orchestration, and memory queri
 
 | Input Pattern | Mode | Flow |
 |---------------|------|------|
-| `/ftl <task>` | TASK | assess → (direct\|full) → done |
+| `/ftl <task>` | TASK | router → builder → learner |
 | `/ftl campaign <obj>` | CAMPAIGN | planner → tasks[] → synthesize |
-| `/ftl query <topic>` | MEMORY | surface → context_graph |
-| `/ftl status` | STATUS | campaign + workspace + lattice |
+| `/ftl query <topic>` | MEMORY | inline CLI query |
+| `/ftl status` | STATUS | inline CLI queries |
 
 ---
 
@@ -24,23 +24,25 @@ Unified entry point for task execution, campaign orchestration, and memory queri
 Main thread spawns phases directly (subagents cannot spawn subagents):
 
 ```
-1. Task(ftl:assess) with task description
+1. Task(ftl:router) with task description
    Returns: direct | full | clarify
+   If full: also returns workspace path (router creates it)
 
 2a. If direct:
-    Task(ftl:code-builder) — implement immediately, no workspace
+    Task(ftl:builder) — implement immediately, no workspace
 
 2b. If full:
-    Task(ftl:anchor) — create workspace file
-    Gate: verify Path and Delta populated
-    Task(ftl:code-builder) — implement within Delta
-    Task(ftl:reflect) — extract patterns (conditional)
+    [Workspace already created by router]
+    Task(ftl:builder) — implement within Delta
+    If builder fails verification:
+      Task(ftl:reflector) — diagnose, return RETRY or ESCALATE
+    Task(ftl:learner) — extract patterns, update index
 
 2c. If clarify:
     Return question to user
 ```
 
-### Direct vs Full Routing (assess decides)
+### Direct vs Full Routing (router decides)
 
 **Direct** (no workspace):
 - Single file, location obvious
@@ -52,6 +54,8 @@ Main thread spawns phases directly (subagents cannot spawn subagents):
 - Multi-file or uncertain scope
 - Requires exploration
 - Understanding benefits future work
+
+Router merges assess + anchor: explores AND routes in one pass.
 
 ---
 
@@ -74,12 +78,14 @@ For compound objectives requiring multiple coordinated tasks:
 
 ## Mode: MEMORY
 
-Query the decision graph for precedent:
+Query the decision graph for precedent (inlined, no agent spawn):
 
+```bash
+source ~/.config/ftl/paths.sh
+python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
-Task(ftl:surface) with topic
-Returns ranked precedents from context_graph
-```
+
+Main thread formats and displays ranked decisions.
 
 ---
 
@@ -87,21 +93,23 @@ Returns ranked precedents from context_graph
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ CAMPAIGN (forge)      │ TASK (tether)          │ MEMORY    │
+│ CAMPAIGN              │ TASK                   │ MEMORY    │
 ├────────────────────────────────────────────────────────────┤
 │ Query precedent  ────→│                        │←── query  │
-│                       │                        │           │
-│ Delegate task    ────→│ assess→anchor→build→   │           │
-│                       │ reflect                │           │
+│                       │                        │  (inline) │
+│ Delegate task    ────→│ router→builder→        │           │
+│                       │ reflector→learner      │           │
 │                       │ Creates workspace file │           │
 │                       │                        │           │
 │ Gate on workspace ←───│ Returns _complete.md   │           │
 │                       │                        │           │
 │ Signal patterns  ────→│                        │←── signal │
 │                       │                        │           │
-│ Mine (on close)  ────→│                        │←── mine   │
+│ Learner updates  ────→│                        │←── mine   │
 └────────────────────────────────────────────────────────────┘
 ```
+
+**6 Agents**: router, builder, reflector, learner, planner, synthesizer
 
 ---
 

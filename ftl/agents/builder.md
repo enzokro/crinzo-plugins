@@ -1,5 +1,5 @@
 ---
-name: ftl-code-builder
+name: ftl-builder
 description: Implements exactly what was anchored, completes the task.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
