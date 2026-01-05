@@ -2,7 +2,7 @@
 name: ftl-synthesizer
 description: Extract cross-campaign meta-patterns.
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: opus
 ---
 
 # Synthesizer

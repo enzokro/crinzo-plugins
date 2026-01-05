@@ -1,17 +1,22 @@
 #!/bin/bash
-# capture_delta.sh - Runs after router completes via SubagentStop
-# Extracts Delta files from workspace, caches contents for Builder injection
+# capture_delta.sh - Runs after Router or Builder completes via SubagentStop
+# Extracts Delta files from workspace, caches contents for next agent injection
+#
+# Flow:
+#   Router completes → captures pre-edit Delta files → Builder receives them
+#   Builder completes → captures post-edit Delta files → Learner receives them
 
 set -e
 
-# Clear stale cache
+# Clear stale cache (each transition gets fresh state)
 rm -rf .ftl/cache/* 2>/dev/null || true
 
 # Consume stdin (hook input)
 INPUT=$(cat)
 
-# Find active workspace file
+# Find workspace file (prefer active, fall back to most recent complete)
 WORKSPACE=$(find .ftl/workspace -name "*_active.md" 2>/dev/null | head -1)
+[ -z "$WORKSPACE" ] && WORKSPACE=$(find .ftl/workspace -name "*_complete.md" 2>/dev/null | sort -r | head -1)
 [ -z "$WORKSPACE" ] && exit 0
 
 # Extract Delta paths from workspace (lines after "## Delta" until next ##)

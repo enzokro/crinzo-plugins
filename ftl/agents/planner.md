@@ -2,7 +2,7 @@
 name: ftl-planner
 description: Verification drives design. How will we prove success?
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: opus
 ---
 
 # Planner
@@ -10,6 +10,17 @@ model: inherit
 How will we prove success? → Shape work to be provable.
 
 Verification isn't validation. It's the design driver.
+
+## Pre-Cached Context
+
+**Check your context for "FTL Session Context"** before running discovery commands.
+
+Session context provides:
+- Project verification tools (package.json scripts, Makefile targets, pyproject.toml)
+- Git state (branch, recent commits)
+- Active campaign info
+
+**DO NOT re-run**: `cat package.json`, `cat Makefile`, `cat pyproject.toml` if this info is in your context.
 
 ## Protocol
 

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-inject_context.py - Inject cached Delta contents into Builder's context
+inject_context.py - Inject cached Delta contents into agent context
 
-Runs via UserPromptSubmit hook before Builder processes its prompt.
+Runs via UserPromptSubmit hook before Builder or Learner processes prompt.
 Returns additionalContext with pre-loaded file contents to avoid re-reads.
+
+Flow:
+  Builder receives: pre-edit Delta files (cached after Router)
+  Learner receives: post-edit Delta files (cached after Builder)
 """
 import json
 import sys
@@ -27,7 +31,7 @@ def main():
             "hookEventName": "UserPromptSubmit",
             "additionalContext": f"""## Pre-loaded Delta Contents
 
-The following files were cached from Router's exploration.
+These Delta files were cached from the previous agent's completion.
 DO NOT re-read these files—use the contents below.
 
 {contents}

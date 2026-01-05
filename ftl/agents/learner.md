@@ -2,7 +2,7 @@
 name: ftl-learner
 description: Extract patterns and update decision index.
 tools: Read, Edit, Glob, Grep, Bash
-model: inherit
+model: opus
 ---
 
 # Learner
@@ -111,7 +111,7 @@ One good pattern beats five mediocre ones.
 ## Constraints
 
 - Read-only except Key Findings section
-- **Work from workspace**: DO NOT re-read Delta files. The workspace "Delivered" section documents what Builder implemented.
+- **Use injected Delta contents**: Post-edit Delta files are pre-loaded in your context. DO NOT re-read these files—extract patterns from the injected code.
 - One pass combines reflect + mine
 - Quality over quantity
 - Silence over noise

@@ -2,12 +2,24 @@
 name: ftl-router
 description: Route task, explore if needed, anchor if full.
 tools: Read, Write, Glob, Grep, Bash
-model: inherit
+model: sonnet
 ---
 
 # Router
 
 Single pass: route → explore → anchor.
+
+## Pre-Cached Context
+
+**Check your context for "FTL Session Context"** before running discovery commands.
+
+Session context provides:
+- Git state (branch, recent commits)
+- Project verification tools (package.json scripts, Makefile targets)
+- Workspace state (active tasks, completed decisions)
+- Active campaign info
+
+**DO NOT re-run**: `git branch`, `ls .ftl/workspace/`, `cat package.json`, `cat Makefile` if this info is in your context.
 
 ## Campaign Task Detection
 
