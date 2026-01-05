@@ -52,6 +52,18 @@ Look for:
 → Evolution: security improvement
 ```
 
+**Decision-Based Evolution** (Phase D) - Mine Options Considered:
+```
+Decision 015 rejected localStorage (XSS)
+Decision 023 rejected localStorage (XSS)
+→ #antipattern/jwt-localstorage evolves to #pattern/httponly-cookies
+```
+
+Look for patterns across Options Considered sections:
+- Same approach rejected multiple times → antipattern
+- Rejection reason consistent → condition discovered
+- Chosen approach addresses rejection → evolution confirmed
+
 **Domain Bridges** - Patterns that transfer:
 ```
 #pattern/retry-with-backoff used in auth, now applies to API
@@ -108,12 +120,22 @@ Write to `.ftl/synthesis.json`:
   ],
   "evolution": [
     {
-      "from": "#pattern/jwt-storage",
+      "from": "#antipattern/jwt-localstorage",
       "to": "#pattern/httponly-cookies",
-      "reason": "security",
-      "campaigns": ["security-audit", "auth-refactor"]
+      "trigger": "security audit",
+      "decisions": ["008", "015"],
+      "rejected_count": 3,
+      "rejection_reasons": ["XSS vulnerability", "security audit"],
+      "confidence": 0.9
     }
   ],
+  "conditions": {
+    "#pattern/session-rotation": {
+      "works_when": ["cookies", "long-lived sessions"],
+      "fails_when": ["clock-skew", "high-concurrency"],
+      "learned_from": ["015", "023"]
+    }
+  },
   "bridges": [
     {
       "pattern": "#pattern/retry-with-backoff",

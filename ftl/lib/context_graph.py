@@ -196,6 +196,45 @@ def parse_delta_patterns(delta: str) -> list:
     return patterns
 
 
+def parse_options_considered(content: str) -> list:
+    """Parse Options Considered section into structured list."""
+    section = extract_section(content, "Options Considered")
+    if not section:
+        return []
+
+    options = []
+    # Match numbered options: "1. option — outcome (reason)"
+    for match in re.finditer(r'^\d+\.\s*(.+?)(?:\s*[-—]\s*\*?\*?(\w+)\*?\*?)?(?:\s*\(([^)]+)\))?$',
+                             section, re.MULTILINE):
+        choice = match.group(1).strip()
+        outcome = match.group(2).lower() if match.group(2) else ""
+        reason = match.group(3) or ""
+
+        # Normalize outcome
+        if "chosen" in outcome or "**chosen**" in choice.lower():
+            outcome = "chosen"
+        elif "reject" in outcome:
+            outcome = "rejected"
+
+        options.append({
+            "choice": choice,
+            "outcome": outcome,
+            "reason": reason
+        })
+
+    return options
+
+
+def parse_precedent_used(content: str) -> list:
+    """Extract patterns/constraints referenced in Precedent section."""
+    section = extract_section(content, "Precedent")
+    if not section:
+        return []
+
+    # Find all tags mentioned in Precedent
+    return list(set(TAG_PATTERN.findall(section)))
+
+
 def parse_workspace_file(path: Path) -> dict:
     """Parse full decision record from workspace file."""
     content = path.read_text()
@@ -210,11 +249,17 @@ def parse_workspace_file(path: Path) -> dict:
     # Extract tags
     tags = list(set(TAG_PATTERN.findall(content)))
 
-    # Extract full structure
+    # Extract full structure (Implementation section)
     path_content = extract_section(content, "Path")
     delta_content = extract_section(content, "Delta")
     traces_content = extract_section(content, "Thinking Traces")
     delivered_content = extract_section(content, "Delivered")
+
+    # Extract decision-centric fields (Phase D)
+    question = extract_section(content, "Question")
+    decision = extract_section(content, "Decision")
+    options = parse_options_considered(content)
+    precedent_used = parse_precedent_used(content)
 
     # Extract semantic memory fields (v2)
     rationale = extract_section(content, "Rationale")
@@ -233,6 +278,11 @@ def parse_workspace_file(path: Path) -> dict:
         "parent": parent,
         "mtime": mtime,
         "file": path.name,
+        # Decision-centric (Phase D)
+        "question": question,
+        "decision": decision,
+        "options": options,
+        "precedent_used": precedent_used,
         # Full structure
         "path": path_content,
         "delta": delta_content,
@@ -274,6 +324,12 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
             "mtime": parsed["mtime"],
             "status": parsed["status"],
             "parent": parsed["parent"],
+            # Decision-centric (Phase D)
+            "question": parsed.get("question", ""),
+            "decision": parsed.get("decision", ""),
+            "options": parsed.get("options", []),
+            "precedent_used": parsed.get("precedent_used", []),
+            # Implementation
             "path": parsed["path"],
             "delta": parsed["delta"],
             "delta_files": parsed["delta_files"],
@@ -624,13 +680,23 @@ def format_decision(d: dict, signals: dict = None) -> str:
     age = d.get("age_days", 0)
     parent = d.get("parent")
 
-    lines = [f"[{seq}] {slug} ({age}d ago, {status})"]
+    # Use question as title if available, else slug
+    title = d.get("question") or slug
+    lines = [f"[{seq}] {title[:60]} ({age}d ago, {status})"]
+
+    # Show decision if available
+    if d.get("decision"):
+        lines.append(f"  Decision: {d['decision'][:80]}")
+
+    # Show rejected options if available
+    rejected = [o for o in d.get("options", []) if o.get("outcome") == "rejected"]
+    if rejected:
+        rejected_strs = [f"{o['choice'][:30]} ({o['reason'][:20]})" if o.get('reason') else o['choice'][:40]
+                        for o in rejected[:3]]
+        lines.append(f"  Rejected: {', '.join(rejected_strs)}")
 
     if d.get("path"):
         lines.append(f"  Path: {d['path'][:80]}")
-
-    if d.get("delta"):
-        lines.append(f"  Delta: {d['delta'][:60]}")
 
     if d.get("tags"):
         tag_strs = []
@@ -663,6 +729,66 @@ def format_decisions(results: list, limit: int = 10, signals: dict = None) -> st
     return '\n\n'.join(output)
 
 
+def format_for_injection(results: list, signals: dict = None, limit: int = 5) -> str:
+    """Format query results for injection into workspace Precedent section.
+
+    Returns a ready-to-paste markdown block for the router to inject.
+    """
+    if not results:
+        return "## Precedent\nNo relevant prior decisions."
+
+    signals = signals or {}
+
+    # Collect related decisions
+    related = []
+    for r in results[:limit]:
+        seq = r.get("seq", "???")
+        slug = r.get("slug", "unknown")
+        parent = r.get("parent")
+        suffix = f" (from {parent})" if parent else ""
+        related.append(f"[{seq}] {slug}{suffix}")
+
+    # Collect patterns/antipatterns/constraints with signals
+    patterns = []
+    antipatterns = []
+    constraints = []
+
+    seen_tags = set()
+    for r in results[:limit]:
+        for tag in r.get("tags", []):
+            if tag in seen_tags:
+                continue
+            seen_tags.add(tag)
+
+            net = signals.get(tag, {}).get("net", 0)
+            if net > 0:
+                tag_str = f"{tag} (+{net})"
+            elif net < 0:
+                tag_str = f"{tag} ({net})"
+            else:
+                tag_str = tag
+
+            if tag.startswith("#pattern/"):
+                patterns.append(tag_str)
+            elif tag.startswith("#antipattern/"):
+                antipatterns.append(tag_str)
+            elif tag.startswith("#constraint/"):
+                constraints.append(tag_str)
+
+    # Build output
+    lines = ["## Precedent"]
+    lines.append(f"Related: {', '.join(related)}")
+
+    if patterns:
+        lines.append(f"Patterns: {', '.join(patterns)}")
+    if antipatterns:
+        lines.append(f"Antipatterns: {', '.join(antipatterns)}")
+    if constraints:
+        lines.append(f"Constraints: {', '.join(constraints)}")
+
+    return '\n'.join(lines)
+
+
 # --- CLI ---
 
 def main():
@@ -680,6 +806,8 @@ def main():
     # Query
     query_p = sub.add_parser('query', aliases=['q'], help='Query decisions')
     query_p.add_argument('topic', nargs='?', help='Topic to filter by')
+    query_p.add_argument('--format', choices=['human', 'inject'], default='human',
+                         help='Output format: human (default) or inject (for workspace precedent)')
 
     # Decision
     dec_p = sub.add_parser('decision', aliases=['d'], help='Show full decision record')
@@ -724,11 +852,16 @@ def main():
     elif args.cmd in ('query', 'q'):
         results = query_decisions(args.topic, args.base)
         memory = load_memory(args.base)
-        if args.topic:
-            print(f"Decisions for '{args.topic}':\n")
+
+        if args.format == 'inject':
+            # Output ready-to-paste Precedent section for workspace
+            print(format_for_injection(results, signals=memory.get("patterns", {})))
         else:
-            print("All decisions (ranked):\n")
-        print(format_decisions(results, signals=memory.get("patterns", {})))
+            if args.topic:
+                print(f"Decisions for '{args.topic}':\n")
+            else:
+                print("All decisions (ranked):\n")
+            print(format_decisions(results, signals=memory.get("patterns", {})))
 
     elif args.cmd in ('decision', 'd'):
         d = get_decision(args.seq, args.base)

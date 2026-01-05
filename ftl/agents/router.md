@@ -76,14 +76,29 @@ printf "%03d\n" $NEXT
 
 Format: 3-digit zero-padded (001, 002...).
 
-#### 5b. Mine Workspace
+#### 5b. Query Memory for Precedent
 
 ```bash
-ls -t workspace/*_complete*.md 2>/dev/null | head -10
-grep -h "^#pattern/\|^#constraint/\|^#decision/" workspace/*_complete*.md 2>/dev/null | sort -u
+source ~/.config/ftl/paths.sh 2>/dev/null
+# Extract keywords from task description
+python3 "$FTL_LIB/context_graph.py" query "$TASK_KEYWORDS" --format=inject 2>/dev/null
 ```
 
-Read related completed files. Document inherited context in Thinking Traces.
+Query returns precedent block for injection:
+```
+## Precedent
+Related: [015] auth-refactor, [008] security-audit
+Patterns: #pattern/session-token-flow (+2), #pattern/token-lifecycle (+3)
+Antipatterns: #antipattern/jwt-localstorage (-2)
+Constraints: #constraint/httponly-cookies
+```
+
+If no relevant precedent, leave section as: `## Precedent\nNo relevant prior decisions.`
+
+Also check recent workspace files for lineage:
+```bash
+ls -t workspace/*_complete*.md 2>/dev/null | head -5
+```
 
 #### 5c. Explore Codebase
 
@@ -117,24 +132,44 @@ git branch --show-current 2>/dev/null
 Path: `workspace/NNN_task-slug_active[_from-NNN].md`
 
 ```markdown
-# NNN: Task Name
+# NNN: [Decision Title — frame as choice/question resolved]
 
-## Anchor
+## Question
+[What decision does this task resolve? Frame as "How should we..." or "What approach for..."]
+
+## Precedent
+[Injected from memory query — patterns, antipatterns, related decisions]
+
+## Options Considered
+[Filled by Builder/Learner — document alternatives explored and rejected]
+
+## Decision
+[Filled by Builder — explicit choice with brief rationale]
+
+## Implementation
 Path: [Input] → [Processing] → [Output]
 Delta: [file paths or patterns]
 Verify: [verification command, if discovered]
 Branch: [current branch if not main]
 
 ## Thinking Traces
-[exploration findings]
+[exploration findings, inherited context]
 
 ## Delivered
-[filled by Build]
+[filled by Builder]
+
+## Key Findings
+[filled by Learner — #pattern/, #constraint/, #decision/, #antipattern/]
 ```
 
-### 6. Path and Delta Quality
+**Framing guidance**: Title should capture the decision, not the task.
+- Task: "Add user authentication" → Decision: "Session Persistence Strategy"
+- Task: "Fix login bug" → Decision: "Auth Token Validation Approach"
+- Simple tasks may not need full decision framing — use judgment.
 
-**Path** = data transformation with arrows:
+### 6. Implementation Quality
+
+**Path** = data transformation with arrows (under Implementation section):
 ```
 Good: User request → API endpoint → Database → Response
 Bad: Create a configuration system (goal, not transformation)
@@ -144,6 +179,12 @@ Bad: Create a configuration system (goal, not transformation)
 ```
 Vague: modify auth handling (hook can't enforce)
 Precise: src/auth/*.ts, tests/auth/*.test.ts (hook enforces)
+```
+
+**Question** = decision framing (router fills):
+```
+Good: How should we persist user sessions securely?
+Bad: Add session handling (task, not decision)
 ```
 
 ### 7. Lineage
