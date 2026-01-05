@@ -300,7 +300,7 @@ def parse_workspace_file(path: Path) -> dict:
 
 # --- Mining ---
 
-def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) -> dict:
+def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path(".")) -> dict:
     """Build decision index from workspace files."""
     # Load existing memory to preserve signal history
     existing = load_memory(base)
@@ -795,7 +795,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(prog='lattice', description='Context graph for workspace decisions')
-    parser.add_argument('-w', '--workspace', type=Path, default=Path('workspace'))
+    parser.add_argument('-w', '--workspace', type=Path, default=Path('.ftl/workspace'))
     parser.add_argument('-b', '--base', type=Path, default=Path('.'))
 
     sub = parser.add_subparsers(dest='cmd')

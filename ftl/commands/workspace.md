@@ -26,24 +26,24 @@ source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/workspace.py" linea
 
 **"active" | "blocked" | "complete"** — filter:
 ```bash
-ls -la workspace/*_${STATUS}*.md 2>/dev/null
+ls -la .ftl/workspace/*_${STATUS}*.md 2>/dev/null
 ```
 
 **"roots"** — no parent:
 ```bash
-ls workspace/*.md 2>/dev/null | while read f; do
+ls .ftl/workspace/*.md 2>/dev/null | while read f; do
   [[ ! "$f" =~ _from-[0-9] ]] && basename "$f"
 done
 ```
 
 **"tags"** — Key Findings:
 ```bash
-grep -h "^#pattern/\|^#constraint/\|^#decision/" workspace/*_complete*.md 2>/dev/null | sort -u
+grep -h "^#pattern/\|^#constraint/\|^#decision/" .ftl/workspace/*_complete*.md 2>/dev/null | sort -u
 ```
 
 **"find PATTERN"** — search:
 ```bash
-grep -rn "PATTERN" workspace/*.md 2>/dev/null
+grep -rn "PATTERN" .ftl/workspace/*.md 2>/dev/null
 ```
 
 ## Indicators

@@ -102,7 +102,7 @@ def cmd_graph(files: dict, children: dict, args):
 
 def main():
     parser = argparse.ArgumentParser(prog='wql', description='Workspace Query Language')
-    parser.add_argument('-w', '--workspace', type=Path, default=Path('./workspace'))
+    parser.add_argument('-w', '--workspace', type=Path, default=Path('./.ftl/workspace'))
 
     sub = parser.add_subparsers(dest='cmd')
     sub.add_parser('stat', aliases=['s'], help='Status counts')

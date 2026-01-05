@@ -51,7 +51,7 @@ Reason: [one sentence]
 ### 2. Check Lineage (for Full Tasks)
 
 ```bash
-ls workspace/*_complete*.md 2>/dev/null | tail -5
+ls .ftl/workspace/*_complete*.md 2>/dev/null | tail -5
 ```
 
 Note related completed tasks for context. Look for lineage: does completed task relate? Note parent task number if so.
@@ -91,8 +91,8 @@ Reason: [one sentence]
 #### 5a. Sequence Number
 
 ```bash
-mkdir -p workspace
-LAST=$(ls workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
+mkdir -p .ftl/workspace
+LAST=$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
 NEXT=$((${LAST:-0} + 1))
 printf "%03d\n" $NEXT
 ```
@@ -120,7 +120,7 @@ If no relevant precedent, leave section as: `## Precedent\nNo relevant prior dec
 
 Also check recent workspace files for lineage:
 ```bash
-ls -t workspace/*_complete*.md 2>/dev/null | head -5
+ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -5
 ```
 
 #### 5c. Explore Codebase
@@ -152,7 +152,7 @@ git branch --show-current 2>/dev/null
 
 #### 5e. Create Workspace File
 
-Path: `workspace/NNN_task-slug_active[_from-NNN].md`
+Path: `.ftl/workspace/NNN_task-slug_active[_from-NNN].md`
 
 ```markdown
 # NNN: [Decision Title — frame as choice/question resolved]

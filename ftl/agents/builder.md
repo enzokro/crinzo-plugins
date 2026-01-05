@@ -33,12 +33,12 @@ If this work yielded reusable patterns worth extracting, add `#reflect` tag.
 ### Completion
 
 ```bash
-mv workspace/NNN_slug_active.md workspace/NNN_slug_complete.md
+mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_complete.md
 ```
 
 Or if blocked:
 ```bash
-mv workspace/NNN_slug_active.md workspace/NNN_slug_blocked.md
+mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_blocked.md
 ```
 
 ## Minimalism

@@ -268,7 +268,7 @@ def test_gate_integration(lib_path):
     try:
         # Create FTL structure
         os.makedirs(f"{tmpdir}/.ftl/campaigns/active", exist_ok=True)
-        os.makedirs(f"{tmpdir}/workspace", exist_ok=True)
+        os.makedirs(f"{tmpdir}/.ftl/workspace", exist_ok=True)
 
         # Create campaign with task
         subprocess.run(
@@ -289,7 +289,7 @@ def test_gate_integration(lib_path):
         assert "no workspace file" in result.stderr.lower()
 
         # With wrong filename format - should fail
-        Path(f"{tmpdir}/workspace/1_test-task_complete.md").write_text("# Wrong format")
+        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.md").write_text("# Wrong format")
         result = subprocess.run(
             f'python3 "{lib_path}/campaign.py" -b {tmpdir} update-task 001 complete',
             shell=True, capture_output=True, text=True
@@ -297,8 +297,8 @@ def test_gate_integration(lib_path):
         assert result.returncode != 0, "Should fail with wrong format"
 
         # Remove wrong file, create correct one
-        Path(f"{tmpdir}/workspace/1_test-task_complete.md").unlink()
-        Path(f"{tmpdir}/workspace/001_test-task_complete.md").write_text("# Correct format")
+        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.md").unlink()
+        Path(f"{tmpdir}/.ftl/workspace/001_test-task_complete.md").write_text("# Correct format")
 
         result = subprocess.run(
             f'python3 "{lib_path}/campaign.py" -b {tmpdir} update-task 001 complete',

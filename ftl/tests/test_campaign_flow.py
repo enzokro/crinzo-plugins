@@ -31,7 +31,7 @@ def test_setup():
     tmpdir = tempfile.mkdtemp(prefix="ftl_test_")
     os.makedirs(f"{tmpdir}/.ftl/campaigns/active", exist_ok=True)
     os.makedirs(f"{tmpdir}/.ftl/campaigns/complete", exist_ok=True)
-    os.makedirs(f"{tmpdir}/workspace", exist_ok=True)
+    os.makedirs(f"{tmpdir}/.ftl/workspace", exist_ok=True)
     return tmpdir
 
 
@@ -68,7 +68,7 @@ def test_workspace_gate(lib_path, tmpdir):
     assert "no workspace file" in err.lower(), f"Wrong error: {err}"
 
     # Create workspace file
-    Path(f"{tmpdir}/workspace/001_test-slug_complete.md").write_text("# Test")
+    Path(f"{tmpdir}/.ftl/workspace/001_test-slug_complete.md").write_text("# Test")
 
     # Now should succeed
     code, out, err = run_cmd(
@@ -137,7 +137,7 @@ def test_update_task_seq_normalization(lib_path, tmpdir):
     # Reset
     for f in Path(f"{tmpdir}/.ftl/campaigns/active").glob("*.json"):
         f.unlink()
-    for f in Path(f"{tmpdir}/workspace").glob("*.md"):
+    for f in Path(f"{tmpdir}/.ftl/workspace").glob("*.md"):
         f.unlink()
 
     # Create campaign with task
@@ -145,7 +145,7 @@ def test_update_task_seq_normalization(lib_path, tmpdir):
     run_cmd(f'python3 "{lib_path}/campaign.py" -b {tmpdir} add-task 5 five-task')
 
     # Create workspace file with normalized name (005)
-    Path(f"{tmpdir}/workspace/005_five-task_complete.md").write_text("# Test")
+    Path(f"{tmpdir}/.ftl/workspace/005_five-task_complete.md").write_text("# Test")
 
     # Try to update with raw "5" - should work because CLI normalizes
     code, out, err = run_cmd(
@@ -162,7 +162,7 @@ def test_update_task_mismatch_fix(lib_path, tmpdir):
     # Reset
     for f in Path(f"{tmpdir}/.ftl/campaigns/active").glob("*.json"):
         f.unlink()
-    for f in Path(f"{tmpdir}/workspace").glob("*.md"):
+    for f in Path(f"{tmpdir}/.ftl/workspace").glob("*.md"):
         f.unlink()
 
     # Create campaign and manually inject task with non-normalized seq
@@ -176,7 +176,7 @@ def test_update_task_mismatch_fix(lib_path, tmpdir):
     campaign_file.write_text(json.dumps(campaign, indent=2))
 
     # Create workspace file with normalized name
-    Path(f"{tmpdir}/workspace/007_legacy-task_complete.md").write_text("# Test")
+    Path(f"{tmpdir}/.ftl/workspace/007_legacy-task_complete.md").write_text("# Test")
 
     # Try to update - should match despite "7" vs "007"
     code, out, err = run_cmd(

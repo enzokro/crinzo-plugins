@@ -200,7 +200,7 @@ Main thread formats and displays ranked decisions.
 Task state persists in workspace files:
 
 ```
-workspace/NNN_task-slug_status[_from-NNN].md
+.ftl/workspace/NNN_task-slug_status[_from-NNN].md
 ```
 
 Status: `active` | `complete` | `blocked`

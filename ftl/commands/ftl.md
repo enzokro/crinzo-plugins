@@ -191,7 +191,7 @@ Prompt: |
 
 The `Campaign:` prefix forces router to:
 - Route `full` (not `direct`)
-- Create workspace file
+- Create workspace file in `.ftl/workspace/`
 - Return workspace path
 
 After router returns, invoke builder:

@@ -323,7 +323,7 @@ def increment_revision(campaign: dict, base: Path = Path(".")) -> int:
 
 def get_active_workspace_files(base: Path = Path(".")) -> list:
     """Get active workspace files for coordination."""
-    workspace = base / WORKSPACE_DIR
+    workspace = base / FORGE_DIR / WORKSPACE_DIR
     if not workspace.exists():
         return []
 
@@ -373,7 +373,7 @@ def check_active_conflicts(campaign: dict, base: Path = Path(".")) -> list:
 
 def get_next_sequence(base: Path = Path(".")) -> str:
     """Get next available sequence number."""
-    workspace = base / WORKSPACE_DIR
+    workspace = base / FORGE_DIR / WORKSPACE_DIR
     if not workspace.exists():
         return "001"
 
@@ -500,7 +500,7 @@ def get_synthesis_status(base: Path = Path(".")) -> dict:
 
 def get_stale_workspace_files(hours: int = 24, base: Path = Path(".")) -> list:
     """Get active workspace files older than threshold."""
-    workspace = base / WORKSPACE_DIR
+    workspace = base / FORGE_DIR / WORKSPACE_DIR
     if not workspace.exists():
         return []
 
@@ -669,7 +669,7 @@ def main():
             seq = f"{int(args.seq):03d}"
             # ENFORCE workspace gate for completion
             if args.status == "complete":
-                workspace = args.base / WORKSPACE_DIR
+                workspace = args.base / FORGE_DIR / WORKSPACE_DIR
                 pattern = f"{seq}_*_complete*.md"
                 matches = list(workspace.glob(pattern))
                 if not matches:
