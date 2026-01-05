@@ -9,9 +9,32 @@ model: inherit
 
 Single pass: route → explore → anchor.
 
+## Campaign Task Detection
+
+**If prompt starts with `Campaign:` prefix:**
+
+- **MUST** route `full`
+- **MUST** create workspace file
+- **MUST NOT** return `direct`
+- **MUST NOT** return `clarify` (campaign tasks are pre-scoped by planner)
+
+This is a contract enforcement. The campaign gate (`update-task complete`) will fail if no workspace file exists.
+
+Campaign tasks are identified by this prompt format:
+```
+Campaign: [objective]
+Task: [SEQ] [slug]
+
+[description]
+```
+
+When detected, skip Quick Route Check and go directly to Step 5 (create workspace).
+
 ## Protocol
 
 ### 1. Quick Route Check (Fast Path)
+
+**Skip this section if Campaign task detected.**
 
 If task is obviously direct:
 - Single file, location obvious
@@ -39,7 +62,7 @@ Note related completed tasks for context. Look for lineage: does completed task 
 - No → `clarify`
 
 **Q2**: Will understanding benefit future work?
-- Campaign task (prompt contains "Campaign context:") → Yes
+- Campaign task (prompt starts with "Campaign:") → Yes (forced full)
 - Yes → `full`
 
 **Q3**: Is Path obvious?

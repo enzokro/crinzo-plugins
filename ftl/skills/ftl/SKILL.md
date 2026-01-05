@@ -8,6 +8,24 @@ version: 1.0.0
 
 Unified entry point for task execution, campaign orchestration, and memory queries.
 
+## MANDATORY CONSTRAINT
+
+**This skill is the ONLY valid entry point for FTL operations.**
+
+DO NOT:
+- Call `campaign.py` directly from Claude Code
+- Call `ftl:router`, `ftl:builder`, or other agents directly
+- Manually create workspace files
+- Manually update campaign state with CLI commands
+- Skip the planner when creating campaigns
+
+The orchestrator (this skill) manages all agent spawning and state transitions.
+Violating this constraint causes workspace/campaign desync and gate failures.
+
+**If user asks to use FTL**: Invoke THIS skill. Do not improvise the workflow.
+
+---
+
 ## Entry: Route by Intent
 
 | Input Pattern | Mode | Flow |
@@ -61,41 +79,82 @@ Router merges assess + anchor: explores AND routes in one pass.
 
 ## Mode: CAMPAIGN
 
-For compound objectives requiring multiple coordinated tasks:
+For compound objectives requiring multiple coordinated tasks.
+
+### Step 1: Check Active Campaign
 
 ```bash
-# 1. Check active campaign
-source ~/.config/ftl/paths.sh
-python3 "$FTL_LIB/campaign.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null
+ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
+```
 
-# 2. If none, invoke planner then create campaign
-#    Task(ftl:planner) returns markdown with ### Tasks section
-#    Then create campaign:
+If campaign exists, skip to Step 5 (task execution).
+
+### Step 2: Invoke Planner (REQUIRED)
+
+**DO NOT skip this step. DO NOT manually create campaigns.**
+
+```
+Task(ftl:planner) with prompt:
+  Objective: $OBJECTIVE_FROM_ARGUMENTS
+
+  Return markdown with ### Tasks section.
+```
+
+Planner returns: PROCEED | CONFIRM | CLARIFY
+
+**After CLARIFY**: Re-invoke THIS flow from Step 2. Do NOT continue as Claude Code.
+
+### Step 3: Create Campaign
+
+```bash
 python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
+```
 
-# 3. Add tasks by piping planner output to stdin
+**Command is `campaign`, NOT `create`**
+
+### Step 4: Add Tasks from Planner Output
+
+**CRITICAL: Use add-tasks-from-plan, NOT add-task**
+
+```bash
 echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
-#    NOT add-task individually! Parser expects:
-#    ### Tasks
-#    1. **slug**: description
-#       Delta: files
-#       Depends: none
-#       Done when: observable
-#       Verify: command
+```
 
-# 4. For each task:
-#    - Execute via TASK mode (router → builder → learner)
-#    - Gate on workspace file completion
-#    - Update task: python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+Tasks are created with 3-digit sequence numbers (001, 002, etc.).
 
-# 5. On campaign complete:
+### Step 5: Execute Each Task
+
+Invoke router WITH campaign context:
+```
+Task(ftl:router) with prompt:
+  Campaign: $OBJECTIVE
+  Task: $SEQ $SLUG
+
+  [description]
+```
+
+The `Campaign:` prefix forces router to create workspace.
+
+Then: builder → learner → update-task
+
+```bash
+python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+```
+
+**Note**: update-task enforces workspace gate.
+
+### Step 6: Complete Campaign
+
+```bash
 python3 "$FTL_LIB/campaign.py" complete
-#    Then Task(ftl:synthesizer)
+# Then Task(ftl:synthesizer)
 ```
 
 **Critical**:
 - Create campaign: `campaign.py campaign`, NOT `campaign.py create`
 - Add tasks: pipe to `add-tasks-from-plan`, NOT `add-task SEQ SLUG DESC`
+- Router prompt MUST include `Campaign:` prefix to force workspace creation
 
 ---
 

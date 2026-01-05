@@ -144,6 +144,10 @@ def add_task_to_campaign(campaign: dict, seq: str, slug: str,
                          delta: str = "", verify: str = "", depends: str = "",
                          base: Path = Path(".")) -> None:
     """Add task to campaign."""
+    # Normalize seq to 3-digit zero-padded format
+    # This ensures workspace glob pattern matching works:
+    # update-task uses {seq}_*_complete*.md which must match workspace naming
+    seq = f"{int(seq):03d}"
     task = {
         "seq": seq,
         "slug": slug,
@@ -246,13 +250,32 @@ def add_tasks_from_plan(plan_text: str, base: Path = Path(".")) -> list:
     return added
 
 
-def update_task_status(campaign: dict, seq: str, status: str, base: Path = Path(".")) -> None:
-    """Update task status in campaign."""
+def update_task_status(campaign: dict, seq: str, status: str, base: Path = Path(".")) -> bool:
+    """Update task status in campaign. Returns True if task found, False otherwise."""
+    # Normalize seq for comparison (handles "1" vs "001" mismatch)
+    try:
+        normalized_seq = f"{int(seq):03d}"
+    except ValueError:
+        normalized_seq = seq
+
+    found = False
     for task in campaign["tasks"]:
-        if task["seq"] == seq:
+        # Normalize task seq for comparison
+        try:
+            task_seq_normalized = f"{int(task['seq']):03d}"
+        except ValueError:
+            task_seq_normalized = task["seq"]
+
+        if task_seq_normalized == normalized_seq:
             task["status"] = status
+            # Also normalize the stored seq for consistency
+            task["seq"] = normalized_seq
+            found = True
             break
-    update_campaign(campaign, base)
+
+    if found:
+        update_campaign(campaign, base)
+    return found
 
 
 def add_precedent(campaign: dict, pattern: str, base: Path = Path(".")) -> None:
@@ -642,18 +665,25 @@ def main():
     elif args.cmd == "update-task":
         campaign = load_active_campaign(args.base)
         if campaign:
+            # Normalize seq to 3-digit format for consistent matching
+            seq = f"{int(args.seq):03d}"
             # ENFORCE workspace gate for completion
             if args.status == "complete":
                 workspace = args.base / WORKSPACE_DIR
-                pattern = f"{args.seq}_*_complete*.md"
+                pattern = f"{seq}_*_complete*.md"
                 matches = list(workspace.glob(pattern))
                 if not matches:
                     print(f"ERROR: Cannot mark complete - no workspace file", file=sys.stderr)
                     print(f"Expected: workspace/{pattern}", file=sys.stderr)
                     print(f"Tether must create workspace file before task can be marked complete.", file=sys.stderr)
                     sys.exit(1)
-            update_task_status(campaign, args.seq, args.status, args.base)
-            print(f"Updated task {args.seq}: {args.status}")
+            found = update_task_status(campaign, seq, args.status, args.base)
+            if found:
+                print(f"Updated task {seq}: {args.status}")
+            else:
+                print(f"ERROR: Task {seq} not found in campaign", file=sys.stderr)
+                print(f"Available tasks: {[t['seq'] for t in campaign['tasks']]}", file=sys.stderr)
+                sys.exit(1)
         else:
             print("No active campaign", file=sys.stderr)
             sys.exit(1)
