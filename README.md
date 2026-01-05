@@ -6,11 +6,10 @@ A Claude Code orchestrator that builds knowledge over time.
 
 Before Opus 4.5, agentic harnesses focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding agents felt like overeager junior-savants that had to be carefully steered whenever projects became even moderately complex.
 
-Opus 4.5 broke this pattern. If you're reading this, you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
+Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
 
-`ftl` is built on this shift. Where the old paradigm constrained models to prevent drift, `ftl` amplifies collaboration—persisting knowledge across sessions so we build on what we've already done instead of starting from an empty context window every time.
+`ftl` is built on this shift. While previous harnesses constrained models to prevent drift, `ftl` persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
 
-The north star: **augmentation, not replacement**. Human provides direction and judgment. AI provides capability and execution. Understanding compounds.
 
 ## Philosophy
 
@@ -22,25 +21,25 @@ The north star: **augmentation, not replacement**. Human provides direction and 
 | **Present over future** | Implement current requests, not anticipated needs                 |
 | **Edit over create**    | Modify what exists before creating something new                  |
 
-These read like the 101s of good software development. Anyone who's worked with coding agents knows the models like to work and stay busy. Every part of `ftl` is built around these principles to turn them into its north star.
+These aren't new. In fact, they read like the 101s of good software development. But anyone who's worked with coding agents knows that the models like to work and stay busy. Every part of `ftl` is built around these principles to turn them into the orchestrator's north star.
 
 ## Quick Start
 
 ```bash
-# Add crinzo-plugins marketplace
+# Add the crinzo-plugins marketplace
 claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
 
 # Install ftl
 claude plugin install ftl@crinzo-plugins
 ```
 
-Or from within Claude Code:
+Or from inside of Claude Code:
 ```bash
 /plugin marketplace add https://github.com/enzokro/crinzo-plugins
 /plugin install ftl@crinzo-plugins
 ```
 
-## How It Works
+## Development Loop
 
 ```
 /ftl <task> → router → builder → learner → workspace/
@@ -52,7 +51,7 @@ Or from within Claude Code:
 
 **Tasks** produce workspace files capturing decisions, reasoning, and patterns. **Memory** indexes these into a queryable knowledge graph. **Campaigns** coordinate multi-task objectives, querying memory for precedent before planning.
 
-Each completed task makes the system smarter. Patterns emerge, get signaled, influence future work.
+Each completed task makes the system smarter. Patterns emerge over time to influence future work.
 
 ## Agents
 
@@ -134,11 +133,9 @@ Naming: `NNN_task-slug_status[_from-NNN].md`
 
 ## Memory
 
-Single source of truth: `.ftl/memory.json`
+There is a single source of truth: `.ftl/memory.json`
 
-Stores decisions, patterns, signals, and lineage. Query with `/ftl:ftl query <topic>`. Mark outcomes with `/ftl:signal + #pattern/name`.
-
-Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The graph learns which approaches work in your codebase.
+This memory stores decisions, patterns, signals, and development lineage. Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The graph learns which approaches work in your codebase.
 
 ## Examples
 
@@ -168,14 +165,12 @@ Patterns with positive signals surface higher in future queries. Patterns with n
 ## When to Use
 
 **Use ftl when:**
-- Work should persist as precedent
+- Work should persist as precedent and compound over time
 - You want bounded, reviewable scope
-- Knowledge should compound across sessions
-- Multi-task objectives need coordination
+- Knowledge should build and evolve over sessions
+- Complex objectives that need coordination
 
 **Skip ftl when:**
-- Exploratory prototyping—let the model wander
+- Exploratory prototyping where you want the models to wander
 - Quick one-offs with no future value
 - Simple queries you'd ask Claude directly
-
-Know when to reach for these tools.
