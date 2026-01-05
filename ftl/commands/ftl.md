@@ -99,6 +99,14 @@ python3 "$FTL_LIB/campaign.py" active
 Task tool with subagent_type: ftl:planner
 Prompt: Plan campaign for: [objective from arguments]
 ```
+Planner returns one of:
+- **PROCEED**: Clear plan, continue to step 3
+- **CONFIRM**: Show plan, await user approval, then continue to step 3
+- **CLARIFY**: Return questions to user, halt
+
+**After CLARIFY**: When user answers, re-invoke planner with clarification context, then continue to step 3.
+
+Planner output includes `### Tasks` section in markdown format.
 
 3. Create campaign (**command is `campaign`, NOT `create`**):
 ```bash
@@ -106,9 +114,18 @@ source ~/.config/ftl/paths.sh 2>/dev/null
 python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 ```
 
-4. Add tasks from planner output:
+4. Add tasks by piping planner output to stdin:
 ```bash
-python3 "$FTL_LIB/campaign.py" add-task "$SEQ" "$SLUG" "$DESCRIPTION"
+echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
+```
+**NOT** `add-task` individually. The parser expects planner's markdown format:
+```
+### Tasks
+1. **slug**: description
+   Delta: files
+   Depends: none
+   Done when: observable
+   Verify: command
 ```
 
 5. Execute each task via Task Mode, then update:

@@ -69,12 +69,19 @@ source ~/.config/ftl/paths.sh
 python3 "$FTL_LIB/campaign.py" active
 
 # 2. If none, invoke planner then create campaign
-#    Task(ftl:planner) returns plan with tasks
-#    Then create campaign with:
+#    Task(ftl:planner) returns markdown with ### Tasks section
+#    Then create campaign:
 python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 
-# 3. Add tasks from planner output
-python3 "$FTL_LIB/campaign.py" add-task "$SEQ" "$SLUG" "$DESCRIPTION"
+# 3. Add tasks by piping planner output to stdin
+echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
+#    NOT add-task individually! Parser expects:
+#    ### Tasks
+#    1. **slug**: description
+#       Delta: files
+#       Depends: none
+#       Done when: observable
+#       Verify: command
 
 # 4. For each task:
 #    - Execute via TASK mode (router → builder → learner)
@@ -86,7 +93,9 @@ python3 "$FTL_LIB/campaign.py" complete
 #    Then Task(ftl:synthesizer)
 ```
 
-**Critical**: The command to create a campaign is `campaign.py campaign`, NOT `campaign.py create`.
+**Critical**:
+- Create campaign: `campaign.py campaign`, NOT `campaign.py create`
+- Add tasks: pipe to `add-tasks-from-plan`, NOT `add-task SEQ SLUG DESC`
 
 ---
 
