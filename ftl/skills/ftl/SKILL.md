@@ -63,16 +63,30 @@ Router merges assess + anchor: explores AND routes in one pass.
 
 For compound objectives requiring multiple coordinated tasks:
 
+```bash
+# 1. Check active campaign
+source ~/.config/ftl/paths.sh
+python3 "$FTL_LIB/campaign.py" active
+
+# 2. If none, invoke planner then create campaign
+#    Task(ftl:planner) returns plan with tasks
+#    Then create campaign with:
+python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
+
+# 3. Add tasks from planner output
+python3 "$FTL_LIB/campaign.py" add-task "$SEQ" "$SLUG" "$DESCRIPTION"
+
+# 4. For each task:
+#    - Execute via TASK mode (router → builder → learner)
+#    - Gate on workspace file completion
+#    - Update task: python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+
+# 5. On campaign complete:
+python3 "$FTL_LIB/campaign.py" complete
+#    Then Task(ftl:synthesizer)
 ```
-1. Check active: python3 "$FTL_LIB/campaign.py" active
-2. If none: Task(ftl:planner) → create campaign
-3. For each task:
-   - Query lattice: python3 "$FTL_LIB/context_graph.py" query "$KEYWORDS"
-   - Execute via TASK mode
-   - Gate on workspace file
-   - Signal patterns: python3 "$FTL_LIB/context_graph.py" signal +
-4. On complete: Task(ftl:synthesizer)
-```
+
+**Critical**: The command to create a campaign is `campaign.py campaign`, NOT `campaign.py create`.
 
 ---
 

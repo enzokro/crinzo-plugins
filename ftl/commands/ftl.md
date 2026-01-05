@@ -90,7 +90,8 @@ Return question to user, halt.
 
 1. Check active campaign:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/campaign.py" active
 ```
 
 2. If no campaign, invoke planner:
@@ -99,9 +100,27 @@ Task tool with subagent_type: ftl:planner
 Prompt: Plan campaign for: [objective from arguments]
 ```
 
-3. Create campaign and execute tasks per SKILL.md protocol.
+3. Create campaign (**command is `campaign`, NOT `create`**):
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
+```
 
-4. On campaign completion:
+4. Add tasks from planner output:
+```bash
+python3 "$FTL_LIB/campaign.py" add-task "$SEQ" "$SLUG" "$DESCRIPTION"
+```
+
+5. Execute each task via Task Mode, then update:
+```bash
+python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+```
+
+6. On campaign completion:
+```bash
+python3 "$FTL_LIB/campaign.py" complete
+```
+Then invoke synthesizer:
 ```
 Task tool with subagent_type: ftl:synthesizer
 ```
