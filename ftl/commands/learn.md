@@ -12,7 +12,7 @@ Force meta-pattern synthesis from completed campaigns.
 
 Invoke synthesizer:
 ```
-Task tool with subagent_type: forge:synthesizer
+Task tool with subagent_type: ftl:synthesizer
 ```
 
 ## Output
