@@ -51,7 +51,7 @@ If you can't answer these, the objective is too vague. Clarify before proceeding
 #### Memory: What Verification Worked Before?
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$OBJECTIVE"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" query "$OBJECTIVE"
 cat .forge/synthesis.json 2>/dev/null
 ```
 

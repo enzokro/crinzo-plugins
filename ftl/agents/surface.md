@@ -20,12 +20,12 @@ Given a topic (from prompt or $ARGUMENTS):
 
 2. If no index, run miner first:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" mine
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" mine
 ```
 
 3. Query decisions:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
 
 4. For top results, read source workspace files to provide richer context.

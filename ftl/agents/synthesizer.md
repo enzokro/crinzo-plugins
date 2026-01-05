@@ -22,7 +22,7 @@ Read all completed campaigns.
 ### 2. Aggregate Patterns
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" patterns
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" patterns
 ```
 
 Build pattern frequency map:

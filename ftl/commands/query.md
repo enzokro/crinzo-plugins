@@ -11,14 +11,14 @@ Surface relevant decisions from workspace decision traces.
 
 1. Check for index:
 ```bash
-[ -f .lattice/index.json ] || echo "Run /lattice:mine first"
+[ -f .lattice/index.json ] || echo "Run /ftl:mine first"
 ```
 
 2. Parse $ARGUMENTS for topic.
 
 3. Query decisions:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
 
 4. If no index exists, invoke miner first:

@@ -14,7 +14,7 @@ Surface opportunities. Suggest work. Enable initiative.
 ### 1. Check Active Campaigns
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" active
 ```
 
 If campaign has pending tasks → high priority suggestion.
@@ -22,7 +22,7 @@ If campaign has pending tasks → high priority suggestion.
 ### 2. Check Stale Patterns
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" age 30
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" age 30
 ```
 
 Patterns not validated in 30+ days may need review.
@@ -30,7 +30,7 @@ Patterns not validated in 30+ days may need review.
 ### 3. Check Negative Signals
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" negative-patterns
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" negative-patterns
 ```
 
 Patterns with negative signals → suggest investigation or deprecation.
@@ -41,7 +41,7 @@ Patterns with negative signals → suggest investigation or deprecation.
 ls .forge/campaigns/complete/*.json 2>/dev/null | wc -l
 ```
 
-If 3+ campaigns complete since last synthesis → suggest `/forge:learn`.
+If 3+ campaigns complete since last synthesis → suggest `/ftl:learn`.
 
 ### 5. Check Active Workspace
 
@@ -60,14 +60,14 @@ Format as prioritized report:
 
 ### Immediate (act now)
 1. Campaign "oauth-integration" has 2 pending tasks
-   → `/forge` to resume
+   → `/ftl` to resume
 
 ### Opportunities (consider)
 2. Pattern #pattern/retry-backoff successful in auth (net +3)
    → untested in API domain, could transfer
 
 3. 4 campaigns complete since last synthesis
-   → `/forge:learn` to extract meta-patterns
+   → `/ftl:learn` to extract meta-patterns
 
 ### Warnings (investigate)
 4. Pattern #pattern/jwt-storage has net -2 signals
@@ -105,7 +105,7 @@ This is opt-in via Scout, not blocking.
 |----------|----------|--------|
 | Pending campaign | 1 | Suggest resume |
 | Negative patterns | 2 | Suggest investigation |
-| Synthesis overdue | 3 | Suggest /forge:learn |
+| Synthesis overdue | 3 | Suggest /ftl:learn |
 | Stale patterns | 4 | Suggest review |
 | Domain gaps | 5 | Suggest exploration |
 | Simplification | 6 | Suggest cleanup |

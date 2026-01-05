@@ -13,7 +13,7 @@ Show complete decision record including Thinking Traces and Delivered.
 
 2. Get decision:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" decision $SEQ
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" decision $SEQ
 ```
 
 ## Output Format
@@ -38,8 +38,8 @@ Added refresh endpoint in src/api/auth.ts.
 ## Usage
 
 ```
-/lattice:decision 015    # Show decision 015
-/lattice:decision 3      # Show decision 003 (zero-padded)
+/ftl:decision 015    # Show decision 015
+/ftl:decision 3      # Show decision 003 (zero-padded)
 ```
 
 ## Constraints

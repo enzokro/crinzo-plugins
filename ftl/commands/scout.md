@@ -47,7 +47,7 @@ Scout returns prioritized suggestions:
 ## Example
 
 ```
-/forge:scout
+/ftl:scout
 
 Scout Report:
 

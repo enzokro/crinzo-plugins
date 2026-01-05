@@ -13,7 +13,7 @@ Find decisions that touched a file pattern.
 
 2. Query file impact:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" impact "$FILE"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" impact "$FILE"
 ```
 
 ## Output Format
@@ -31,9 +31,9 @@ Decisions affecting 'auth':
 ## Usage
 
 ```
-/lattice:impact auth           # Files containing "auth"
-/lattice:impact src/api        # Files in src/api/
-/lattice:impact session.ts     # Specific file
+/ftl:impact auth           # Files containing "auth"
+/ftl:impact src/api        # Files in src/api/
+/ftl:impact session.ts     # Specific file
 ```
 
 ## Graph Query

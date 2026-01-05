@@ -43,4 +43,4 @@ Updated: .forge/synthesis.json
 ## Auto-Synthesis
 
 Synthesis runs automatically on campaign completion.
-Use `/forge:learn` to force manual synthesis at any time.
+Use `/ftl:learn` to force manual synthesis at any time.

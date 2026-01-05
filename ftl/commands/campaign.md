@@ -14,7 +14,7 @@ Parse $ARGUMENTS:
 
 **No args** — resume most recent:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" active
 ```
 
 If campaign exists → invoke orchestrator to continue.
@@ -24,7 +24,7 @@ If no campaign → report "No active campaign. Provide objective to start."
 
 Check if matching campaign exists:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" active
 ```
 
 If active campaign matches objective → resume.
@@ -41,12 +41,12 @@ Options:
 If no active campaign → create via CLI (MANDATORY):
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" campaign "$OBJECTIVE"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 ```
 
 Verify campaign was created:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FORGE_LIB/forge.py" active
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/campaign.py" active
 ```
 
 Then invoke orchestrator:

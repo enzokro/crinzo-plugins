@@ -15,7 +15,7 @@ Mark a pattern as successful (+) or problematic (-). Signals influence future ra
 
 2. Add signal:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.py" signal "$SIGN" "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" signal "$SIGN" "$PATTERN"
 ```
 
 3. Confirm result.
@@ -23,8 +23,8 @@ source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$LATTICE_LIB/context_graph.p
 ## Usage
 
 ```
-/lattice:signal + #pattern/session-token-flow    # Pattern worked well
-/lattice:signal - #constraint/max-batch-size     # Constraint caused issues
+/ftl:signal + #pattern/session-token-flow    # Pattern worked well
+/ftl:signal - #constraint/max-batch-size     # Constraint caused issues
 ```
 
 ## Output Format

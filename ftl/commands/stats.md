@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Glob
 ## Protocol
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$TETHER_LIB/wql.py" stat
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/workspace.py" stat
 ```
 
 Additional metrics:
