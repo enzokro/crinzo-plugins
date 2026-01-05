@@ -1,6 +1,6 @@
 # ftl
 
-Knowledge compounds. Understanding persists.
+A Claude Code orchestrator that builds knowledge over time.
 
 ## Introduction
 
@@ -14,13 +14,13 @@ The north star: **augmentation, not replacement**. Human provides direction and 
 
 ## Philosophy
 
-| Principle | Meaning |
-|-----------|---------|
-| **Memory compounds** | Each task leaves the system smarter |
-| **Verify first** | Shape work by starting with proof-of-success |
-| **Bounded scope** | Workspace files are explicit so humans can audit agent boundaries |
-| **Present over future** | Implement current requests, not anticipated needs |
-| **Edit over create** | Modify what exists before creating something new |
+| Principle               | Meaning                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| **Memory compounds**    | Each task leaves the system smarter                               |
+| **Verify first**        | Shape work by starting with proof-of-success                      |
+| **Bounded scope**       | Workspace files are explicit so humans can audit agent boundaries |
+| **Present over future** | Implement current requests, not anticipated needs                 |
+| **Edit over create**    | Modify what exists before creating something new                  |
 
 These read like the 101s of good software development. Anyone who's worked with coding agents knows the models like to work and stay busy. Every part of `ftl` is built around these principles to turn them into its north star.
 
@@ -56,43 +56,43 @@ Each completed task makes the system smarter. Patterns emerge, get signaled, inf
 
 ## Agents
 
-| Agent | Role |
-|-------|------|
-| **Router** | Route + explore + anchor. Creates workspace for full tasks. |
-| **Builder** | TDD implementation within Delta. Test-first, edit-over-create. |
-| **Reflector** | Failure diagnosis. Returns RETRY with strategy or ESCALATE to human. |
-| **Learner** | Extract patterns to Key Findings + index to memory. |
-| **Planner** | Verification-first campaign decomposition. |
-| **Synthesizer** | Cross-campaign meta-pattern extraction. |
+| Agent           | Role                                                                 |
+| --------------- | -------------------------------------------------------------------- |
+| **Router**      | Route + explore + anchor. Creates workspace for full tasks.          |
+| **Builder**     | TDD implementation within Delta. Test-first, edit-over-create.       |
+| **Reflector**   | Failure diagnosis. Returns RETRY with strategy or ESCALATE to human. |
+| **Learner**     | Extract patterns to Key Findings + index to memory.                  |
+| **Planner**     | Verification-first campaign decomposition.                           |
+| **Synthesizer** | Cross-campaign meta-pattern extraction.                              |
 
 ## Commands
 
 ### Core
 
-| Command | Purpose |
-|---------|---------|
-| `/ftl:ftl <task>` | Execute task (routes to direct or full) |
-| `/ftl:ftl campaign <objective>` | Plan and execute multi-task campaign |
-| `/ftl:ftl query <topic>` | Surface relevant precedent from memory |
-| `/ftl:ftl status` | Combined campaign + workspace status |
+| Command                         | Purpose                                 |
+| ------------------------------- | --------------------------------------- |
+| `/ftl:ftl <task>`               | Execute task (routes to direct or full) |
+| `/ftl:ftl campaign <objective>` | Plan and execute multi-task campaign    |
+| `/ftl:ftl query <topic>`        | Surface relevant precedent from memory  |
+| `/ftl:ftl status`               | Combined campaign + workspace status    |
 
 ### Workspace
 
-| Command | Purpose |
-|---------|---------|
-| `/ftl:workspace` | Query state, lineage, tags |
-| `/ftl:close` | Complete active task manually |
+| Command          | Purpose                       |
+| ---------------- | ----------------------------- |
+| `/ftl:workspace` | Query state, lineage, tags    |
+| `/ftl:close`     | Complete active task manually |
 
 ### Memory
 
-| Command | Purpose |
-|---------|---------|
-| `/ftl:learn` | Force pattern synthesis |
-| `/ftl:signal +/- #pattern` | Mark pattern outcome (+/-) |
-| `/ftl:trace #pattern` | Find decisions using a pattern |
-| `/ftl:impact <file>` | Find decisions affecting a file |
-| `/ftl:age [days]` | Find stale decisions |
-| `/ftl:decision NNN` | Full decision record with traces |
+| Command                    | Purpose                          |
+| -------------------------- | -------------------------------- |
+| `/ftl:learn`               | Force pattern synthesis          |
+| `/ftl:signal +/- #pattern` | Mark pattern outcome (+/-)       |
+| `/ftl:trace #pattern`      | Find decisions using a pattern   |
+| `/ftl:impact <file>`       | Find decisions affecting a file  |
+| `/ftl:age [days]`          | Find stale decisions             |
+| `/ftl:decision NNN`        | Full decision record with traces |
 
 ## Workspace Format
 
