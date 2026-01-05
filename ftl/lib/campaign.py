@@ -444,16 +444,13 @@ def get_pending_work(base: Path = Path(".")) -> list:
 
 def get_negative_patterns(base: Path = Path(".")) -> list:
     """Get patterns with negative net signals."""
-    lattice_dir = base / ".ftl"
-    signals_path = lattice_dir / "signals.json"
+    # Import here to avoid circular dependency
+    from context_graph import load_memory
+    memory = load_memory(base)
 
-    if not signals_path.exists():
-        return []
-
-    signals = json.loads(signals_path.read_text())
     return [
         {"pattern": k, "net": v.get("net", 0)}
-        for k, v in signals.items()
+        for k, v in memory.get("patterns", {}).items()
         if v.get("net", 0) < 0
     ]
 

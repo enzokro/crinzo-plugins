@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
 
@@ -20,6 +21,10 @@ if str(_lib_dir) not in sys.path:
 from concepts import expand_query
 
 LATTICE_DIR = ".ftl"
+MEMORY_FILE = "memory.json"
+MEMORY_VERSION = 2
+
+# V1 files (for migration only)
 INDEX_FILE = "index.json"
 EDGES_FILE = "edges.json"
 SIGNALS_FILE = "signals.json"
@@ -37,8 +42,10 @@ def ensure_lattice_dir(base: Path = Path(".")) -> Path:
     return lattice
 
 
+# --- V1 Storage (deprecated, kept for migration) ---
+
 def load_index(base: Path = Path(".")) -> dict:
-    """Load decision index."""
+    """[V1 DEPRECATED] Load decision index. Use load_memory() instead."""
     path = base / LATTICE_DIR / INDEX_FILE
     if path.exists():
         return json.loads(path.read_text())
@@ -46,13 +53,13 @@ def load_index(base: Path = Path(".")) -> dict:
 
 
 def save_index(index: dict, base: Path = Path(".")):
-    """Save decision index."""
+    """[V1 DEPRECATED] Save decision index. Use save_memory() instead."""
     lattice = ensure_lattice_dir(base)
     (lattice / INDEX_FILE).write_text(json.dumps(index, indent=2))
 
 
 def load_edges(base: Path = Path(".")) -> dict:
-    """Load relationship edges."""
+    """[V1 DEPRECATED] Load relationship edges. Use load_memory() instead."""
     path = base / LATTICE_DIR / EDGES_FILE
     if path.exists():
         return json.loads(path.read_text())
@@ -60,13 +67,13 @@ def load_edges(base: Path = Path(".")) -> dict:
 
 
 def save_edges(edges: dict, base: Path = Path(".")):
-    """Save relationship edges."""
+    """[V1 DEPRECATED] Save relationship edges. Use save_memory() instead."""
     lattice = ensure_lattice_dir(base)
     (lattice / EDGES_FILE).write_text(json.dumps(edges, indent=2))
 
 
 def load_signals(base: Path = Path(".")) -> dict:
-    """Load outcome signals."""
+    """[V1 DEPRECATED] Load outcome signals. Use load_memory() instead."""
     path = base / LATTICE_DIR / SIGNALS_FILE
     if path.exists():
         return json.loads(path.read_text())
@@ -74,9 +81,86 @@ def load_signals(base: Path = Path(".")) -> dict:
 
 
 def save_signals(signals: dict, base: Path = Path(".")):
-    """Save outcome signals."""
+    """[V1 DEPRECATED] Save outcome signals. Use save_memory() instead."""
     lattice = ensure_lattice_dir(base)
     (lattice / SIGNALS_FILE).write_text(json.dumps(signals, indent=2))
+
+
+# --- Unified Memory (v2) ---
+
+def _migrate_to_v2(base: Path = Path(".")) -> dict:
+    """Migrate v1 files (index+edges+signals) to v2 memory.json."""
+    # Load v1 files using old functions
+    index = load_index(base)
+    edges = load_edges(base)
+    signals = load_signals(base)
+
+    # Merge signals into patterns
+    patterns = index.get("patterns", {})
+    for tag, sig_data in signals.items():
+        if tag not in patterns:
+            patterns[tag] = {"decisions": [], "signals": [], "net": 0, "last": 0}
+        patterns[tag]["signals"] = sig_data.get("signals", [])
+        patterns[tag]["net"] = sig_data.get("net", 0)
+        patterns[tag]["last"] = sig_data.get("last", 0)
+
+    # Create v2 structure
+    memory = {
+        "version": MEMORY_VERSION,
+        "mined": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "decisions": index.get("decisions", {}),
+        "patterns": patterns,
+        "edges": edges
+    }
+
+    return memory
+
+
+def _cleanup_v1_files(base: Path = Path(".")):
+    """Remove v1 files after successful migration."""
+    lattice = base / LATTICE_DIR
+    for fname in [INDEX_FILE, EDGES_FILE, SIGNALS_FILE]:
+        path = lattice / fname
+        if path.exists():
+            path.unlink()
+
+
+def load_memory(base: Path = Path(".")) -> dict:
+    """Load unified memory, migrating from v1 if needed."""
+    lattice = base / LATTICE_DIR
+    memory_path = lattice / MEMORY_FILE
+
+    # Check for v2 format
+    if memory_path.exists():
+        memory = json.loads(memory_path.read_text())
+        if memory.get("version") == MEMORY_VERSION:
+            return memory
+
+    # Check for v1 files and migrate
+    index_path = lattice / INDEX_FILE
+    if index_path.exists():
+        print("  Migrating v1 memory to v2...", file=sys.stderr)
+        memory = _migrate_to_v2(base)
+        save_memory(memory, base)
+        _cleanup_v1_files(base)
+        print("  Migration complete.", file=sys.stderr)
+        return memory
+
+    # Empty memory
+    return {
+        "version": MEMORY_VERSION,
+        "mined": None,
+        "decisions": {},
+        "patterns": {},
+        "edges": {"lineage": {}, "pattern_use": {}, "file_impact": {}}
+    }
+
+
+def save_memory(memory: dict, base: Path = Path(".")):
+    """Save unified memory."""
+    lattice = ensure_lattice_dir(base)
+    memory["version"] = MEMORY_VERSION
+    (lattice / MEMORY_FILE).write_text(json.dumps(memory, indent=2))
 
 
 # --- Parsing ---
@@ -168,8 +252,12 @@ def parse_workspace_file(path: Path) -> dict:
 
 def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) -> dict:
     """Build decision index from workspace files."""
+    # Load existing memory to preserve signal history
+    existing = load_memory(base)
+    existing_patterns = existing.get("patterns", {})
+
     decisions = {}
-    patterns = defaultdict(lambda: {"decisions": [], "signals": [], "net": 0})
+    patterns = defaultdict(lambda: {"decisions": [], "signals": [], "net": 0, "last": 0})
 
     for path in sorted(workspace.glob("*.md")):
         parsed = parse_workspace_file(path)
@@ -199,24 +287,28 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
             "success_conditions": parsed.get("success_conditions", ""),
         }
 
-        # Build pattern index (inverse)
+        # Build pattern index, preserving signal history
         for tag in parsed["tags"]:
+            # Preserve existing signals if pattern already known
+            if tag in existing_patterns and tag not in patterns:
+                patterns[tag]["signals"] = existing_patterns[tag].get("signals", [])
+                patterns[tag]["net"] = existing_patterns[tag].get("net", 0)
+                patterns[tag]["last"] = existing_patterns[tag].get("last", 0)
             if seq not in patterns[tag]["decisions"]:
                 patterns[tag]["decisions"].append(seq)
 
-    # Merge with existing signals
-    signals = load_signals(base)
-    for tag, data in patterns.items():
-        if tag in signals:
-            data["signals"] = signals[tag].get("signals", [])
-            data["net"] = signals[tag].get("net", 0)
-
-    index = {"decisions": decisions, "patterns": dict(patterns)}
-    save_index(index, base)
-
     # Build edges
     edges = build_edges(decisions)
-    save_edges(edges, base)
+
+    # Create unified memory
+    memory = {
+        "version": MEMORY_VERSION,
+        "mined": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "decisions": decisions,
+        "patterns": dict(patterns),
+        "edges": edges
+    }
+    save_memory(memory, base)
 
     # Embed decisions for semantic search (v2)
     try:
@@ -244,7 +336,7 @@ def mine_workspace(workspace: Path = Path("workspace"), base: Path = Path(".")) 
     else:
         print("  (Embeddings disabled - install sentence-transformers)")
 
-    return index
+    return memory
 
 
 def build_edges(decisions: dict) -> dict:
@@ -279,25 +371,20 @@ def build_edges(decisions: dict) -> dict:
 
 def add_signal(pattern: str, signal: str, base: Path = Path(".")):
     """Add outcome signal (+/-) to a pattern."""
-    signals = load_signals(base)
+    memory = load_memory(base)
+    patterns = memory.get("patterns", {})
 
-    if pattern not in signals:
-        signals[pattern] = {"signals": [], "net": 0, "last": 0}
+    if pattern not in patterns:
+        patterns[pattern] = {"decisions": [], "signals": [], "net": 0, "last": 0}
 
-    signals[pattern]["signals"].append(signal)
-    signals[pattern]["net"] = signals[pattern]["signals"].count("+") - signals[pattern]["signals"].count("-")
-    signals[pattern]["last"] = int(time.time())
+    patterns[pattern]["signals"].append(signal)
+    patterns[pattern]["net"] = patterns[pattern]["signals"].count("+") - patterns[pattern]["signals"].count("-")
+    patterns[pattern]["last"] = int(time.time())
 
-    save_signals(signals, base)
+    memory["patterns"] = patterns
+    save_memory(memory, base)
 
-    # Update index if exists
-    index = load_index(base)
-    if pattern in index.get("patterns", {}):
-        index["patterns"][pattern]["signals"] = signals[pattern]["signals"]
-        index["patterns"][pattern]["net"] = signals[pattern]["net"]
-        save_index(index, base)
-
-    return signals[pattern]
+    return patterns[pattern]
 
 
 # --- Queries ---
@@ -340,9 +427,9 @@ def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
 
     Uses hybrid retrieval: exact matches + semantic similarity (v2).
     """
-    index = load_index(base)
-    signals = load_signals(base)
-    decisions = index.get("decisions", {})
+    memory = load_memory(base)
+    decisions = memory.get("decisions", {})
+    patterns = memory.get("patterns", {})  # patterns contain signal data
 
     # No topic - return all decisions ranked by recency
     if not topic:
@@ -355,7 +442,7 @@ def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
                 "status": d.get("status", ""),
                 "parent": d.get("parent"),
                 "age_days": age_days,
-                "score": calculate_score(d["mtime"], signals, ""),
+                "score": calculate_score(d["mtime"], patterns, ""),
                 "path": d.get("path", ""),
                 "delta": d.get("delta", ""),
                 "tags": d.get("tags", []),
@@ -408,7 +495,7 @@ def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
             continue
 
         # Calculate hybrid score
-        score = calculate_hybrid_score(d, signals, is_exact, semantic_score)
+        score = calculate_hybrid_score(d, patterns, is_exact, semantic_score)
         age_days = int((time.time() - d["mtime"]) / 86400)
 
         results.append({
@@ -430,15 +517,15 @@ def query_decisions(topic: str = None, base: Path = Path(".")) -> list:
 
 def get_decision(seq: str, base: Path = Path(".")) -> dict:
     """Get full decision record by sequence number."""
-    index = load_index(base)
+    memory = load_memory(base)
     seq = seq.zfill(3)
-    return index.get("decisions", {}).get(seq)
+    return memory.get("decisions", {}).get(seq)
 
 
 def get_lineage(seq: str, base: Path = Path(".")) -> list:
     """Get ancestry chain for a decision."""
-    index = load_index(base)
-    decisions = index.get("decisions", {})
+    memory = load_memory(base)
+    decisions = memory.get("decisions", {})
 
     chain = []
     current = seq.zfill(3)
@@ -452,11 +539,11 @@ def get_lineage(seq: str, base: Path = Path(".")) -> list:
 
 def trace_pattern(pattern: str, base: Path = Path(".")) -> list:
     """Find all decisions that used a pattern."""
-    edges = load_edges(base)
-    index = load_index(base)
+    memory = load_memory(base)
+    edges = memory.get("edges", {})
+    decisions = memory.get("decisions", {})
 
     decision_seqs = edges.get("pattern_use", {}).get(pattern, [])
-    decisions = index.get("decisions", {})
 
     results = []
     for seq in decision_seqs:
@@ -475,9 +562,9 @@ def trace_pattern(pattern: str, base: Path = Path(".")) -> list:
 
 def impact_file(file_pattern: str, base: Path = Path(".")) -> list:
     """Find decisions that touched a file pattern."""
-    edges = load_edges(base)
-    index = load_index(base)
-    decisions = index.get("decisions", {})
+    memory = load_memory(base)
+    edges = memory.get("edges", {})
+    decisions = memory.get("decisions", {})
 
     results = []
     for pattern, seqs in edges.get("file_impact", {}).items():
@@ -508,11 +595,11 @@ def impact_file(file_pattern: str, base: Path = Path(".")) -> list:
 
 def find_stale(days: int = 30, base: Path = Path(".")) -> list:
     """Find decisions older than threshold."""
-    index = load_index(base)
+    memory = load_memory(base)
     threshold = time.time() - (days * 86400)
 
     stale = []
-    for seq, d in index.get("decisions", {}).items():
+    for seq, d in memory.get("decisions", {}).items():
         if d["mtime"] < threshold:
             age_days = int((time.time() - d["mtime"]) / 86400)
             stale.append({
@@ -636,22 +723,22 @@ def main():
 
     elif args.cmd in ('query', 'q'):
         results = query_decisions(args.topic, args.base)
-        signals = load_signals(args.base)
+        memory = load_memory(args.base)
         if args.topic:
             print(f"Decisions for '{args.topic}':\n")
         else:
             print("All decisions (ranked):\n")
-        print(format_decisions(results, signals=signals))
+        print(format_decisions(results, signals=memory.get("patterns", {})))
 
     elif args.cmd in ('decision', 'd'):
         d = get_decision(args.seq, args.base)
         if not d:
             print(f"Decision {args.seq} not found")
             return
-        signals = load_signals(args.base)
+        memory = load_memory(args.base)
         d["seq"] = args.seq.zfill(3)
         d["age_days"] = int((time.time() - d["mtime"]) / 86400)
-        print(format_decision(d, signals))
+        print(format_decision(d, memory.get("patterns", {})))
         if d.get("traces"):
             print(f"\nThinking Traces:\n{d['traces']}")
         if d.get("delivered"):
@@ -663,9 +750,9 @@ def main():
             print(f"Decision {args.seq} not found")
             return
         print(f"Lineage: {' → '.join(chain)}")
-        index = load_index(args.base)
+        memory = load_memory(args.base)
         for seq in chain:
-            d = index.get("decisions", {}).get(seq, {})
+            d = memory.get("decisions", {}).get(seq, {})
             print(f"  [{seq}] {d.get('slug', '?')} ({d.get('status', '?')})")
 
     elif args.cmd in ('trace', 't'):
