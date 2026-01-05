@@ -71,10 +71,10 @@ Each completed task makes the system smarter. Patterns emerge, get signaled, inf
 
 | Command | Purpose |
 |---------|---------|
-| `/ftl <task>` | Execute task (routes to direct or full) |
-| `/ftl campaign <objective>` | Plan and execute multi-task campaign |
-| `/ftl query <topic>` | Surface relevant precedent from memory |
-| `/ftl status` | Combined campaign + workspace status |
+| `/ftl:ftl <task>` | Execute task (routes to direct or full) |
+| `/ftl:ftl campaign <objective>` | Plan and execute multi-task campaign |
+| `/ftl:ftl query <topic>` | Surface relevant precedent from memory |
+| `/ftl:ftl status` | Combined campaign + workspace status |
 
 ### Workspace
 
@@ -136,7 +136,7 @@ Naming: `NNN_task-slug_status[_from-NNN].md`
 
 Single source of truth: `.ftl/memory.json`
 
-Stores decisions, patterns, signals, and lineage. Query with `/ftl query <topic>`. Mark outcomes with `/ftl:signal + #pattern/name`.
+Stores decisions, patterns, signals, and lineage. Query with `/ftl:ftl query <topic>`. Mark outcomes with `/ftl:signal + #pattern/name`.
 
 Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The graph learns which approaches work in your codebase.
 
@@ -144,19 +144,19 @@ Patterns with positive signals surface higher in future queries. Patterns with n
 
 ```bash
 # Simple task — routes to direct, no workspace
-/ftl fix typo in README
+/ftl:ftl fix typo in README
 
 # Complex task — routes to full, creates workspace
-/ftl add user authentication
+/ftl:ftl add user authentication
 
 # Multi-task campaign
-/ftl campaign implement OAuth with Google and GitHub
+/ftl:ftl campaign implement OAuth with Google and GitHub
 
 # Query what you've done before
-/ftl query session handling
+/ftl:ftl query session handling
 
 # Check status
-/ftl status
+/ftl:ftl status
 
 # Mark a pattern as successful
 /ftl:signal + #pattern/session-token-flow
