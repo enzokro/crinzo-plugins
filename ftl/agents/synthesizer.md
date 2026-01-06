@@ -147,6 +147,42 @@ Write to `.ftl/synthesis.json`:
 }
 ```
 
+### 5b. Fill Key Findings (Campaign Mode)
+
+For each completed workspace in this campaign:
+
+1. **Read workspace file** from `.ftl/workspace/*_complete.md`
+2. **Identify patterns** from Decision, Options Considered, Thinking Traces sections
+3. **Extract semantics** using 4b markers:
+   - "because" → rationale
+   - "instead of" → alternatives considered
+   - "failed when" → failure_modes
+   - "worked because" → success_conditions
+4. **Fill Key Findings section** with structured format:
+
+```markdown
+## Key Findings
+#pattern/name - brief description
+  Conditions: when this works
+  Failure modes: when this breaks
+
+#constraint/name - constraint discovered
+  Conditions: when constraint applies
+  Failure modes: what happens if violated
+```
+
+5. **Edit workspace file** to add Key Findings
+
+This replaces per-task Learner. One pass at campaign end is richer than incremental shallow extraction.
+
+### 5c. Update Decision Index
+
+```bash
+source ~/.config/ftl/paths.sh && python3 "$FTL_LIB/context_graph.py" mine
+```
+
+Run once at campaign end (not per-task). Mines all completed workspaces into memory.json.
+
 ### 6. Report
 
 ```markdown

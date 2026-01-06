@@ -1,21 +1,24 @@
 #!/bin/bash
-# session_context.sh - Pre-cache project metadata at session start
-# Injects via additionalContext so all agents receive this without re-querying
+# session_context.sh - Pre-cache STATIC project metadata at session start
+# Writes to .ftl/cache/session_context.md for orchestrator to read and inject
 #
-# Caches:
+# Caches STATIC info only (doesn't change during session):
 #   - Git state (branch, recent commits)
 #   - Project verification tools (package.json scripts, Makefile targets)
-#   - Workspace state (active tasks, recent completed)
-#   - Active campaign info
+#
+# DYNAMIC workspace state is cached separately by capture_delta.sh
+# after each agent completes → .ftl/cache/workspace_state.md
+#
+# The orchestrator (SKILL.md) reads BOTH files and injects into router prompts.
 
 # Ensure cache directory exists
 mkdir -p .ftl/cache 2>/dev/null
 
-# Git state
+# Git state (stable within session)
 GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 GIT_RECENT=$(git log --oneline -3 2>/dev/null | tr '\n' '; ' || echo "no history")
 
-# Project verification tools
+# Project verification tools (stable within session)
 PKG_SCRIPTS=""
 if [ -f "package.json" ]; then
   PKG_SCRIPTS=$(cat package.json 2>/dev/null | jq -c '.scripts // {}' 2>/dev/null || echo "{}")
@@ -31,18 +34,11 @@ if [ -f "pyproject.toml" ]; then
   PYPROJECT_TEST=$(grep -A5 '\[tool.pytest' pyproject.toml 2>/dev/null | head -5 || echo "")
 fi
 
-# Workspace state
-ACTIVE_TASKS=$(ls .ftl/workspace/*_active*.md 2>/dev/null | wc -l | tr -d ' ')
-RECENT_COMPLETE=$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | tr '\n' ' ')
+# Write STATIC context to file
+cat > .ftl/cache/session_context.md << EOF
+## FTL Session Context (Static - Cached at Session Start)
 
-# Active campaign
-CAMPAIGN=""
-if [ -f ".ftl/campaign.json" ]; then
-  CAMPAIGN=$(cat .ftl/campaign.json 2>/dev/null | jq -c '{objective, status, tasks_complete: (.tasks | map(select(.status == "complete")) | length), tasks_total: (.tasks | length)}' 2>/dev/null || echo "{}")
-fi
-
-# Build context string (escape for JSON)
-CONTEXT="## FTL Session Context (Pre-Cached)
+Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 ### Git State
 - Branch: $GIT_BRANCH
@@ -53,26 +49,10 @@ CONTEXT="## FTL Session Context (Pre-Cached)
 - Makefile targets: $MAKEFILE_TARGETS
 - Pyproject test config: $PYPROJECT_TEST
 
-### Workspace State
-- Active tasks: $ACTIVE_TASKS
-- Recent completed: $RECENT_COMPLETE
+**DO NOT re-run**: \`git branch\`, \`cat package.json\`, \`cat Makefile\` — this info is current.
 
-### Campaign
-$CAMPAIGN
-
-**Use this pre-cached information instead of re-running discovery commands.**"
-
-# Escape for JSON (handle newlines and quotes)
-ESCAPED_CONTEXT=$(echo "$CONTEXT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo "\"$CONTEXT\"")
-
-# Output as additionalContext JSON
-cat << EOF
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": $ESCAPED_CONTEXT
-  }
-}
+**For workspace state**: See \`.ftl/cache/workspace_state.md\` (updated after each agent).
 EOF
 
+echo "Session context cached to .ftl/cache/session_context.md"
 exit 0

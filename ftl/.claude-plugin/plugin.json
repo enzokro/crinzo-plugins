@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.7",
+  "version": "1.0.14",
   "author": {
     "name": "crinzo"
   },
@@ -59,24 +59,22 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
           }
         ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "ftl:ftl-builder",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_context.py"
-          }
-        ]
       },
       {
         "matcher": "ftl:ftl-learner",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_context.py"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "ftl:ftl-planner",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
           }
         ]
       }

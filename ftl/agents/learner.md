@@ -111,7 +111,8 @@ One good pattern beats five mediocre ones.
 ## Constraints
 
 - Read-only except Key Findings section
-- **Use injected Delta contents**: Post-edit Delta files are pre-loaded in your context. DO NOT re-read these files—extract patterns from the injected code.
+- **Check cache first**: Before reading Delta files, check if `.ftl/cache/delta_contents.md` exists. If yes, Read it once—it contains post-edit Delta file contents cached after Builder completed.
+- **Use cached Delta contents**: Post-edit Delta files may be in the cache. DO NOT re-read these files—extract patterns from the cached code.
 - One pass combines reflect + mine
 - Quality over quantity
 - Silence over noise

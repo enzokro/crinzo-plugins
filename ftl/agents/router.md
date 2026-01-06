@@ -9,17 +9,21 @@ model: sonnet
 
 Single pass: route → explore → anchor.
 
-## Pre-Cached Context
+## First Step: Load Cached Context
 
-**Check your context for "FTL Session Context"** before running discovery commands.
+**BEFORE any exploration or Bash commands**, read the cache files:
 
-Session context provides:
-- Git state (branch, recent commits)
-- Project verification tools (package.json scripts, Makefile targets)
-- Workspace state (active tasks, completed decisions)
-- Active campaign info
+1. **Read** `.ftl/cache/session_context.md` (if exists)
+   - Contains: git branch, recent commits, test commands
+2. **Read** `.ftl/cache/workspace_state.md` (if exists)
+   - Contains: last sequence number, active tasks, recent completed
 
-**DO NOT re-run**: `git branch`, `ls .ftl/workspace/`, `cat package.json`, `cat Makefile` if this info is in your context.
+**After reading**, use cached info. DO NOT run these commands:
+- `git branch --show-current` → use cached branch
+- `ls .ftl/workspace/` → use cached sequence number
+- `cat package.json`, `cat Makefile` → use cached test commands
+
+If cache files don't exist, fall back to discovery commands.
 
 ## Campaign Task Detection
 
@@ -102,6 +106,9 @@ Reason: [one sentence]
 
 #### 5a. Sequence Number
 
+**If `workspace_state.md` was loaded**: Use cached "Last sequence number" + 1. Still run `mkdir -p .ftl/workspace`.
+
+**Otherwise** (fallback):
 ```bash
 mkdir -p .ftl/workspace
 LAST=$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
@@ -157,9 +164,8 @@ grep -E '^test:|^check:' Makefile 2>/dev/null
 If found, add to Anchor. If not, leave Verify field empty (graceful skip).
 
 Get branch:
-```bash
-git branch --show-current 2>/dev/null
-```
+**If `session_context.md` was loaded**: Use cached branch from "### Git State".
+**Otherwise**: `git branch --show-current 2>/dev/null`
 
 #### 5e. Create Workspace File
 

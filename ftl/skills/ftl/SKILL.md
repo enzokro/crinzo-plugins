@@ -37,6 +37,48 @@ Violating this constraint causes workspace/campaign desync and gate failures.
 
 ---
 
+## REQUIRED: Pre-Spawn Context Injection
+
+**You MUST perform these steps before EVERY `ftl:router` spawn. No exceptions.**
+
+### Before spawning router:
+
+1. **Read** `.ftl/cache/session_context.md`
+2. **Read** `.ftl/cache/workspace_state.md`
+3. **Prepend contents** to router prompt
+
+### Prompt format:
+
+```
+[session_context.md contents]
+
+[workspace_state.md contents]
+
+---
+
+Campaign: ...
+Task: ...
+```
+
+### Why mandatory:
+
+Skipping injection → router runs redundant `git branch`, `ls .ftl/workspace`, `cat package.json`.
+Each redundant call wastes tokens. Injection eliminates ~20 Bash calls per campaign.
+
+### Cache freshness:
+
+- `session_context.md`: Static (SessionStart)
+- `workspace_state.md`: Dynamic (updated after EVERY agent)
+
+**Router also self-checks cache as backup. Both mechanisms must work.**
+
+### For builder/learner:
+
+Delta caching handled via SubagentStop → `.ftl/cache/delta_contents.md`.
+Agents read this themselves per their instructions.
+
+---
+
 ## Mode: TASK (Direct Execution)
 
 Main thread spawns phases directly (subagents cannot spawn subagents):
@@ -135,13 +177,14 @@ Task(ftl:router) with prompt:
 
 The `Campaign:` prefix forces router to create workspace.
 
-Then: builder → learner → update-task
+Then: builder → update-task
 
 ```bash
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
 
-**Note**: update-task enforces workspace gate.
+**Note**: Learner SKIPPED in campaigns — synthesizer handles pattern extraction at campaign end.
+update-task enforces workspace gate.
 
 ### Step 6: Complete Campaign
 
@@ -178,14 +221,14 @@ Main thread formats and displays ranked decisions.
 │ Query precedent  ────→│                        │←── query  │
 │                       │                        │  (inline) │
 │ Delegate task    ────→│ router→builder→        │           │
-│                       │ reflector→learner      │           │
+│                       │ reflector (if fail)    │           │
 │                       │ Creates workspace file │           │
 │                       │                        │           │
 │ Gate on workspace ←───│ Returns _complete.md   │           │
 │                       │                        │           │
 │ Signal patterns  ────→│                        │←── signal │
 │                       │                        │           │
-│ Learner updates  ────→│                        │←── mine   │
+│ Synthesizer (end)────→│ Learner (TASK only)    │←── mine   │
 └────────────────────────────────────────────────────────────┘
 ```
 
