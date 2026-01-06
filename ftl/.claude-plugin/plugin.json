@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "author": {
     "name": "crinzo"
   },

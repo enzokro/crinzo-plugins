@@ -56,9 +56,10 @@ echo "Objective: $OBJECTIVE"
 echo ""
 
 # Run Claude in print mode with skill invocation
+# acceptEdits: auto-accept file writes (required for builder to create files)
 claude -p "/ftl:ftl campaign \"$OBJECTIVE\"" \
     --output-format text \
-    --permission-mode dontAsk \
+    --permission-mode acceptEdits \
     --max-budget-usd 50
 
 echo ""
