@@ -96,7 +96,9 @@ Main thread spawns phases directly (subagents cannot spawn subagents):
     Task(ftl:builder) — implement within Delta
     If builder fails verification:
       Task(ftl:reflector) — diagnose, return RETRY or ESCALATE
-    Task(ftl:learner) — extract patterns, update index
+
+    **TASK mode only**: Task(ftl:learner) — extract patterns, update index
+    **CAMPAIGN mode**: DO NOT spawn learner (synthesizer handles at campaign end)
 
 2c. If clarify:
     Return question to user
@@ -165,6 +167,8 @@ echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
 Tasks are created with 3-digit sequence numbers (001, 002, etc.).
 
 ### Step 5: Execute Each Task
+
+**⚠️ CRITICAL: Campaign loop = Router → Builder → update-task. NO LEARNER.**
 
 For each task in sequence, spawn exactly these agents:
 
