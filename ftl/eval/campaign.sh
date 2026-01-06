@@ -2,29 +2,56 @@
 set -e
 
 # FTL Evaluation Harness - Campaign Runner
-# Usage: ./campaign.sh v8 ["custom objective"]
+# Usage: ./campaign.sh anki v8
+# Usage: ./campaign.sh pipeline v8 "custom objective"
 
-VERSION=$1
-OBJECTIVE=${2:-"build a flashcard study app with spaced repetition"}
+TEMPLATE=$1
+VERSION=$2
+CUSTOM_OBJECTIVE=$3
 
-if [ -z "$VERSION" ]; then
-    echo "Usage: ./campaign.sh <version> [objective]"
-    echo "Example: ./campaign.sh v8 'build a todo app'"
+if [ -z "$TEMPLATE" ] || [ -z "$VERSION" ]; then
+    echo "Usage: ./campaign.sh <template> <version> [objective]"
+    echo "Templates: anki, pipeline, errors, refactor"
+    echo "Example: ./campaign.sh anki v8"
     exit 1
 fi
 
+# Template-specific default objectives
+case "$TEMPLATE" in
+    anki)
+        DEFAULT_OBJECTIVE="build a flashcard study app with spaced repetition"
+        ;;
+    pipeline)
+        DEFAULT_OBJECTIVE="build a CSV data pipeline with validation, transformation, and aggregation"
+        ;;
+    errors)
+        DEFAULT_OBJECTIVE="build a config parser with strict validation and helpful error messages"
+        ;;
+    refactor)
+        DEFAULT_OBJECTIVE="extend and refactor the existing task manager to add priorities, due dates, and filtering"
+        ;;
+    *)
+        echo "Unknown template: $TEMPLATE"
+        echo "Available: anki, pipeline, errors, refactor"
+        exit 1
+        ;;
+esac
+
+OBJECTIVE=${CUSTOM_OBJECTIVE:-$DEFAULT_OBJECTIVE}
+
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET="$EVAL_DIR/../../scratch/mock-anki-app-$VERSION"
+TARGET="$EVAL_DIR/../../scratch/${TEMPLATE}-${VERSION}"
 
 if [ ! -d "$TARGET" ]; then
     echo "Error: $TARGET does not exist"
-    echo "Run setup.sh first: ./setup.sh $VERSION"
+    echo "Run setup.sh first: ./setup.sh $TEMPLATE $VERSION"
     exit 1
 fi
 
 cd "$TARGET"
 
 echo "Starting campaign in $TARGET"
+echo "Template: $TEMPLATE"
 echo "Objective: $OBJECTIVE"
 echo ""
 

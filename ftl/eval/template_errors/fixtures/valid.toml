@@ -1,0 +1,19 @@
+# Valid configuration file
+[server]
+host = "localhost"
+port = 8080
+timeout = 30
+
+[database]
+url = "postgresql://localhost:5432/mydb"
+pool_size = 10
+max_overflow = 20
+
+[security]
+ssl = true
+cert_path = "/etc/ssl/certs/server.crt"
+key_path = "/etc/ssl/private/server.key"
+
+[logging]
+level = "INFO"
+format = "json"

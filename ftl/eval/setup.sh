@@ -2,18 +2,29 @@
 set -e
 
 # FTL Evaluation Harness - Test Environment Setup
-# Usage: ./setup.sh v8
+# Usage: ./setup.sh anki v8
+# Usage: ./setup.sh pipeline v8
 
-VERSION=$1
+TEMPLATE=$1
+VERSION=$2
 
-if [ -z "$VERSION" ]; then
-    echo "Usage: ./setup.sh <version>"
-    echo "Example: ./setup.sh v8"
+if [ -z "$TEMPLATE" ] || [ -z "$VERSION" ]; then
+    echo "Usage: ./setup.sh <template> <version>"
+    echo "Templates: anki, pipeline, errors, refactor"
+    echo "Example: ./setup.sh anki v8"
     exit 1
 fi
 
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET="$EVAL_DIR/../../scratch/mock-anki-app-$VERSION"
+TEMPLATE_DIR="$EVAL_DIR/template_${TEMPLATE}"
+TARGET="$EVAL_DIR/../../scratch/${TEMPLATE}-${VERSION}"
+
+if [ ! -d "$TEMPLATE_DIR" ]; then
+    echo "Error: Template not found: $TEMPLATE_DIR"
+    echo "Available templates:"
+    ls -1 "$EVAL_DIR" | grep "^template_" | sed 's/template_/  /'
+    exit 1
+fi
 
 if [ -d "$TARGET" ]; then
     echo "Error: $TARGET already exists"
@@ -21,7 +32,7 @@ if [ -d "$TARGET" ]; then
 fi
 
 # Copy template
-cp -r "$EVAL_DIR/template" "$TARGET"
+cp -r "$TEMPLATE_DIR" "$TARGET"
 
 # Initialize uv environment
 cd "$TARGET"

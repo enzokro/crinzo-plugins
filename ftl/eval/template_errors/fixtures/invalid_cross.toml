@@ -1,0 +1,14 @@
+# Invalid: ssl=true but no cert_path provided
+[server]
+host = "localhost"
+port = 8080
+timeout = 30
+
+[database]
+url = "postgresql://localhost:5432/mydb"
+pool_size = 10
+max_overflow = 20
+
+[security]
+ssl = true
+# Missing: cert_path and key_path are required when ssl=true

@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 set -e
 
-# FTL Evaluation Harness - Full Eval Loop
-# Usage: ./run.sh v8 "optional commit message"
+# FTL Evaluation Harness - Full Eval Loop for Single Template
+# Usage: ./run.sh anki v8 "optional commit message"
+# Usage: ./run.sh pipeline v8
 
-VERSION=$1
-MSG=${2:-"eval: $VERSION"}
+TEMPLATE=$1
+VERSION=$2
+MSG=${3:-"eval: $TEMPLATE-$VERSION"}
 
-if [ -z "$VERSION" ]; then
-    echo "Usage: ./run.sh <version> [commit message]"
-    echo "Example: ./run.sh v8 'fix: enforce learner skip'"
+if [ -z "$TEMPLATE" ] || [ -z "$VERSION" ]; then
+    echo "Usage: ./run.sh <template> <version> [commit message]"
+    echo "Templates: anki, pipeline, errors, refactor"
+    echo "Example: ./run.sh anki v8 'fix: enforce learner skip'"
+    echo ""
+    echo "For full suite: ./run_suite.sh v8"
     exit 1
 fi
 
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$EVAL_DIR"
 
-RESULTS_DIR="$EVAL_DIR/results/$VERSION"
+RESULTS_DIR="$EVAL_DIR/results/${TEMPLATE}-${VERSION}"
 mkdir -p "$RESULTS_DIR"
 LOG_FILE="$RESULTS_DIR/eval.log"
 
@@ -30,9 +35,11 @@ START_TIME=$(date +%s)
 
 echo "" > "$LOG_FILE"
 log "========================================"
-log "FTL EVALUATION: $VERSION"
+log "FTL EVALUATION: $TEMPLATE-$VERSION"
 log "========================================"
 log "Started: $(date)"
+log "Template: $TEMPLATE"
+log "Version: $VERSION"
 log "Commit message: $MSG"
 log ""
 
@@ -50,7 +57,7 @@ log ""
 # Step 2: Setup test environment
 log "[2/5] SETUP TEST ENVIRONMENT"
 log "----------------------------------------"
-./setup.sh "$VERSION" 2>&1 | tee -a "$LOG_FILE"
+./setup.sh "$TEMPLATE" "$VERSION" 2>&1 | tee -a "$LOG_FILE"
 log ""
 
 # Step 3: Run campaign
@@ -60,7 +67,7 @@ CAMPAIGN_START=$(date +%s)
 
 # Capture campaign output
 CAMPAIGN_LOG="$RESULTS_DIR/campaign.log"
-./campaign.sh "$VERSION" 2>&1 | tee "$CAMPAIGN_LOG" | tee -a "$LOG_FILE"
+./campaign.sh "$TEMPLATE" "$VERSION" 2>&1 | tee "$CAMPAIGN_LOG" | tee -a "$LOG_FILE"
 
 CAMPAIGN_END=$(date +%s)
 CAMPAIGN_DURATION=$((CAMPAIGN_END - CAMPAIGN_START))
@@ -71,7 +78,7 @@ log ""
 # Step 4: Collect and analyze
 log "[4/5] COLLECT AND ANALYZE"
 log "----------------------------------------"
-./collect.sh "$VERSION" 2>&1 | tee -a "$LOG_FILE"
+./collect.sh "$TEMPLATE" "$VERSION" 2>&1 | tee -a "$LOG_FILE"
 log ""
 
 # Step 5: Deep analysis
@@ -82,12 +89,12 @@ log "----------------------------------------"
 python3 analyze.py "$RESULTS_DIR" --detailed 2>&1 | tee -a "$LOG_FILE"
 log ""
 
-# Compare with previous if exists
-PREV_VERSION=$(ls -1 results/ 2>/dev/null | grep -v "^$VERSION$" | sort -V | tail -1)
-if [ -n "$PREV_VERSION" ]; then
-    log "COMPARISON: $PREV_VERSION -> $VERSION"
+# Compare with previous same-template run if exists
+PREV_RUN=$(ls -1 results/ 2>/dev/null | grep "^${TEMPLATE}-" | grep -v "${TEMPLATE}-${VERSION}$" | sort -V | tail -1)
+if [ -n "$PREV_RUN" ]; then
+    log "COMPARISON: $PREV_RUN -> ${TEMPLATE}-${VERSION}"
     log "----------------------------------------"
-    python3 compare.py "$PREV_VERSION" "$VERSION" 2>&1 | tee -a "$LOG_FILE"
+    python3 compare.py "$PREV_RUN" "${TEMPLATE}-${VERSION}" 2>&1 | tee -a "$LOG_FILE"
     log ""
 fi
 
@@ -98,6 +105,7 @@ TOTAL_DURATION=$((END_TIME - START_TIME))
 log "========================================"
 log "EVALUATION COMPLETE"
 log "========================================"
+log "Template: $TEMPLATE"
 log "Version: $VERSION"
 log "Plugin: $PLUGIN_VERSION"
 log "Duration: ${TOTAL_DURATION}s (campaign: ${CAMPAIGN_DURATION}s)"
