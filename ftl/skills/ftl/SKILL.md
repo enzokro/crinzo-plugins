@@ -166,7 +166,9 @@ Tasks are created with 3-digit sequence numbers (001, 002, etc.).
 
 ### Step 5: Execute Each Task
 
-Invoke router WITH campaign context:
+For each task in sequence, spawn exactly these agents:
+
+**1. Router** — invoke with campaign context:
 ```
 Task(ftl:router) with prompt:
   Campaign: $OBJECTIVE
@@ -174,16 +176,21 @@ Task(ftl:router) with prompt:
 
   [description]
 ```
-
 The `Campaign:` prefix forces router to create workspace.
 
-Then: builder → update-task
+**2. Builder** — implement within workspace:
+```
+Task(ftl:builder) with prompt:
+  Workspace: [path returned by router]
+```
 
+**3. Update** — mark task complete:
 ```bash
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
 
-**Note**: Learner SKIPPED in campaigns — synthesizer handles pattern extraction at campaign end.
+**DO NOT spawn ftl:learner in campaigns.** Synthesizer handles pattern extraction at campaign end.
+
 update-task enforces workspace gate.
 
 ### Step 6: Complete Campaign
