@@ -1,0 +1,317 @@
+{
+  "agents": [
+    {
+      "file": "agent-a08c1de.jsonl",
+      "type": "synthesizer",
+      "tokens": {
+        "input": 21,
+        "cache_read": 152643,
+        "cache_create": 72429,
+        "output": 1526,
+        "total": 226619
+      },
+      "api_calls": 15,
+      "tool_calls": 12,
+      "first_reads": [
+        "001_database-schema_complete.md",
+        "002_card-crud_complete_from-001.md",
+        "003_study-session_complete.md",
+        "004_spaced-repetition_complete.md",
+        "build-a-flashcard-study.json"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a0f3489.jsonl",
+      "type": "builder",
+      "tokens": {
+        "input": 41,
+        "cache_read": 749671,
+        "cache_create": 50041,
+        "output": 8116,
+        "total": 807869
+      },
+      "api_calls": 37,
+      "tool_calls": 22,
+      "first_reads": [
+        "004_spaced-repetition_active_from-003.md",
+        "delta_contents.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a13aee5.jsonl",
+      "type": "router",
+      "tokens": {
+        "input": 117,
+        "cache_read": 209052,
+        "cache_create": 35879,
+        "output": 3289,
+        "total": 248337
+      },
+      "api_calls": 19,
+      "tool_calls": 12,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "003_study-session_complete.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": true
+    },
+    {
+      "file": "agent-a31b45e.jsonl",
+      "type": "router",
+      "tokens": {
+        "input": 114,
+        "cache_read": 187891,
+        "cache_create": 22577,
+        "output": 2129,
+        "total": 212711
+      },
+      "api_calls": 19,
+      "tool_calls": 12,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "001_database-schema_complete.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": true
+    },
+    {
+      "file": "agent-a5b667b.jsonl",
+      "type": "builder",
+      "tokens": {
+        "input": 42,
+        "cache_read": 484148,
+        "cache_create": 22394,
+        "output": 3423,
+        "total": 510007
+      },
+      "api_calls": 38,
+      "tool_calls": 25,
+      "first_reads": [
+        "002_card-crud_active_from-001.md",
+        "delta_contents.md",
+        "main.py",
+        "test_app.py",
+        "002_card-crud_active_from-001.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a5edc62.jsonl",
+      "type": "builder",
+      "tokens": {
+        "input": 26,
+        "cache_read": 269906,
+        "cache_create": 27052,
+        "output": 3253,
+        "total": 300237
+      },
+      "api_calls": 22,
+      "tool_calls": 14,
+      "first_reads": [
+        "003_study-session_active_from-002.md",
+        "delta_contents.md",
+        "main.py",
+        "test_app.py",
+        "003_study-session_active_from-002.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a638090.jsonl",
+      "type": "builder",
+      "tokens": {
+        "input": 34,
+        "cache_read": 308703,
+        "cache_create": 29614,
+        "output": 2795,
+        "total": 341146
+      },
+      "api_calls": 30,
+      "tool_calls": 17,
+      "first_reads": [
+        "001_database-schema_active.md",
+        "delta_contents.md",
+        "main.py",
+        "001_database-schema_active.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a7067b2.jsonl",
+      "type": "router",
+      "tokens": {
+        "input": 86,
+        "cache_read": 133834,
+        "cache_create": 26533,
+        "output": 2108,
+        "total": 162561
+      },
+      "api_calls": 14,
+      "tool_calls": 9,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "002_card-crud_complete_from-001.md",
+        "001_database-schema_complete.md",
+        "main.py"
+      ],
+      "cache_hit": true
+    },
+    {
+      "file": "agent-a73c200.jsonl",
+      "type": "learner",
+      "tokens": {
+        "input": 11,
+        "cache_read": 58498,
+        "cache_create": 9406,
+        "output": 709,
+        "total": 68624
+      },
+      "api_calls": 7,
+      "tool_calls": 4,
+      "first_reads": [
+        "002_card-crud_complete_from-001.md",
+        "delta_contents.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a873620.jsonl",
+      "type": "learner",
+      "tokens": {
+        "input": 11,
+        "cache_read": 60277,
+        "cache_create": 10514,
+        "output": 774,
+        "total": 71576
+      },
+      "api_calls": 7,
+      "tool_calls": 4,
+      "first_reads": [
+        "003_study-session_complete.md",
+        "delta_contents.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-a8f9ce0.jsonl",
+      "type": "router",
+      "tokens": {
+        "input": 233,
+        "cache_read": 261084,
+        "cache_create": 65463,
+        "output": 1948,
+        "total": 328728
+      },
+      "api_calls": 24,
+      "tool_calls": 19,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "main.py",
+        "main.py",
+        "pyproject.toml"
+      ],
+      "cache_hit": true
+    },
+    {
+      "file": "agent-a98d373.jsonl",
+      "type": "planner",
+      "tokens": {
+        "input": 20,
+        "cache_read": 59137,
+        "cache_create": 36260,
+        "output": 487,
+        "total": 95904
+      },
+      "api_calls": 12,
+      "tool_calls": 11,
+      "first_reads": [
+        "pyproject.toml",
+        "README.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-aa74248.jsonl",
+      "type": "learner",
+      "tokens": {
+        "input": 10,
+        "cache_read": 43825,
+        "cache_create": 30169,
+        "output": 205,
+        "total": 74209
+      },
+      "api_calls": 6,
+      "tool_calls": 4,
+      "first_reads": [
+        "004_spaced-repetition_complete.md",
+        "delta_contents.md"
+      ],
+      "cache_hit": false
+    },
+    {
+      "file": "agent-af61039.jsonl",
+      "type": "learner",
+      "tokens": {
+        "input": 12,
+        "cache_read": 52692,
+        "cache_create": 20691,
+        "output": 903,
+        "total": 74298
+      },
+      "api_calls": 8,
+      "tool_calls": 5,
+      "first_reads": [
+        "001_database-schema_complete.md",
+        "delta_contents.md",
+        "paths.sh"
+      ],
+      "cache_hit": false
+    }
+  ],
+  "by_type": {
+    "synthesizer": {
+      "count": 1,
+      "tokens": 226619,
+      "cache_hits": 0
+    },
+    "builder": {
+      "count": 4,
+      "tokens": 1959259,
+      "cache_hits": 0
+    },
+    "router": {
+      "count": 4,
+      "tokens": 952337,
+      "cache_hits": 4
+    },
+    "learner": {
+      "count": 4,
+      "tokens": 288707,
+      "cache_hits": 0
+    },
+    "planner": {
+      "count": 1,
+      "tokens": 95904,
+      "cache_hits": 0
+    }
+  },
+  "totals": {
+    "tokens": 3522826,
+    "api_calls": 258,
+    "tool_calls": 170,
+    "agents": 14
+  }
+}

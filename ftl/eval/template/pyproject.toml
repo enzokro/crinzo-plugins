@@ -1,0 +1,9 @@
+[project]
+name = "mock-anki-app"
+version = "0.1.0"
+description = "Flashcard study app for FTL campaign testing"
+requires-python = ">=3.12"
+dependencies = ["python-fasthtml>=0.4.0"]
+
+[dependency-groups]
+dev = ["pytest>=9.0.2"]
