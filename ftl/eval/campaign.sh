@@ -56,10 +56,10 @@ echo "Objective: $OBJECTIVE"
 echo ""
 
 # Run Claude in print mode with skill invocation
-# acceptEdits: auto-accept file writes (required for builder to create files)
+# bypassPermissions: skip all permission checks (required for campaign.py bash commands)
 claude -p "/ftl:ftl campaign \"$OBJECTIVE\"" \
     --output-format text \
-    --permission-mode acceptEdits \
+    --permission-mode bypassPermissions \
     --max-budget-usd 50
 
 echo ""
