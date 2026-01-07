@@ -240,7 +240,7 @@ def generate_findings(results: dict) -> list:
             "issue": "Learner agents spawned in campaign",
             "detail": f"{learner_count} learners consumed {learner_tokens:,} tokens ({pct:.1f}%)",
             "expected": "0 learners (synthesizer handles pattern extraction)",
-            "action": "Verify SKILL.md Step 5 prohibits learner spawning"
+            "action": "Check 'Two Workflows' ontology section in SKILL.md"
         })
 
     # Check router cache hits

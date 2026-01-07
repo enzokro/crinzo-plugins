@@ -55,11 +55,23 @@ fi
 mkdir -p "$CACHE_DIR"
 cp -r "$FTL_ROOT"/* "$CACHE_DIR/"
 
-# Verify critical file
-if grep -q "CAMPAIGN mode.*DO NOT spawn learner" "$CACHE_DIR/skills/ftl/SKILL.md" 2>/dev/null; then
-    echo "  ✓ Learner skip instruction present in cache"
+# Verify critical ontology section
+if grep -q "Two Workflows: Task vs Campaign" "$CACHE_DIR/skills/ftl/SKILL.md" 2>/dev/null; then
+    echo "  ✓ Ontology section present in cache"
+    if grep -q "Learner.*NEVER" "$CACHE_DIR/skills/ftl/SKILL.md" 2>/dev/null; then
+        echo "  ✓ Agent matrix with Learner prohibition present"
+    else
+        echo "  ⚠ WARNING: Agent matrix not found in SKILL.md"
+    fi
 else
-    echo "  ⚠ WARNING: Learner skip instruction NOT found in cached SKILL.md"
+    echo "  ⚠ WARNING: Ontology section NOT found in cached SKILL.md"
+fi
+
+# Verify command duplicate removed
+if [ -f "$CACHE_DIR/commands/ftl.md" ]; then
+    echo "  ⚠ WARNING: commands/ftl.md still exists (should be deleted)"
+else
+    echo "  ✓ commands/ftl.md correctly removed (skill is single source)"
 fi
 
 echo ""
