@@ -1,0 +1,849 @@
+{
+  "version": "anki-v10",
+  "analyzed_at": "2026-01-06T10:57:19.108721",
+  "agents": [
+    {
+      "file": "agent-a0747c5.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 32,
+        "cache_read": 54820,
+        "cache_create": 4283,
+        "output": 271,
+        "total": 59406
+      },
+      "api_calls": 7,
+      "tools": {
+        "Read": 3,
+        "Bash": 1
+      },
+      "tool_calls": 4,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "main.py"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from main import app; from starlette.testclient import TestCli"
+      ]
+    },
+    {
+      "file": "agent-a0aee36.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 216,
+        "cache_read": 505928,
+        "cache_create": 38090,
+        "output": 3105,
+        "total": 547339
+      },
+      "api_calls": 32,
+      "tools": {
+        "Read": 6,
+        "Write": 1,
+        "Bash": 8,
+        "Edit": 6
+      },
+      "tool_calls": 21,
+      "first_reads": [
+        "006_test-suite_active_from-005.md",
+        "delta_contents.md",
+        "test_app.py",
+        "main.py",
+        "pyproject.toml",
+        "006_test-suite_active_from-005.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run pytest test_app.py -v --tb=short",
+        "uv run pytest test_app.py -v --tb=short",
+        "git diff --name-only",
+        "git diff --name-only",
+        "git status",
+        "git status --porcelain && ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugi",
+        "uv run pytest test_app.py -v --tb=short",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works"
+      ]
+    },
+    {
+      "file": "agent-a1559bf.jsonl",
+      "type": "learner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 108,
+        "cache_read": 141147,
+        "cache_create": 12491,
+        "output": 1023,
+        "total": 154769
+      },
+      "api_calls": 14,
+      "tools": {
+        "Read": 3,
+        "Edit": 1,
+        "Bash": 5
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "005_spaced-repetition_complete.md",
+        "delta_contents.md",
+        "main.py"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "cat ~/.config/ftl/paths.sh 2>/dev/null || echo \"File not found\"",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/",
+        "python3 /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/context_g"
+      ]
+    },
+    {
+      "file": "agent-a1dc758.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 869,
+        "cache_read": 199642,
+        "cache_create": 38339,
+        "output": 2531,
+        "total": 241381
+      },
+      "api_calls": 18,
+      "tools": {
+        "Read": 7,
+        "Bash": 4,
+        "Glob": 3,
+        "Write": 1
+      },
+      "tool_calls": 15,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "005_spaced-repetition_complete.md",
+        "test_app.py",
+        "main.py",
+        "pyproject.toml",
+        "004_study-flow_complete.md"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "mkdir -p .ftl/workspace && LAST=$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-",
+        "ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -5",
+        "git branch --show-current 2>/dev/null",
+        "mkdir -p .ftl/workspace && ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | "
+      ]
+    },
+    {
+      "file": "agent-a21fe9b.jsonl",
+      "type": "learner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 339,
+        "cache_read": 93880,
+        "cache_create": 10175,
+        "output": 630,
+        "total": 105024
+      },
+      "api_calls": 11,
+      "tools": {
+        "Read": 4,
+        "Bash": 3,
+        "Glob": 1
+      },
+      "tool_calls": 8,
+      "first_reads": [
+        "002_card-crud_complete.md",
+        "delta_contents.md",
+        "main.py",
+        "paths.sh"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "source ~/.config/ftl/paths.sh 2>/dev/null && echo \"FTL_LIB=$FTL_LIB\" && ls -la \"",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.17/lib/",
+        "python3 /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/context_g"
+      ]
+    },
+    {
+      "file": "agent-a4943e1.jsonl",
+      "type": "learner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 107,
+        "cache_read": 135997,
+        "cache_create": 13524,
+        "output": 1113,
+        "total": 150741
+      },
+      "api_calls": 13,
+      "tools": {
+        "Read": 3,
+        "Edit": 1,
+        "Bash": 5
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "006_test-suite_complete.md",
+        "delta_contents.md",
+        "test_app.py"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "cat ~/.config/ftl/paths.sh 2>/dev/null || echo \"File not found\"",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/",
+        "ls /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/ 2>/dev/null |",
+        "python3 /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/context_g"
+      ]
+    },
+    {
+      "file": "agent-a6e369d.jsonl",
+      "type": "router",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 15,
+        "cache_read": 68164,
+        "cache_create": 9548,
+        "output": 906,
+        "total": 78633
+      },
+      "api_calls": 9,
+      "tools": {
+        "Read": 3,
+        "Bash": 1,
+        "Glob": 1,
+        "Write": 1
+      },
+      "tool_calls": 6,
+      "first_reads": [
+        "delta_contents.md",
+        "main.py",
+        "002_card-crud_complete.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from main import app; from starlette.testclient import TestCli"
+      ]
+    },
+    {
+      "file": "agent-a70c497.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 1418,
+        "cache_read": 258054,
+        "cache_create": 21710,
+        "output": 2426,
+        "total": 283608
+      },
+      "api_calls": 26,
+      "tools": {
+        "Read": 6,
+        "Bash": 8,
+        "Glob": 3,
+        "Grep": 2,
+        "Write": 1
+      },
+      "tool_calls": 20,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "main.py",
+        "001_data-model_complete.md",
+        "README.md",
+        "test_app.py"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "ls -t /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/wo",
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl",
+        "git branch --show-current 2>/dev/null",
+        "LAST=$(ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ft",
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "grep -E '\"test\"|\"dev\"|\"run\"' /Users/cck/CC/plugins/marketplaces/crinzo-plugins/s",
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/w"
+      ]
+    },
+    {
+      "file": "agent-a82ea99.jsonl",
+      "type": "planner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 18,
+        "cache_read": 44078,
+        "cache_create": 32271,
+        "output": 803,
+        "total": 77170
+      },
+      "api_calls": 10,
+      "tools": {
+        "Bash": 5,
+        "Read": 4
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "pyproject.toml",
+        "main.py",
+        "test_app.py",
+        "README.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "cat package.json 2>/dev/null | jq '.scripts' || echo \"No package.json\"",
+        "cat Makefile 2>/dev/null | grep -E '^[a-z]+:' || echo \"No Makefile\"",
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/",
+        "ls .github/workflows/*.yml 2>/dev/null || echo \"No CI workflows\"",
+        "uv run pytest test_app.py -v 2>&1 || true"
+      ]
+    },
+    {
+      "file": "agent-a95734b.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 157,
+        "cache_read": 190943,
+        "cache_create": 18163,
+        "output": 3116,
+        "total": 212379
+      },
+      "api_calls": 18,
+      "tools": {
+        "Read": 5,
+        "Edit": 3,
+        "Bash": 3
+      },
+      "tool_calls": 11,
+      "first_reads": [
+        "002_card-crud_active_from-001.md",
+        "delta_contents.md",
+        "main.py",
+        "README.md",
+        "002_card-crud_active_from-001.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from main import app; from starlette.testclient import TestCli",
+        "uv run python -c \"\nfrom main import app\nfrom starlette.testclient import TestCli",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works"
+      ]
+    },
+    {
+      "file": "agent-a9c4cdb.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 228,
+        "cache_read": 555899,
+        "cache_create": 33556,
+        "output": 3345,
+        "total": 593028
+      },
+      "api_calls": 44,
+      "tools": {
+        "Read": 7,
+        "Bash": 20,
+        "Edit": 3
+      },
+      "tool_calls": 30,
+      "first_reads": [
+        "001_data-model_active.md",
+        "delta_contents.md",
+        "main.py",
+        "README.md",
+        "pyproject.toml",
+        "001_data-model_active.md",
+        "main.py"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from fasthtml.common import *; help(database)\" 2>&1 | head -50",
+        "uv run python -c \"\nfrom fasthtml.common import *\ndb = database(':memory:')\n# Che",
+        "uv run python -c \"\nfrom fasthtml.common import *\nfrom datetime import date\n\n# Te",
+        "uv run python -c \"\nfrom fasthtml.common import *\nhelp(database(':memory:').creat",
+        "uv run python -c \"\nfrom fasthtml.common import *\nfrom dataclasses import datacla",
+        "uv run python -c \"\nfrom fasthtml.common import *\nfrom dataclasses import datacla",
+        "rm -f /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/data/ca",
+        "uv run python -c \"from main import cards; print(cards)\"",
+        "uv run python -c \"\nfrom main import cards, Card, db\nprint('Table name:', cards.n",
+        "rm -f /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/data/ca"
+      ]
+    },
+    {
+      "file": "agent-a9ff387.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 131,
+        "cache_read": 228518,
+        "cache_create": 26972,
+        "output": 2558,
+        "total": 258179
+      },
+      "api_calls": 22,
+      "tools": {
+        "Read": 6,
+        "Bash": 7,
+        "Glob": 1,
+        "Write": 1
+      },
+      "tool_calls": 15,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "004_study-flow_complete.md",
+        "main.py",
+        "001_data-model_complete.md",
+        "README.md"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl",
+        "LAST=$(ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ft",
+        "ls -t /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/wo",
+        "git branch --show-current 2>/dev/null",
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "uv run python -c \"from datetime import date, timedelta; print(f'Test: {date.toda"
+      ]
+    },
+    {
+      "file": "agent-aa54e41.jsonl",
+      "type": "learner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 107,
+        "cache_read": 99729,
+        "cache_create": 20281,
+        "output": 894,
+        "total": 121011
+      },
+      "api_calls": 13,
+      "tools": {
+        "Read": 3,
+        "Edit": 1,
+        "Bash": 5
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "001_data-model_complete.md",
+        "delta_contents.md",
+        "main.py"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "cat ~/.config/ftl/paths.sh 2>/dev/null || echo \"File not found\"",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/ 2>/dev/null || echo ",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/ 2>/dev/nu",
+        "python3 /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/context_g"
+      ]
+    },
+    {
+      "file": "agent-aa7d8fc.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 158,
+        "cache_read": 224017,
+        "cache_create": 21392,
+        "output": 2782,
+        "total": 248349
+      },
+      "api_calls": 19,
+      "tools": {
+        "Read": 5,
+        "Edit": 3,
+        "Bash": 4
+      },
+      "tool_calls": 12,
+      "first_reads": [
+        "005_spaced-repetition_active_from-004.md",
+        "delta_contents.md",
+        "main.py",
+        "README.md",
+        "005_spaced-repetition_active_from-004.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from main import app, cards; from starlette.testclient import ",
+        "uv run python -c \"\nfrom main import app, cards\nfrom starlette.testclient import ",
+        "rm -f /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/data/ca",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works"
+      ]
+    },
+    {
+      "file": "agent-aae1dfb.jsonl",
+      "type": "synthesizer",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 26,
+        "cache_read": 259539,
+        "cache_create": 68062,
+        "output": 2867,
+        "total": 330494
+      },
+      "api_calls": 20,
+      "tools": {
+        "Bash": 5,
+        "Glob": 1,
+        "Read": 10
+      },
+      "tool_calls": 16,
+      "first_reads": [
+        "build-a-flashcard-study.json",
+        "001_data-model_complete.md",
+        "002_card-crud_complete.md",
+        "003_home-redirect_complete.md",
+        "004_study-flow_complete.md",
+        "005_spaced-repetition_complete.md",
+        "006_test-suite_complete.md",
+        "main.py",
+        "test_app.py",
+        "synthesis.json"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/campa",
+        "cat /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/synt",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/campaign.py\" patt",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "cat > /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/sy"
+      ]
+    },
+    {
+      "file": "agent-ab2b165.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 174,
+        "cache_read": 563438,
+        "cache_create": 29834,
+        "output": 3017,
+        "total": 596463
+      },
+      "api_calls": 35,
+      "tools": {
+        "Read": 5,
+        "Edit": 2,
+        "Bash": 16
+      },
+      "tool_calls": 23,
+      "first_reads": [
+        "004_study-flow_active_from-002.md",
+        "delta_contents.md",
+        "main.py",
+        "README.md",
+        "004_study-flow_active_from-002.md"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "uv run python -c \"from main import app; from starlette.testclient import TestCli",
+        "uv run python -c \"\nfrom main import app\nfrom starlette.testclient import TestCli",
+        "uv run python -c \"\nfrom main import app\nfrom starlette.testclient import TestCli",
+        "uv run python -c \"\nfrom main import app, cards\nfrom starlette.testclient import ",
+        "git -C /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10 diff -",
+        "git -C /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10 status",
+        "git -C /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10 log -1",
+        "git -C /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10 diff H",
+        "git -C /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10 show H",
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/"
+      ]
+    },
+    {
+      "file": "agent-ac0c5a9.jsonl",
+      "type": "learner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 107,
+        "cache_read": 111940,
+        "cache_create": 23838,
+        "output": 1146,
+        "total": 137031
+      },
+      "api_calls": 13,
+      "tools": {
+        "Read": 3,
+        "Edit": 1,
+        "Bash": 5
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "004_study-flow_complete.md",
+        "delta_contents.md",
+        "main.py"
+      ],
+      "cache_hit": false,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "cat ~/.config/ftl/paths.sh 2>/dev/null || echo \"File not found\"",
+        "ls -la /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/",
+        "ls /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/",
+        "python3 /Users/cck/.claude/plugins/cache/crinzo-plugins/ftl/1.0.19/lib/context_g"
+      ]
+    },
+    {
+      "file": "agent-af0a32d.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 225,
+        "cache_read": 319294,
+        "cache_create": 52345,
+        "output": 1334,
+        "total": 373198
+      },
+      "api_calls": 27,
+      "tools": {
+        "Read": 6,
+        "Bash": 8,
+        "Glob": 4,
+        "Grep": 1,
+        "Write": 1
+      },
+      "tool_calls": 20,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "main.py",
+        "pyproject.toml",
+        "test_app.py",
+        "README.md"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl",
+        "LAST=$(ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ft",
+        "git branch --show-current 2>/dev/null",
+        "cd /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works",
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\"",
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/",
+        "python3 -c \"import fastlite; help(fastlite.database)\" 2>&1 | head -50"
+      ]
+    },
+    {
+      "file": "agent-af8a54b.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 134,
+        "cache_read": 212915,
+        "cache_create": 23027,
+        "output": 2968,
+        "total": 239044
+      },
+      "api_calls": 22,
+      "tools": {
+        "Read": 6,
+        "Bash": 6,
+        "Grep": 1,
+        "Write": 1
+      },
+      "tool_calls": 14,
+      "first_reads": [
+        "session_context.md",
+        "workspace_state.md",
+        "main.py",
+        "002_card-crud_complete.md",
+        "001_data-model_complete.md",
+        "README.md"
+      ],
+      "cache_hit": true,
+      "errors": [],
+      "duration_estimate": 0,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl",
+        "LAST=$(ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ft",
+        "ls -t /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/wo",
+        "git branch --show-current 2>/dev/null",
+        "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v10/.ftl/works",
+        "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\""
+      ]
+    }
+  ],
+  "by_type": {
+    "router": {
+      "count": 7,
+      "tokens": 1533449,
+      "cache_hits": 6,
+      "tokens_by_category": {
+        "input": 2824,
+        "cache_read": 1341407,
+        "cache_create": 176224,
+        "output": 12994
+      },
+      "models": {
+        "claude-sonnet-4-5-20250929": 6,
+        "claude-opus-4-5-20251101": 1
+      },
+      "avg_api_calls": 18.714285714285715,
+      "total_api_calls": 131
+    },
+    "builder": {
+      "count": 5,
+      "tokens": 2197558,
+      "cache_hits": 0,
+      "tokens_by_category": {
+        "input": 933,
+        "cache_read": 2040225,
+        "cache_create": 141035,
+        "output": 15365
+      },
+      "models": {
+        "claude-opus-4-5-20251101": 5
+      },
+      "avg_api_calls": 29.6,
+      "total_api_calls": 148
+    },
+    "learner": {
+      "count": 5,
+      "tokens": 668576,
+      "cache_hits": 0,
+      "tokens_by_category": {
+        "input": 768,
+        "cache_read": 582693,
+        "cache_create": 80309,
+        "output": 4806
+      },
+      "models": {
+        "claude-opus-4-5-20251101": 5
+      },
+      "avg_api_calls": 12.8,
+      "total_api_calls": 64
+    },
+    "planner": {
+      "count": 1,
+      "tokens": 77170,
+      "cache_hits": 0,
+      "tokens_by_category": {
+        "input": 18,
+        "cache_read": 44078,
+        "cache_create": 32271,
+        "output": 803
+      },
+      "models": {
+        "claude-opus-4-5-20251101": 1
+      },
+      "avg_api_calls": 10.0,
+      "total_api_calls": 10
+    },
+    "synthesizer": {
+      "count": 1,
+      "tokens": 330494,
+      "cache_hits": 0,
+      "tokens_by_category": {
+        "input": 26,
+        "cache_read": 259539,
+        "cache_create": 68062,
+        "output": 2867
+      },
+      "models": {
+        "claude-opus-4-5-20251101": 1
+      },
+      "avg_api_calls": 20.0,
+      "total_api_calls": 20
+    }
+  },
+  "by_model": {
+    "claude-sonnet-4-5-20250929": {
+      "count": 6,
+      "tokens": 1454816
+    },
+    "claude-opus-4-5-20251101": {
+      "count": 13,
+      "tokens": 3352431
+    }
+  },
+  "tools_summary": {
+    "Read": 95,
+    "Bash": 119,
+    "Write": 7,
+    "Edit": 21,
+    "Glob": 14,
+    "Grep": 4
+  },
+  "totals": {
+    "tokens": 4807247,
+    "tokens_by_category": {
+      "input": 4569,
+      "cache_read": 4267942,
+      "cache_create": 497901,
+      "output": 36835
+    },
+    "api_calls": 373,
+    "tool_calls": 260,
+    "agents": 19
+  },
+  "issues": [],
+  "findings": [
+    {
+      "severity": "HIGH",
+      "category": "orchestration",
+      "issue": "Learner agents spawned in campaign",
+      "detail": "5 learners consumed 668,576 tokens (13.9%)",
+      "expected": "0 learners (synthesizer handles pattern extraction)",
+      "action": "Verify SKILL.md Step 5 prohibits learner spawning"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "caching",
+      "issue": "Router cache misses",
+      "detail": "6/7 routers read cache files first",
+      "expected": "All routers should read session_context.md + workspace_state.md first",
+      "action": "Check router.md 'First Step: Load Cached Context' instruction"
+    },
+    {
+      "severity": "MEDIUM",
+      "category": "orchestration",
+      "issue": "Router/builder mismatch: 7 routers, 5 builders",
+      "expected": "Equal number of routers and builders (1:1 mapping)"
+    },
+    {
+      "severity": "OK",
+      "category": "efficiency",
+      "issue": "Good cache utilization",
+      "detail": "88.8% of tokens from cache reads"
+    }
+  ]
+}

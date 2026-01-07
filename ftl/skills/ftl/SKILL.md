@@ -26,6 +26,57 @@ Violating this constraint causes workspace/campaign desync and gate failures.
 
 ---
 
+## Two Workflows: Task vs Campaign (CRITICAL ARCHITECTURE)
+
+FTL has two fundamentally different workflows. Understanding this prevents agent misuse.
+
+### TASK Mode
+
+```
+Request → Router → Builder → Learner → Done
+```
+
+- **Scope**: Single decision
+- **Pattern agent**: Learner
+- **Why**: Surface patterns from one implementation
+
+### CAMPAIGN Mode
+
+```
+Objective → Planner → [Router → Builder → update-task]* → Synthesizer → Done
+```
+
+- **Scope**: Multiple coordinated decisions
+- **Pattern agent**: Synthesizer (at END only)
+- **Why**: Meta-patterns from cross-task analysis
+
+### Agent Assignment Matrix
+
+| Agent | Task | Campaign |
+|-------|------|----------|
+| Router | ✓ | ✓ |
+| Builder | ✓ | ✓ |
+| Reflector | on fail | on fail |
+| Planner | ⊘ | start only |
+| **Learner** | **✓** | **⊘ NEVER** |
+| **Synthesizer** | ⊘ | **end only** |
+
+### Why This Matters
+
+**Learner and Synthesizer are mutually exclusive by workflow.**
+
+- Learner: Extracts patterns from single task's workspace
+- Synthesizer: Extracts meta-patterns from ALL campaign workspaces
+
+Spawning learner per-task in campaigns:
+1. Wastes ~100k tokens per invocation (Opus model)
+2. Produces shallow patterns that synthesizer finds anyway
+3. Misses cross-task connections only synthesizer can see
+
+**Category error**: Spawning learner in campaign = spawning planner in task. Both are structural mismatches, not policy violations.
+
+---
+
 ## Entry: Route by Intent
 
 | Input Pattern | Mode | Flow |
@@ -98,7 +149,7 @@ Main thread spawns phases directly (subagents cannot spawn subagents):
       Task(ftl:reflector) — diagnose, return RETRY or ESCALATE
 
     **TASK mode only**: Task(ftl:learner) — extract patterns, update index
-    **CAMPAIGN mode**: DO NOT spawn learner (synthesizer handles at campaign end)
+    **CAMPAIGN mode**: See "Two Workflows" section — Synthesizer replaces Learner.
 
 2c. If clarify:
     Return question to user
@@ -168,7 +219,7 @@ Tasks are created with 3-digit sequence numbers (001, 002, etc.).
 
 ### Step 5: Execute Each Task
 
-**⚠️ CRITICAL: Campaign loop = Router → Builder → update-task. NO LEARNER.**
+**Campaign loop = Router → Builder → update-task.** (See "Two Workflows" — no Learner)
 
 For each task in sequence, spawn exactly these agents:
 
@@ -193,7 +244,7 @@ Task(ftl:builder) with prompt:
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
 
-**DO NOT spawn ftl:learner in campaigns.** Synthesizer handles pattern extraction at campaign end.
+**Synthesizer at campaign end** — see "Two Workflows" section for why Learner is excluded.
 
 update-task enforces workspace gate.
 

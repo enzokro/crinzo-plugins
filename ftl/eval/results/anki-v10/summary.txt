@@ -1,0 +1,47 @@
+===========================================================================
+FTL CAMPAIGN ANALYSIS: anki-v10
+===========================================================================
+
+### AGENT SUMMARY
+Type         | Count |       Tokens |   Cache | Avg APIs
+------------------------------------------------------------
+planner      |     1 |       77,170 |     0/1 |     10.0
+router       |     7 |    1,533,449 |     6/7 |     18.7
+builder      |     5 |    2,197,558 |     0/5 |     29.6
+learner      |     5 |      668,576 |     0/5 |     12.8 !!!
+synthesizer  |     1 |      330,494 |     0/1 |     20.0
+------------------------------------------------------------
+TOTAL        |    19 |    4,807,247
+
+### TOKEN BREAKDOWN
+  input          :        4,569 (  0.1%)
+  cache_read     :    4,267,942 ( 88.8%)
+  cache_create   :      497,901 ( 10.4%)
+  output         :       36,835 (  0.8%)
+
+### MODEL USAGE
+  claude-opus-4-5-20251101: 13 agents, 3,352,431 tokens
+  claude-sonnet-4-5-20250929: 6 agents, 1,454,816 tokens
+
+### FINDINGS
+------------------------------------------------------------
+
+[HIGH] Learner agents spawned in campaign
+       5 learners consumed 668,576 tokens (13.9%)
+       Expected: 0 learners (synthesizer handles pattern extraction)
+       Action: Verify SKILL.md Step 5 prohibits learner spawning
+
+[MEDIUM] Router cache misses
+         6/7 routers read cache files first
+         Action: Check router.md 'First Step: Load Cached Context' instruction
+
+[MEDIUM] Router/builder mismatch: 7 routers, 5 builders
+
+[OK] Good cache utilization
+     88.8% of tokens from cache reads
+
+### SUMMARY
+------------------------------------------------------------
+STATUS: NEEDS ATTENTION - 1 high severity issue(s)
+
+Learner waste: 668,576 tokens could be saved
