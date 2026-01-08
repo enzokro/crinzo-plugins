@@ -21,7 +21,7 @@ fi
 # Template-specific default objectives
 case "$TEMPLATE" in
     anki)
-        DEFAULT_OBJECTIVE="build a flashcard study app with spaced repetition"
+        DEFAULT_OBJECTIVE="build the flashcard app per README.md - see REQUIRED TASK BREAKDOWN for exact tasks"
         ;;
     pipeline)
         DEFAULT_OBJECTIVE="build a CSV data pipeline with validation, transformation, and aggregation"
