@@ -21,6 +21,22 @@ done
 
 TEMPLATE="${1:?Usage: $0 <template> <version> [--force]}"
 VERSION="${2:?Usage: $0 <template> <version> [--force]}"
+
+# Validate: catch old syntax like "anki-v13" as first arg
+if [[ "$TEMPLATE" == *-v* ]]; then
+    echo "Error: Old syntax detected. Use: $0 <template> <version>"
+    echo "  Wrong: $0 anki-v13"
+    echo "  Right: $0 anki v13"
+    exit 1
+fi
+
+# Validate: version should start with 'v'
+if [[ "$VERSION" != v* ]]; then
+    echo "Error: Version should start with 'v' (e.g., v13)"
+    echo "Usage: $0 <template> <version> [--force]"
+    exit 1
+fi
+
 RUN_ID="${TEMPLATE}-${VERSION}"
 
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"

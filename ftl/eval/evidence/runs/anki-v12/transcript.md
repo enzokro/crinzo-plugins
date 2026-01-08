@@ -1,6 +1,6 @@
 # Transcript: anki-v12
 
-*Captured: 2026-01-07 21:31*
+*Captured: 2026-01-07 21:33*
 
 ---
 
