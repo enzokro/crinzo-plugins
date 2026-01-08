@@ -31,10 +31,26 @@ def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: lis
         return "warmup"
     if msg.startswith("objective:"):
         return "planner"
+
+    # Synthesizer detection: campaign complete context or meta-pattern extraction
     if msg.startswith("synthesize") or "campaign completed" in msg:
         return "synthesizer"
+    if "status: complete" in msg[:500] and "campaign:" in msg:
+        return "synthesizer"
+    if "extract cross-task" in msg or "meta-patterns" in msg[:500]:
+        return "synthesizer"
 
-    # Router detection: Campaign context in prompt
+    # Builder detection FIRST: workspace file with _active in prompt prefix
+    # Must come before router check because builder prompts contain Campaign:/Task: context
+    if msg.startswith("workspace:") and "_active" in msg[:600]:
+        return "builder"
+
+    # Learner detection: workspace with _complete (single task pattern extraction)
+    if "workspace:" in msg or ".ftl/workspace/" in msg:
+        if "_complete" in msg[:600] and "extract" not in msg[:200]:
+            return "learner"
+
+    # Router detection: Campaign context in prompt (but NOT workspace prefix)
     if "campaign:" in msg and "task:" in msg[:300]:
         return "router"
 
@@ -48,12 +64,9 @@ def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: lis
         if first_reads[0].lower() in ["session_context.md", "workspace_state.md"]:
             return "router"
 
-    # Builder detection: workspace file with _active
-    if "workspace:" in msg or ".ftl/workspace/" in msg:
-        if "_active" in msg[:600]:
-            return "builder"
-        elif "_complete" in msg[:600]:
-            return "learner"
+    # Router detection: Cache content injected inline in prompt (starts with # Session Context)
+    if msg.startswith("# session context") or msg.startswith("# workspace state"):
+        return "router"
 
     return "unknown"
 

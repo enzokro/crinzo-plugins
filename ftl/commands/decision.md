@@ -1,6 +1,7 @@
 ---
 description: Show full decision record with context.
 allowed-tools: Bash, Read, Glob
+user-invocable: false
 ---
 
 # Decision Record

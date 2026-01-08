@@ -287,18 +287,27 @@ Task(ftl:router) with prompt:
 The `Campaign:` prefix forces router to create workspace.
 
 **2. Builder** — implement within workspace:
+
+**Pre-spawn injection (REQUIRED):**
+1. Read `.ftl/cache/exploration_context.md` (if exists)
+2. Read `.ftl/cache/delta_contents.md` (if exists)
+3. Prepend to builder prompt
+
 ```
 Task(ftl:builder) with prompt:
+  [exploration_context.md contents if exists]
+
+  [delta_contents.md contents if exists]
+
+  ---
   Workspace: [path returned by router]
 ```
 
-**CRITICAL: Builder prompt is ONLY the workspace path.**
-- Do NOT include task description (it's in the workspace file)
-- Do NOT include implementation details (workspace has Path, Delta)
-- Do NOT include verification commands (workspace has Verify)
+Exploration context: router's findings (patterns, implementation hints, files examined).
+Delta cache: post-edit file contents from prior tasks.
 
-The workspace file IS the specification. Builder reads it.
-Adding more context to the prompt causes duplication and confusion.
+Workspace file remains the specification. Builder reads it for Path, Delta, Verify.
+Cache injection prevents re-exploration; ~500k-1M tokens saved per task.
 
 **3. Update cache** — after builder completes:
 ```bash

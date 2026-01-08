@@ -1,6 +1,7 @@
 ---
 description: Find decisions that used a pattern.
 allowed-tools: Bash, Read, Glob
+user-invocable: false
 ---
 
 # Trace Pattern

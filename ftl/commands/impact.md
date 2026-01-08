@@ -1,6 +1,7 @@
 ---
 description: Find decisions that affected a file.
 allowed-tools: Bash, Read, Glob
+user-invocable: false
 ---
 
 # File Impact

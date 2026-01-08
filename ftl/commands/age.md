@@ -1,6 +1,7 @@
 ---
 description: Find stale decisions that may need review.
 allowed-tools: Bash, Read, Glob
+user-invocable: false
 ---
 
 # Age Check

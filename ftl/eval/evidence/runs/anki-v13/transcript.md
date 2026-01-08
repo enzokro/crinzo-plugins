@@ -1,6 +1,6 @@
 # Transcript: anki-v13
 
-*Captured: 2026-01-07 21:52*
+*Captured: 2026-01-08 01:31*
 
 ---
 
@@ -22,8 +22,8 @@
 
 ---
 
-## Router task-001 (agent-a465c3c)
-*Model: claude-opus-4-5-20251101 | Tokens: 947,961 | Order: 1 | Outcome: ✓*
+## Builder task-001 (agent-a465c3c)
+*Model: claude-opus-4-5-20251101 | Tokens: 947,961 | Order: 2 | Outcome: ✓*
 
 💭 "Let me look at the fastlite library to understand its patterns."
 ⚡ Read
@@ -86,8 +86,8 @@ Now l..."
 
 ---
 
-## Router task-003 (agent-a5a643f)
-*Model: claude-opus-4-5-20251101 | Tokens: 351,910 | Order: 5 | Outcome: ✓*
+## Builder task-003 (agent-a5a643f)
+*Model: claude-opus-4-5-20251101 | Tokens: 351,910 | Order: 6 | Outcome: ✓*
 
 💭 "No cache file exists, so I need to read the Delta file (main.py) and test file directly."
 ⚡ Read
@@ -128,7 +128,7 @@ Delivered:
 ---
 
 ## Router task-001 (agent-a67f922)
-*Model: claude-sonnet-4-5-20250929 | Tokens: 172,080 | Order: ?*
+*Model: claude-sonnet-4-5-20250929 | Tokens: 172,080 | Order: 1*
 
 💭 "I'll start by loading the cached context files and then proceeding with routing this Campaign task."
 ⚡ Read
@@ -155,8 +155,8 @@ Delivered:
 
 ---
 
-## Router task-002 (agent-a787a96)
-*Model: claude-opus-4-5-20251101 | Tokens: 1,078,980 | Order: 3 | Outcome: ✓*
+## Builder task-002 (agent-a787a96)
+*Model: claude-opus-4-5-20251101 | Tokens: 1,078,980 | Order: 4 | Outcome: ✓*
 
 💭 "No cache file exists. Let me read the main.py file and README.md for context."
 ⚡ Read
@@ -213,8 +213,8 @@ Delivered:
 
 ---
 
-## Unknown task-004 (agent-a9c601e)
-*Model: claude-sonnet-4-5-20250929 | Tokens: 189,033 | Order: ?*
+## Router task-004 (agent-a9c601e)
+*Model: claude-sonnet-4-5-20250929 | Tokens: 189,033 | Order: 7*
 
 💭 "I'll route this campaign task and create the workspace file."
 ⚡ Bash
@@ -238,7 +238,7 @@ Delivered:
 ---
 
 ## Router task-003 (agent-aa3443f)
-*Model: claude-sonnet-4-5-20250929 | Tokens: 218,732 | Order: ?*
+*Model: claude-sonnet-4-5-20250929 | Tokens: 218,732 | Order: 5*
 
 💭 "I'll start by loading the cached context files and then exploring the codebase to understand the current state."
 ⚡ Read
@@ -263,7 +263,7 @@ Delivered:
 ---
 
 ## Router task-002 (agent-acde04a)
-*Model: claude-sonnet-4-5-20250929 | Tokens: 172,396 | Order: ?*
+*Model: claude-sonnet-4-5-20250929 | Tokens: 172,396 | Order: 3*
 
 💭 "I'll route this campaign task and create the workspace file."
 ⚡ Read
@@ -288,8 +288,8 @@ Delivered:
 
 ---
 
-## Learner (agent-adab1a0)
-*Model: claude-opus-4-5-20251101 | Tokens: 376,972 | Order: ?*
+## Synthesizer (agent-adab1a0)
+*Model: claude-opus-4-5-20251101 | Tokens: 376,972 | Order: 9*
 
 💭 "I'll synthesize patterns from this completed campaign. Let me start by reading the completed workspace files and checking for existing synthesis data."
 ⚡ Read
@@ -319,8 +319,8 @@ Delivered:
 
 ---
 
-## Router task-004 (agent-af8bde5)
-*Model: claude-opus-4-5-20251101 | Tokens: 102,063 | Order: 7 | Outcome: ✓*
+## Builder task-004 (agent-af8bde5)
+*Model: claude-opus-4-5-20251101 | Tokens: 102,063 | Order: 8 | Outcome: ✓*
 
 💭 "The workspace file shows comprehensive analysis already done. The thinking traces indicate all 13 tests pass and all 6 requirements are covered. Let m..."
 ⚡ Read
@@ -346,18 +346,23 @@ Workspace: /Users/cck/CC/plugi..."
 
 **Loop Signals**:
   - Tasks complete: 4
-  - Router cache effective: 0/7 (0%)
+  - Router cache effective: 0/4 (0%)
 
 **By type**:
   - planner: 1
-  - router: 7
-  - learner: 1 ⚠️
-  - unknown: 1
+  - router: 4
+  - builder: 4
+  - synthesizer: 1
 
 ## Spawn Sequence
 
  0. planner      
  1. router       task 001
+ 2. builder      task 001
  3. router       task 002
+ 4. builder      task 002
  5. router       task 003
+ 6. builder      task 003
  7. router       task 004
+ 8. builder      task 004
+ 9. synthesizer  

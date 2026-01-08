@@ -1,6 +1,6 @@
 {
   "run_id": "anki-v13",
-  "captured_at": "2026-01-07T21:52:52.581829",
+  "captured_at": "2026-01-08T01:31:50.614287",
   "agents": [
     {
       "file": "agent-a409113.jsonl",
@@ -68,7 +68,7 @@
     },
     {
       "file": "agent-a465c3c.jsonl",
-      "type": "router",
+      "type": "builder",
       "model": "claude-opus-4-5-20251101",
       "tokens": {
         "input": 134,
@@ -205,11 +205,11 @@
         "git status --porcelain /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/",
         "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/"
       ],
-      "spawn_order": 1
+      "spawn_order": 2
     },
     {
       "file": "agent-a5a643f.jsonl",
-      "type": "router",
+      "type": "builder",
       "model": "claude-opus-4-5-20251101",
       "tokens": {
         "input": 207,
@@ -299,7 +299,7 @@
         "uv run pytest test_app.py -v",
         "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace/003_routes-stud"
       ],
-      "spawn_order": 5
+      "spawn_order": 6
     },
     {
       "file": "agent-a67f922.jsonl",
@@ -379,11 +379,12 @@
         "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace",
         "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\" query \"FastHTML dat",
         "git branch --show-current 2>/dev/null || echo \"main\""
-      ]
+      ],
+      "spawn_order": 1
     },
     {
       "file": "agent-a787a96.jsonl",
-      "type": "router",
+      "type": "builder",
       "model": "claude-opus-4-5-20251101",
       "tokens": {
         "input": 221,
@@ -509,11 +510,11 @@
         "uv run pytest test_app.py -v -k \"test_card\" 2>&1",
         "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace/002_routes-crud"
       ],
-      "spawn_order": 3
+      "spawn_order": 4
     },
     {
       "file": "agent-a9c601e.jsonl",
-      "type": "unknown",
+      "type": "router",
       "model": "claude-sonnet-4-5-20250929",
       "tokens": {
         "input": 65,
@@ -581,7 +582,8 @@
       "bash_commands": [
         "mkdir -p .ftl/workspace",
         "uv run pytest test_app.py -v"
-      ]
+      ],
+      "spawn_order": 7
     },
     {
       "file": "agent-aa3443f.jsonl",
@@ -663,7 +665,8 @@
         "ls /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/*.py 2>/dev/null",
         "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\" query \"study route ",
         "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace"
-      ]
+      ],
+      "spawn_order": 5
     },
     {
       "file": "agent-acde04a.jsonl",
@@ -741,11 +744,12 @@
       "bash_commands": [
         "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace",
         "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\" query \"fasthtml rou"
-      ]
+      ],
+      "spawn_order": 3
     },
     {
       "file": "agent-adab1a0.jsonl",
-      "type": "learner",
+      "type": "synthesizer",
       "model": "claude-opus-4-5-20251101",
       "tokens": {
         "input": 37,
@@ -835,11 +839,12 @@
         "cat > /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace/002_routes-c",
         "cat > /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace/004_tests_co",
         "source ~/.config/ftl/paths.sh 2>/dev/null && python3 \"$FTL_LIB/context_graph.py\" mine 2>&1 || echo \""
-      ]
+      ],
+      "spawn_order": 9
     },
     {
       "file": "agent-af8bde5.jsonl",
-      "type": "router",
+      "type": "builder",
       "model": "claude-opus-4-5-20251101",
       "tokens": {
         "input": 148,
@@ -894,7 +899,7 @@
         "uv run pytest test_app.py -v",
         "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v13/.ftl/workspace/004_tests_activ"
       ],
-      "spawn_order": 7
+      "spawn_order": 8
     }
   ],
   "by_type": {
@@ -906,24 +911,23 @@
         "claude-opus-4-5-20251101": 1
       }
     },
-    "router": {
-      "count": 7,
-      "tokens": 3044122,
-      "cache_hits": 3,
-      "models": {
-        "claude-opus-4-5-20251101": 4,
-        "claude-sonnet-4-5-20250929": 3
-      }
-    },
-    "unknown": {
-      "count": 1,
-      "tokens": 189033,
+    "builder": {
+      "count": 4,
+      "tokens": 2480914,
       "cache_hits": 0,
       "models": {
-        "claude-sonnet-4-5-20250929": 1
+        "claude-opus-4-5-20251101": 4
       }
     },
-    "learner": {
+    "router": {
+      "count": 4,
+      "tokens": 752241,
+      "cache_hits": 3,
+      "models": {
+        "claude-sonnet-4-5-20250929": 4
+      }
+    },
+    "synthesizer": {
       "count": 1,
       "tokens": 376972,
       "cache_hits": 0,
@@ -946,11 +950,11 @@
   },
   "cache_efficiency": 0.872301514930148,
   "protocol_fidelity": {
-    "no_learners": false,
+    "no_learners": true,
     "single_planner": true,
-    "single_synthesizer": false,
-    "router_builder_match": false,
-    "router_cache_rate": 0.42857142857142855,
+    "single_synthesizer": true,
+    "router_builder_match": true,
+    "router_cache_rate": 0.75,
     "router_cache_effective": 0.0
   },
   "loop_signals": {
@@ -966,10 +970,15 @@
   "spawn_graph": {
     "orchestrator": [
       "planner-a409113",
-      "router-a465c3c",
-      "router-a787a96",
-      "router-a5a643f",
-      "router-af8bde5"
+      "router-a67f922",
+      "builder-a465c3c",
+      "router-acde04a",
+      "builder-a787a96",
+      "router-aa3443f",
+      "builder-a5a643f",
+      "router-a9c601e",
+      "builder-af8bde5",
+      "synthesizer-adab1a0"
     ]
   },
   "spawn_sequence": [
@@ -1046,26 +1055,26 @@
   ],
   "task_flow": {
     "001": {
-      "routers": 2,
-      "builders": 0,
-      "attempts": 2,
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
       "tokens": 1120041
     },
     "002": {
-      "routers": 2,
-      "builders": 0,
-      "attempts": 2,
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
       "tokens": 1251376
     },
     "003": {
-      "routers": 2,
-      "builders": 0,
-      "attempts": 2,
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
       "tokens": 570642
     },
     "004": {
       "routers": 1,
-      "builders": 0,
+      "builders": 1,
       "attempts": 1,
       "tokens": 291096
     }

@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "author": {
     "name": "crinzo"
   },
@@ -21,11 +21,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/register.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/register.sh",
+            "once": true
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_context.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_context.sh",
+            "once": true
           }
         ]
       }
@@ -48,6 +50,14 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_exploration.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh router"
           }
         ]
       },
@@ -57,6 +67,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh builder"
           }
         ]
       },
@@ -66,6 +80,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh learner"
           }
         ]
       },
@@ -75,6 +93,32 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh planner"
+          }
+        ]
+      },
+      {
+        "matcher": "ftl:ftl-synthesizer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh synthesizer"
+          }
+        ]
+      },
+      {
+        "matcher": "ftl:ftl-reflector",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh reflector"
           }
         ]
       }

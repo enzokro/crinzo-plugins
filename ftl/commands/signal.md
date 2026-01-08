@@ -1,6 +1,7 @@
 ---
 description: Mark pattern outcome for evolution tracking.
 allowed-tools: Bash, Read, Write
+user-invocable: false
 ---
 
 # Signal Outcome
