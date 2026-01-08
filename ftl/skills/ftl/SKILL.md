@@ -96,7 +96,8 @@ Spawning learner per-task in campaigns:
 
 1. **Read** `.ftl/cache/session_context.md`
 2. **Read** `.ftl/cache/workspace_state.md`
-3. **Prepend contents** to router prompt
+3. **If cache does not exist:** `mkdir -p .ftl/cache`
+4. **Prepend contents** to router prompt
 
 ### Prompt format:
 
