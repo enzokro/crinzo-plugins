@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "author": {
     "name": "crinzo"
   },
@@ -12,7 +12,8 @@
     "./agents/reflector.md",
     "./agents/learner.md",
     "./agents/planner.md",
-    "./agents/synthesizer.md"
+    "./agents/synthesizer.md",
+    "./agents/observer.md"
   ],
   "commands": "./commands/",
   "hooks": {

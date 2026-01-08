@@ -758,11 +758,12 @@ def capture(run_dir: Path, output_dir: Path = None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 capture.py <results_dir> [--output <output_dir>]")
+        print("Usage: python3 capture.py <results_dir> [--output <output_dir>] [--info-theory]")
         sys.exit(1)
 
     run_dir = Path(sys.argv[1])
     output_dir = None
+    run_info_theory = "--info-theory" in sys.argv
 
     if "--output" in sys.argv:
         idx = sys.argv.index("--output")
@@ -770,3 +771,11 @@ if __name__ == "__main__":
             output_dir = Path(sys.argv[idx + 1])
 
     capture(run_dir, output_dir)
+
+    # Run info theory analysis if requested
+    if run_info_theory:
+        from info_theory import analyze as analyze_info_theory
+        # Use the output_dir for info_theory analysis
+        evidence_path = output_dir if output_dir else Path(__file__).parent.parent / "evidence" / "runs" / run_dir.name
+        print("\n--- Info Theory Analysis ---")
+        analyze_info_theory(evidence_path)

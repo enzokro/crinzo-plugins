@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 
 def load_metrics(evidence_dir: Path) -> dict:
@@ -20,6 +21,15 @@ def load_metrics(evidence_dir: Path) -> dict:
         print(f"Error: {metrics_path} not found")
         sys.exit(1)
     with open(metrics_path) as f:
+        return json.load(f)
+
+
+def load_info_theory(evidence_dir: Path) -> Optional[dict]:
+    """Load info_theory.json from evidence directory if it exists."""
+    info_path = evidence_dir / "info_theory.json"
+    if not info_path.exists():
+        return None
+    with open(info_path) as f:
         return json.load(f)
 
 
@@ -186,29 +196,161 @@ def compare_runs(run_a: dict, run_b: dict) -> str:
     return "\n".join(lines)
 
 
-def compare(evidence_a: Path, evidence_b: Path, output_path: Path = None):
+def compare_info_theory(info_a: dict, info_b: dict, name_a: str, name_b: str) -> str:
+    """Generate info theory comparison as markdown."""
+    lines = [
+        f"# Info Theory Comparison: {name_a} → {name_b}",
+        "",
+        f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*",
+        "",
+        "---",
+        "",
+        "## Epiplexity (Structural Information)",
+        "",
+    ]
+
+    # Epiplexity comparison
+    st_a = info_a["epiplexity"]["total"]
+    st_b = info_b["epiplexity"]["total"]
+    lines.append(f"**Total ST**: {st_a:.1f} → {st_b:.1f} ({delta(st_a, st_b)})")
+    lines.append("")
+
+    lines.append("**Components**:")
+    for comp in ["canonical_sequences", "type_consistency", "single_attempts", "cache_efficiency"]:
+        val_a = info_a["epiplexity"]["components"].get(comp, 0)
+        val_b = info_b["epiplexity"]["components"].get(comp, 0)
+        lines.append(f"  - {comp}: {val_a:.1f} → {val_b:.1f} ({delta(val_a, val_b)})")
+
+    # Entropy comparison
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## Entropy (Unpredictable Components)")
+    lines.append("")
+
+    ht_a = info_a["entropy"]["total"]
+    ht_b = info_b["entropy"]["total"]
+    lines.append(f"**Total HT**: {ht_a:.1f} → {ht_b:.1f} ({delta(ht_a, ht_b)})")
+
+    # Lower entropy is better, so invert the interpretation
+    if ht_b < ht_a:
+        lines.append("  *(lower is better - entropy reduced)*")
+    elif ht_b > ht_a:
+        lines.append("  *(lower is better - entropy increased)*")
+    lines.append("")
+
+    lines.append("**Components**:")
+    for comp in ["retries", "fallbacks", "variance"]:
+        val_a = info_a["entropy"]["components"].get(comp, 0)
+        val_b = info_b["entropy"]["components"].get(comp, 0)
+        lines.append(f"  - {comp}: {val_a:.1f} → {val_b:.1f}")
+
+    # Info Gain Ratio comparison
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## Info Gain Ratio")
+    lines.append("")
+
+    igr_a = info_a["info_gain_ratio"]
+    igr_b = info_b["info_gain_ratio"]
+    lines.append(f"**IGR**: {igr_a:.2f} → {igr_b:.2f}")
+
+    interp_a = info_a.get("summary", {}).get("interpretation", "unknown")
+    interp_b = info_b.get("summary", {}).get("interpretation", "unknown")
+    if interp_a != interp_b:
+        lines.append(f"  *Interpretation changed: {interp_a} → {interp_b}*")
+
+    # Loss curve comparison
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## Loss Curve")
+    lines.append("")
+
+    area_a = info_a["loss_curve"]["area"]
+    area_b = info_b["loss_curve"]["area"]
+    lines.append(f"**Area above baseline**: {area_a:.1f} → {area_b:.1f}")
+
+    slope_a = info_a["loss_curve"]["slope"]
+    slope_b = info_b["loss_curve"]["slope"]
+    lines.append(f"**Slope**: {slope_a:.3f} → {slope_b:.3f}")
+    if slope_b < slope_a:
+        lines.append("  *(negative slope is improving trajectory)*")
+
+    # Key observations delta
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## Observation Changes")
+    lines.append("")
+
+    obs_a = set(info_a.get("observations", []))
+    obs_b = set(info_b.get("observations", []))
+
+    new_obs = obs_b - obs_a
+    removed_obs = obs_a - obs_b
+
+    if new_obs:
+        lines.append("**New observations**:")
+        for obs in new_obs:
+            lines.append(f"  + {obs}")
+        lines.append("")
+
+    if removed_obs:
+        lines.append("**Removed observations**:")
+        for obs in removed_obs:
+            lines.append(f"  - {obs}")
+        lines.append("")
+
+    if not new_obs and not removed_obs:
+        lines.append("*No significant observation changes*")
+
+    return "\n".join(lines)
+
+
+def compare(evidence_a: Path, evidence_b: Path, output_path: Path = None, include_info_theory: bool = False):
     """Main comparison function."""
     metrics_a = load_metrics(evidence_a)
     metrics_b = load_metrics(evidence_b)
 
     comparison = compare_runs(metrics_a, metrics_b)
 
+    # Add info theory comparison if requested and available
+    info_theory_section = ""
+    if include_info_theory:
+        info_a = load_info_theory(evidence_a)
+        info_b = load_info_theory(evidence_b)
+
+        if info_a and info_b:
+            info_theory_section = "\n\n" + compare_info_theory(
+                info_a, info_b,
+                metrics_a["run_id"],
+                metrics_b["run_id"]
+            )
+        elif info_a or info_b:
+            missing = evidence_a.name if not info_a else evidence_b.name
+            info_theory_section = f"\n\n*Info theory comparison unavailable: {missing}/info_theory.json not found*"
+
+    full_comparison = comparison + info_theory_section
+
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
-            f.write(comparison)
+            f.write(full_comparison)
         print(f"Wrote: {output_path}")
     else:
-        print(comparison)
+        print(full_comparison)
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python3 compare.py <evidence_a> <evidence_b> [--output <path>]")
+        print("Usage: python3 compare.py <evidence_a> <evidence_b> [--output <path>] [--info-theory]")
         sys.exit(1)
 
     evidence_a = Path(sys.argv[1])
     evidence_b = Path(sys.argv[2])
+    include_info_theory = "--info-theory" in sys.argv
 
     output_path = None
     if "--output" in sys.argv:
@@ -216,4 +358,4 @@ if __name__ == "__main__":
         if idx + 1 < len(sys.argv):
             output_path = Path(sys.argv[idx + 1])
 
-    compare(evidence_a, evidence_b, output_path)
+    compare(evidence_a, evidence_b, output_path, include_info_theory)

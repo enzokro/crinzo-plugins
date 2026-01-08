@@ -1,0 +1,56 @@
+{
+  "run_id": "anki-v13",
+  "computed_at": "2026-01-08T10:20:45.411941",
+  "observer": "haiku-bounded",
+  "epiplexity": {
+    "total": 39.1,
+    "components": {
+      "canonical_sequences": 10.5,
+      "type_consistency": 7.88,
+      "single_attempts": 12.0,
+      "cache_efficiency": 8.72
+    },
+    "by_type": {
+      "planner": 1.17,
+      "builder": 10.88,
+      "router": 9.18,
+      "synthesizer": 2.33
+    }
+  },
+  "entropy": {
+    "total": 5.22,
+    "components": {
+      "retries": 0.0,
+      "fallbacks": 0.0,
+      "variance": 5.22
+    }
+  },
+  "info_gain_ratio": 0.882,
+  "loss_curve": {
+    "area": 8.38,
+    "baseline": 222689.0,
+    "slope": -0.0725,
+    "trajectory": [
+      0.724,
+      0.773,
+      4.257,
+      0.774,
+      4.845,
+      0.982,
+      1.58,
+      0.849,
+      0.458,
+      1.693
+    ]
+  },
+  "observations": [
+    "All 4 tasks completed single-attempt (strong task definitions)",
+    "Cache efficiency 87.2% indicates strong context reuse"
+  ],
+  "summary": {
+    "ST": 39.1,
+    "HT": 5.2,
+    "IGR": 0.88,
+    "interpretation": "highly structured"
+  }
+}

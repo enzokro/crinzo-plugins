@@ -1,7 +1,7 @@
 ---
 name: ftl-planner
 description: Verification drives design. How will we prove success?
-tools: Read, Glob, Grep, Bash
+tools: Read, Grep, Bash
 model: opus
 ---
 

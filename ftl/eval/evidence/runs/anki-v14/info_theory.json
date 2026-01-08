@@ -1,0 +1,63 @@
+{
+  "run_id": "anki-v14",
+  "computed_at": "2026-01-08T10:01:48.631731",
+  "observer": "haiku-bounded",
+  "epiplexity": {
+    "total": 54.91,
+    "components": {
+      "canonical_sequences": 13.83,
+      "type_consistency": 10.38,
+      "single_attempts": 18.0,
+      "cache_efficiency": 12.7
+    },
+    "by_type": {
+      "builder": 14.38,
+      "router": 12.62,
+      "planner": 1.17,
+      "synthesizer": 1.17
+    }
+  },
+  "entropy": {
+    "total": 13.77,
+    "components": {
+      "retries": 0.0,
+      "fallbacks": 0.0,
+      "variance": 13.77
+    }
+  },
+  "info_gain_ratio": 0.8,
+  "loss_curve": {
+    "area": 13.48,
+    "baseline": 223547.0,
+    "slope": 0.1147,
+    "trajectory": [
+      0.628,
+      1.0,
+      3.453,
+      0.657,
+      1.378,
+      0.295,
+      0.738,
+      0.646,
+      1.368,
+      0.425,
+      10.464,
+      0.628,
+      0.549,
+      1.823
+    ]
+  },
+  "observations": [
+    "High structural information - execution follows learnable patterns",
+    "All 6 tasks completed single-attempt (strong task definitions)",
+    "High reasoning variance - agent execution varies significantly",
+    "Degrading trajectory - token consumption increased over time",
+    "Cache efficiency 90.7% indicates strong context reuse"
+  ],
+  "summary": {
+    "ST": 54.9,
+    "HT": 13.8,
+    "IGR": 0.8,
+    "interpretation": "mixed structure/noise"
+  }
+}
