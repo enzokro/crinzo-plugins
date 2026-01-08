@@ -68,12 +68,22 @@ Objective → Planner → [Router → Builder → update-task]* → Synthesizer 
 - Learner: Extracts patterns from single task's workspace
 - Synthesizer: Extracts meta-patterns from ALL campaign workspaces
 
-Spawning learner per-task in campaigns:
-1. Wastes ~100k tokens per invocation (Opus model)
-2. Produces shallow patterns that synthesizer finds anyway
-3. Misses cross-task connections only synthesizer can see
+### Learner in Campaign = Category Error
 
-**Category error**: Spawning learner in campaign = spawning planner in task. Both are structural mismatches, not policy violations.
+Spawning `ftl:learner` during a campaign is not prohibited — it's **incoherent**.
+
+Like asking "what color is the number 7?" The question doesn't make sense.
+
+- Learner operates on: ONE workspace file
+- Campaign produces: MANY workspace files
+- Pattern extraction needs: ALL files (only synthesizer can see cross-task connections)
+
+If you're in campaign mode and thinking "I should spawn learner now" — that thought signals you've lost track of which workflow you're in.
+
+**Self-check**: Am I in `/ftl <task>` mode? → Learner at end.
+Am I in `/ftl campaign` mode? → Synthesizer at end, NO learner.
+
+Cost of violation: ~100k wasted tokens + shallow patterns + missed meta-patterns.
 
 ---
 
@@ -119,10 +129,52 @@ Each redundant call wastes tokens. Injection eliminates ~20 Bash calls per campa
 
 ### Cache freshness:
 
-- `session_context.md`: Static (SessionStart)
+- `session_context.md`: Static (create at campaign start)
 - `workspace_state.md`: Dynamic (updated after EVERY agent)
 
 **Router also self-checks cache as backup. Both mechanisms must work.**
+
+### REQUIRED: Update Cache After Each Agent
+
+After EVERY agent completes (router, builder, etc.), update `.ftl/cache/workspace_state.md`:
+
+```bash
+mkdir -p .ftl/cache
+cat > .ftl/cache/workspace_state.md << 'EOF'
+# Workspace State
+*Updated: $(date)*
+
+## Last Sequence Number
+$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
+
+## Active Tasks
+$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} || echo "none")
+
+## Recently Completed
+$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} || echo "none")
+EOF
+```
+
+**Skipping this update → next router re-discovers everything → wastes ~50k tokens.**
+
+### Session Context (Create Once)
+
+At campaign start, create `.ftl/cache/session_context.md`:
+
+```bash
+cat > .ftl/cache/session_context.md << 'EOF'
+# Session Context
+*Created: $(date)*
+
+## Git State
+Branch: $(git branch --show-current 2>/dev/null || echo "unknown")
+Recent commits:
+$(git log --oneline -3 2>/dev/null || echo "none")
+
+## Test Commands
+$(grep -E '"test"|"typecheck"' package.json 2>/dev/null | head -3 || echo "none detected")
+EOF
+```
 
 ### For builder/learner:
 
@@ -240,7 +292,34 @@ Task(ftl:builder) with prompt:
   Workspace: [path returned by router]
 ```
 
-**3. Update** — mark task complete:
+**CRITICAL: Builder prompt is ONLY the workspace path.**
+- Do NOT include task description (it's in the workspace file)
+- Do NOT include implementation details (workspace has Path, Delta)
+- Do NOT include verification commands (workspace has Verify)
+
+The workspace file IS the specification. Builder reads it.
+Adding more context to the prompt causes duplication and confusion.
+
+**3. Update cache** — after builder completes:
+```bash
+# Update workspace state for next router
+mkdir -p .ftl/cache
+cat > .ftl/cache/workspace_state.md << EOF
+# Workspace State
+*Updated: $(date)*
+
+## Last Sequence Number
+$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
+
+## Active Tasks
+$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} || echo "none")
+
+## Recently Completed
+$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} || echo "none")
+EOF
+```
+
+**4. Update task** — mark complete:
 ```bash
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```

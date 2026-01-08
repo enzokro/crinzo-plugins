@@ -53,6 +53,12 @@ if [ -d "$CACHE_DIR" ]; then
     rm -rf "$CACHE_DIR"
 fi
 
+# Clear out the entire old cache
+if [ -d "$CACHE_ROOT" ]; then
+    echo "  Clearing entire old cache: $CACHE_ROOT"
+    rm -rf "$CACHE_ROOT/*"
+fi
+
 # Copy fresh from source
 mkdir -p "$CACHE_DIR"
 cp -r "$FTL_ROOT"/* "$CACHE_DIR/"

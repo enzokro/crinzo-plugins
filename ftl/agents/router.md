@@ -246,7 +246,21 @@ Ready for Build: [Yes|No]
 ## Constraints
 
 - One pass: route AND anchor in single agent
-- No implementing (Builder's job)
 - Path must show transformation
 - Delta must bound scope
 - Uncertain → `full`
+
+## Structural Boundary: No Implementation
+
+**Router creates workspace files. Builder implements code.**
+
+This is not a preference — it's a structural separation:
+- Router's tools: Read, Write, Glob, Grep, Bash
+- Builder's tools: Read, **Edit**, Write, Bash, Glob, Grep
+
+Router cannot Edit files because Edit is not in Router's toolset.
+If you're thinking "I should modify this code" — that thought is incoherent in this context.
+Your job ends when the workspace file exists.
+
+**Category test**: Am I creating `.ftl/workspace/*.md`? → Router work.
+Am I modifying source files in Delta? → Builder work (not your job).
