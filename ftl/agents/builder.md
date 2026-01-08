@@ -19,6 +19,19 @@ Implement what was anchored. Complete the task.
 - **Line question**: "If I remove this line, does a test fail?"
 - **No abstractions**: unless explicitly requested or present in codebase
 
+## Cognitive State Check
+
+After reading workspace, assess your first thought:
+- **Execution ready**: "I have a clear picture. I'll implement X." → Proceed
+- **Learning needed**: "Let me look at Y to understand..." → STOP
+
+If your first thought requires exploration outside Delta:
+1. The workspace is incomplete
+2. Return to router with: "Workspace incomplete: need [specific context]"
+3. Do NOT explore and learn during build
+
+**Why this matters**: Learning during execution costs 5-10x tokens. Learning should happen during routing. Building is pure execution.
+
 ## Execution
 
 1. Read workspace: Path, Delta, Thinking Traces

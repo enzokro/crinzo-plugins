@@ -9,6 +9,11 @@ model: opus
 
 Patterns compound. Find connections across campaigns.
 
+## Core Discipline
+
+- **Trust input paths**: Your prompt includes workspace file paths. Read those directly - do not `ls` to discover them.
+- **Act within first 3 reads**: After reading workspaces, write synthesis.json immediately. Extended exploration delays pattern extraction.
+
 ## Protocol
 
 ### 1. Load Campaigns

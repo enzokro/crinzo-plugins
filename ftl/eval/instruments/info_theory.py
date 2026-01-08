@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 from statistics import mean, stdev, variance
+import re
 
 
 # Canonical tool sequences by agent type (expected "optimal" behavior)
@@ -47,6 +48,97 @@ PENALTIES = {
     "fallback": 3.0,     # Each fallback usage
     "variance": 1.0,     # Normalized variance contribution
 }
+
+# Cognitive trace patterns for semantic analysis
+EXPLORE_PATTERNS = [
+    r"let me (look|check|see|examine|explore|read|review)",
+    r"need to understand",
+    r"what (is|are|does|would)",
+    r"how (do|does|is|can|should)",
+    r"first.*(check|look|see|examine)",
+    r"let's (see|check|look|examine)",
+    r"i('ll| will) (look|check|see|examine|explore)",
+    r"to understand",
+    r"figure out",
+]
+
+ACTION_PATTERNS = [
+    r"i('ll| will) (implement|write|create|add|build|make)",
+    r"now i have.*(clear|complete|full)",
+    r"the (task|path|goal) is",
+    r"status:\s*(complete|done)",
+    r"verification (passed|complete|succeeded)",
+    r"i('ll| will) (run|execute|verify)",
+    r"now (let me |i('ll| will ))?(implement|write|create)",
+    r"proceeding (with|to)",
+    r"executing",
+]
+
+
+def classify_thinking(text: str) -> str:
+    """Classify a thinking trace as explore, action, or neutral."""
+    if not text:
+        return "neutral"
+
+    text_lower = text.lower()
+    explore_score = sum(1 for p in EXPLORE_PATTERNS if re.search(p, text_lower))
+    action_score = sum(1 for p in ACTION_PATTERNS if re.search(p, text_lower))
+
+    if explore_score > action_score:
+        return "explore"
+    elif action_score > explore_score:
+        return "action"
+    return "neutral"
+
+
+def compute_agent_cognition(agent: dict) -> dict:
+    """Compute cognitive metrics from reasoning traces."""
+    traces = agent.get("reasoning_trace", [])
+
+    if not traces:
+        return {
+            "trace_count": 0,
+            "explore_count": 0,
+            "action_count": 0,
+            "action_explore_ratio": None,
+            "first_action_position": -1,
+            "trace_pattern": "",
+        }
+
+    classifications = [classify_thinking(t.get("thinking", "")) for t in traces]
+
+    explore_count = classifications.count("explore")
+    action_count = classifications.count("action")
+
+    # Action/explore ratio
+    if explore_count > 0:
+        ratio = action_count / explore_count
+    elif action_count > 0:
+        ratio = 999.0  # All action, no explore
+    else:
+        ratio = None  # All neutral
+
+    # First action position
+    first_action = -1
+    for i, c in enumerate(classifications):
+        if c == "action":
+            first_action = i
+            break
+
+    # Pattern string (E=explore, A=action, .=neutral)
+    pattern = "".join(
+        "E" if c == "explore" else "A" if c == "action" else "."
+        for c in classifications
+    )
+
+    return {
+        "trace_count": len(traces),
+        "explore_count": explore_count,
+        "action_count": action_count,
+        "action_explore_ratio": round(ratio, 2) if ratio is not None and ratio < 100 else ratio,
+        "first_action_position": first_action,
+        "trace_pattern": pattern,
+    }
 
 
 def load_metrics(evidence_dir: Path) -> dict:
@@ -374,17 +466,19 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
     # Generate observations
     observations = generate_observations(epiplexity, entropy, loss_curve, metrics)
 
-    # Compute per-agent epiplexity metrics
+    # Compute per-agent epiplexity and cognitive metrics
     agents = metrics.get("agents", [])
     per_agent = []
     for agent in sorted(agents, key=lambda a: a.get("spawn_order", 99)):
         agent_epi = compute_agent_epiplexity(agent)
+        agent_cog = compute_agent_cognition(agent)
         per_agent.append({
             "step": agent.get("spawn_order"),
             "type": agent["type"],
             "task": agent.get("task_id"),
             "tokens": agent["tokens"]["total"],
             "epiplexity": agent_epi,
+            "cognition": agent_cog,
         })
 
     result = {

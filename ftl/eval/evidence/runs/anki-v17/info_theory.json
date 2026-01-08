@@ -1,6 +1,6 @@
 {
   "run_id": "anki-v17",
-  "computed_at": "2026-01-08T10:33:14.179914",
+  "computed_at": "2026-01-08T11:38:16.462062",
   "observer": "haiku-bounded",
   "epiplexity": {
     "total": 39.63,
@@ -63,6 +63,14 @@
         "reasoning_depth": 1,
         "glob_used": false,
         "read_count": 4
+      },
+      "cognition": {
+        "trace_count": 1,
+        "explore_count": 0,
+        "action_count": 0,
+        "action_explore_ratio": null,
+        "first_action_position": -1,
+        "trace_pattern": "."
       }
     },
     {
@@ -79,6 +87,14 @@
         "reasoning_depth": 6,
         "glob_used": false,
         "read_count": 6
+      },
+      "cognition": {
+        "trace_count": 6,
+        "explore_count": 3,
+        "action_count": 1,
+        "action_explore_ratio": 0.33,
+        "first_action_position": 4,
+        "trace_pattern": ".EEEA."
       }
     },
     {
@@ -95,6 +111,14 @@
         "reasoning_depth": 5,
         "glob_used": false,
         "read_count": 2
+      },
+      "cognition": {
+        "trace_count": 5,
+        "explore_count": 0,
+        "action_count": 3,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 0,
+        "trace_pattern": "A.A.A"
       }
     },
     {
@@ -111,6 +135,14 @@
         "reasoning_depth": 7,
         "glob_used": true,
         "read_count": 8
+      },
+      "cognition": {
+        "trace_count": 7,
+        "explore_count": 4,
+        "action_count": 0,
+        "action_explore_ratio": 0.0,
+        "first_action_position": -1,
+        "trace_pattern": ".EEEE.."
       }
     },
     {
@@ -127,6 +159,14 @@
         "reasoning_depth": 8,
         "glob_used": false,
         "read_count": 4
+      },
+      "cognition": {
+        "trace_count": 8,
+        "explore_count": 2,
+        "action_count": 1,
+        "action_explore_ratio": 0.5,
+        "first_action_position": 7,
+        "trace_pattern": "E..E...A"
       }
     },
     {
@@ -143,6 +183,14 @@
         "reasoning_depth": 4,
         "glob_used": false,
         "read_count": 5
+      },
+      "cognition": {
+        "trace_count": 4,
+        "explore_count": 1,
+        "action_count": 1,
+        "action_explore_ratio": 1.0,
+        "first_action_position": 2,
+        "trace_pattern": ".EA."
       }
     },
     {
@@ -159,6 +207,14 @@
         "reasoning_depth": 11,
         "glob_used": false,
         "read_count": 5
+      },
+      "cognition": {
+        "trace_count": 11,
+        "explore_count": 1,
+        "action_count": 1,
+        "action_explore_ratio": 1.0,
+        "first_action_position": 10,
+        "trace_pattern": "E.........A"
       }
     },
     {
@@ -175,6 +231,14 @@
         "reasoning_depth": 6,
         "glob_used": false,
         "read_count": 7
+      },
+      "cognition": {
+        "trace_count": 6,
+        "explore_count": 2,
+        "action_count": 0,
+        "action_explore_ratio": 0.0,
+        "first_action_position": -1,
+        "trace_pattern": ".EE..."
       }
     },
     {
@@ -191,6 +255,14 @@
         "reasoning_depth": 4,
         "glob_used": false,
         "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 4,
+        "explore_count": 0,
+        "action_count": 1,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 3,
+        "trace_pattern": "...A"
       }
     },
     {
@@ -207,6 +279,14 @@
         "reasoning_depth": 8,
         "glob_used": false,
         "read_count": 6
+      },
+      "cognition": {
+        "trace_count": 8,
+        "explore_count": 2,
+        "action_count": 1,
+        "action_explore_ratio": 0.5,
+        "first_action_position": 0,
+        "trace_pattern": "AEE....."
       }
     }
   ],

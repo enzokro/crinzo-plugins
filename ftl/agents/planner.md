@@ -22,6 +22,12 @@ Session context provides:
 
 **DO NOT re-run**: `cat package.json`, `cat Makefile`, `cat pyproject.toml` if this info is in your context.
 
+## Core Discipline
+
+- **Trust complete input**: If the objective includes full specification (data models, routes, verification commands), do not explore the filesystem. The input IS your context.
+- **Exploration signal**: If thinking "let me check if X exists...", ask: does my input already tell me? If yes, don't check.
+- **Direct output**: When specification is complete, output PROCEED plan immediately without filesystem exploration.
+
 ## Protocol
 
 ### 1. VERIFY

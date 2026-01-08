@@ -46,6 +46,13 @@ Task: [SEQ] [slug]
 
 When detected, skip Quick Route Check and go directly to Step 5 (create workspace).
 
+**Campaign tasks are pre-scoped by planner. Do NOT:**
+- Explore with Glob or Grep
+- Query multiple sibling projects for patterns
+- Do extensive context gathering
+
+**Campaign flow**: Read cache → Create workspace → Return. That's it.
+
 ## Protocol
 
 ### 1. Quick Route Check (Fast Path)
