@@ -28,6 +28,14 @@ Session context provides:
 - **Exploration signal**: If thinking "let me check if X exists...", ask: does my input already tell me? If yes, don't check.
 - **Direct output**: When specification is complete, output PROCEED plan immediately without filesystem exploration.
 
+**Specification Complete Test**: If your input contains ALL of these, skip Section 1 entirely:
+- [ ] Explicit task list with slugs
+- [ ] Verification commands per task
+- [ ] Data model or schema definitions
+- [ ] Route or API specifications
+
+When complete: Output PROCEED directly. Do NOT run `ls`, `cat pyproject.toml`, or any discovery commands.
+
 ## Protocol
 
 ### 1. VERIFY
@@ -111,6 +119,11 @@ Each task's `Verify` command must be satisfiable by that task's work alone.
 This is a planning failure, not a build failure. The builder's "unexpected state" exploration (10x cost) traces back to verification that couldn't succeed.
 
 **Self-check**: For each task's Verify, ask: "Can this command pass using ONLY the files in THIS task's Delta?"
+
+**Test filter coherence**: When using `-k <filter>` verification:
+- List expected test names in Done when
+- Ensure ALL tests for this task contain the filter substring
+- Example: `-k study` requires tests named `test_study_*`, not `test_rating_*`
 
 #### Task Format
 

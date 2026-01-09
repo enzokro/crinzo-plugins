@@ -51,6 +51,27 @@ Let orchestrator decide: retry with clarification, or escalate.
 
 **Exception**: If the unexpected state is within Delta and fixable in <3 tool calls, fix it. Otherwise, block.
 
+## Debugging vs Exploration
+
+When verification fails, classify your next action:
+
+| Debugging (proceed) | Exploration (block) |
+|---------------------|---------------------|
+| Fix type mismatch in MY code | Read external library to understand patterns |
+| Adjust test assertion | Check sibling projects for examples |
+| Add missing import from Delta | Search codebase for "how to" |
+| Fix data format (string vs date) | Read files outside Delta |
+
+**Debugging budget**: 5 tool calls max after first verification failure.
+
+If debugging exceeds budget:
+1. Append to Thinking Traces: "Debugging extended: [what was tried]"
+2. Mark `_blocked` with clear diagnosis
+3. Let orchestrator decide retry strategy
+
+**The test**: Am I fixing MY code, or learning how THEIR code works?
+→ Fixing mine = debugging. Learning theirs = exploration = block.
+
 ## Execution
 
 1. Read workspace: Path, Delta, Thinking Traces
