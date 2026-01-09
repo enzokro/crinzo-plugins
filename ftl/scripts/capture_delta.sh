@@ -1,15 +1,13 @@
 #!/bin/bash
-# capture_delta.sh - Cache Delta files AND workspace state after each agent
+# capture_delta.sh - Cache Cognition State + Delta files after each agent
 # Called by SubagentStop hook. Uses CLAUDE_PROJECT_DIR if available.
 #
 # Caches TWO things:
-#   1. delta_contents.md - Delta file contents for builder/learner
-#   2. workspace_state.md - Current workspace state (evolves per task)
+#   1. cognition_state.md - Phase model, inherited knowledge, operational state
+#   2. delta_contents.md - Delta file contents for builder/learner
 #
-# Flow:
-#   Router completes → captures pre-edit Delta + workspace state
-#   Builder completes → captures post-edit Delta + workspace state
-#   Learner completes → updates workspace state only
+# The cognition cache is not just state — it's how agents inherit knowledge.
+# Without it, downstream agents re-learn what upstream agents already knew.
 
 set -e
 
@@ -23,34 +21,65 @@ mkdir -p "$CACHE_DIR"
 cat > /dev/null
 
 # ============================================================
-# Part 1: Update workspace_state.md (ALWAYS runs)
+# Part 1: Update cognition_state.md (ALWAYS runs)
 # ============================================================
 LAST_SEQ=$(ls "$WORKSPACE_DIR/" 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1)
 [ -z "$LAST_SEQ" ] && LAST_SEQ="000"
 
-ACTIVE_TASKS=$(ls "$WORKSPACE_DIR/"*_active*.md 2>/dev/null | wc -l | tr -d ' ')
-RECENT_COMPLETE=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -5 | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//')
+ACTIVE=$(ls "$WORKSPACE_DIR/"*_active*.md 2>/dev/null | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
+[ -z "$ACTIVE" ] && ACTIVE="none"
 
-# Active campaign info
-CAMPAIGN=""
+RECENT=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
+[ -z "$RECENT" ] && RECENT="none"
+
+# Campaign context
+CAMPAIGN_OBJ=""
 if [ -f "$PROJECT_DIR/.ftl/campaign.json" ]; then
-  CAMPAIGN=$(cat "$PROJECT_DIR/.ftl/campaign.json" 2>/dev/null | jq -c '{objective, status, tasks_complete: (.tasks | map(select(.status == "complete")) | length), tasks_total: (.tasks | length)}' 2>/dev/null || echo "{}")
+  CAMPAIGN_OBJ=$(cat "$PROJECT_DIR/.ftl/campaign.json" 2>/dev/null | jq -r '.objective // empty' 2>/dev/null || echo "")
 fi
 
-cat > "$CACHE_DIR/workspace_state.md" << EOF
-## FTL Workspace State (Dynamic - Updated After Each Agent)
+cat > "$CACHE_DIR/cognition_state.md" << EOF
+# Cognition State
+*Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)*
 
-Updated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+## Phase Model
 
-### Workspace
-- Last sequence number: $LAST_SEQ
-- Active tasks: $ACTIVE_TASKS
-- Recent completed: $RECENT_COMPLETE
+You inherit knowledge from prior phases. You do not re-learn it.
 
-### Campaign
-$CAMPAIGN
+| Phase | Agent | Output |
+|-------|-------|--------|
+| LEARNING | planner | task breakdown, verification commands |
+| SCOPING | router | Delta, Path, precedent |
+| EXECUTION | builder | code within Delta |
+| EXTRACTION | learner/synthesizer | patterns |
 
-**DO NOT re-run**: \`ls .ftl/workspace/\` — this info is current.
+**Category test**: Am I thinking "let me understand X first"?
+→ That thought is incoherent. Understanding happened in prior phases.
+→ If knowledge feels insufficient, return: "Workspace incomplete: need [X]"
+
+## Inherited Knowledge
+
+Planner analyzed: objective, requirements, verification approach
+Router scoped: Delta bounds, data transformation Path, related precedent
+
+**This knowledge is in your workspace file. Read it. Trust it. Execute from it.**
+
+## Operational State
+
+Last sequence: $LAST_SEQ
+Active: $ACTIVE
+Recent: $RECENT
+${CAMPAIGN_OBJ:+Campaign: $CAMPAIGN_OBJ}
+
+## If You're About to Explore
+
+STOP. Ask yourself:
+1. Is this file in my Delta? If no → out of scope, do not read
+2. Did planner/router already analyze this? If yes → knowledge is in workspace
+3. Am I learning or executing? If learning → wrong phase
+
+Exploration during execution costs ~10x more than exploration during routing.
+The correct response to insufficient knowledge is escalation, not exploration.
 EOF
 
 # ============================================================

@@ -6,8 +6,8 @@
 #   - Git state (branch, recent commits)
 #   - Project verification tools (package.json scripts, Makefile targets)
 #
-# DYNAMIC workspace state is cached separately by capture_delta.sh
-# after each agent completes → .ftl/cache/workspace_state.md
+# DYNAMIC cognition state is cached separately by orchestrator
+# after each agent completes → .ftl/cache/cognition_state.md
 #
 # The orchestrator (SKILL.md) reads BOTH files and injects into router prompts.
 
@@ -51,7 +51,7 @@ Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 **DO NOT re-run**: \`git branch\`, \`cat package.json\`, \`cat Makefile\` — this info is current.
 
-**For workspace state**: See \`.ftl/cache/workspace_state.md\` (updated after each agent).
+**For cognition state**: See \`.ftl/cache/cognition_state.md\` (updated after each agent).
 EOF
 
 echo "Session context cached to .ftl/cache/session_context.md"

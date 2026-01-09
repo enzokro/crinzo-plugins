@@ -105,7 +105,7 @@ Cost of violation: ~100k wasted tokens + shallow patterns + missed meta-patterns
 ### Before spawning router:
 
 1. **Read** `.ftl/cache/session_context.md`
-2. **Read** `.ftl/cache/workspace_state.md`
+2. **Read** `.ftl/cache/cognition_state.md`
 3. **If cache does not exist:** `mkdir -p .ftl/cache`
 4. **Prepend contents** to router prompt
 
@@ -114,7 +114,7 @@ Cost of violation: ~100k wasted tokens + shallow patterns + missed meta-patterns
 ```
 [session_context.md contents]
 
-[workspace_state.md contents]
+[cognition_state.md contents]
 
 ---
 
@@ -127,35 +127,84 @@ Task: ...
 Skipping injection → router runs redundant `git branch`, `ls .ftl/workspace`, `cat package.json`.
 Each redundant call wastes tokens. Injection eliminates ~20 Bash calls per campaign.
 
+### Cache Purpose: Cognition Transfer, Not Just State
+
+The cache is not a convenience — it's **how agents inherit knowledge across phases**.
+
+FTL's cognition loop has distinct phases:
+```
+LEARNING (planner/router) → EXECUTION (builder) → EXTRACTION (learner/synthesizer)
+```
+
+Each phase produces knowledge. The cache transfers that knowledge forward.
+Without proper transfer, downstream agents re-learn what upstream agents already knew.
+
+**This is the root cause of exploration creep**: agents read operational state (sequence numbers, file lists) but don't internalize inherited knowledge. They think "let me also check..." because nothing told them checking already happened.
+
 ### Cache freshness:
 
 - `session_context.md`: Static (create at campaign start)
-- `workspace_state.md`: Dynamic (updated after EVERY agent)
+- `cognition_state.md`: Dynamic (updated after EVERY agent) — replaces old `workspace_state.md`
 
 **Router also self-checks cache as backup. Both mechanisms must work.**
 
 ### REQUIRED: Update Cache After Each Agent
 
-After EVERY agent completes (router, builder, etc.), update `.ftl/cache/workspace_state.md`:
+After EVERY agent completes, update `.ftl/cache/cognition_state.md`:
 
 ```bash
 mkdir -p .ftl/cache
-cat > .ftl/cache/workspace_state.md << 'EOF'
-# Workspace State
+
+# Compute current state
+LAST_SEQ=$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
+ACTIVE=$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} 2>/dev/null || echo "none")
+RECENT=$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null || echo "none")
+
+cat > .ftl/cache/cognition_state.md << EOF
+# Cognition State
 *Updated: $(date)*
 
-## Last Sequence Number
-$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
+## Phase Model
 
-## Active Tasks
-$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} || echo "none")
+You inherit knowledge from prior phases. You do not re-learn it.
 
-## Recently Completed
-$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} || echo "none")
+| Phase | Agent | Output |
+|-------|-------|--------|
+| LEARNING | planner | task breakdown, verification commands |
+| SCOPING | router | Delta, Path, precedent |
+| EXECUTION | builder | code within Delta |
+| EXTRACTION | learner/synthesizer | patterns |
+
+**Category test**: Am I thinking "let me understand X first"?
+→ That thought is incoherent. Understanding happened in prior phases.
+→ If knowledge feels insufficient, return: "Workspace incomplete: need [X]"
+
+## Inherited Knowledge
+
+Planner analyzed: objective, requirements, verification approach
+Router scoped: Delta bounds, data transformation Path, related precedent
+
+**This knowledge is in your workspace file. Read it. Trust it. Execute from it.**
+
+## Operational State
+
+Last sequence: ${LAST_SEQ}
+Active: ${ACTIVE}
+Recent: ${RECENT}
+
+## If You're About to Explore
+
+STOP. Ask yourself:
+1. Is this file in my Delta? If no → out of scope, do not read
+2. Did planner/router already analyze this? If yes → knowledge is in workspace
+3. Am I learning or executing? If learning → wrong phase
+
+Exploration during execution costs ~10x more than exploration during routing.
+The correct response to insufficient knowledge is escalation, not exploration.
 EOF
 ```
 
-**Skipping this update → next router re-discovers everything → wastes ~50k tokens.**
+**Skipping this update → next agent lacks cognitive grounding → exploration creep → wastes ~100k tokens.**
 
 ### Session Context (Create Once)
 
@@ -173,6 +222,11 @@ $(git log --oneline -3 2>/dev/null || echo "none")
 
 ## Test Commands
 $(grep -E '"test"|"typecheck"' package.json 2>/dev/null | head -3 || echo "none detected")
+
+## Codebase Snapshot
+
+Planner has analyzed this codebase. Key findings are embedded in campaign tasks.
+Do not re-analyze. Trust the task specifications.
 EOF
 ```
 
@@ -180,6 +234,15 @@ EOF
 
 Delta caching handled via SubagentStop → `.ftl/cache/delta_contents.md`.
 Agents read this themselves per their instructions.
+
+### Cognitive Grounding Test
+
+An agent reading `cognition_state.md` should immediately know:
+1. **What phase they're in** — and therefore what actions are coherent
+2. **What knowledge they inherit** — and therefore what they don't need to discover
+3. **When to escalate vs explore** — exploration is never the answer mid-execution
+
+If an agent reads the cache and still thinks "let me check...", the cache failed its purpose.
 
 ---
 
@@ -310,23 +373,9 @@ Workspace file remains the specification. Builder reads it for Path, Delta, Veri
 Cache injection prevents re-exploration; ~500k-1M tokens saved per task.
 
 **3. Update cache** — after builder completes:
-```bash
-# Update workspace state for next router
-mkdir -p .ftl/cache
-cat > .ftl/cache/workspace_state.md << EOF
-# Workspace State
-*Updated: $(date)*
 
-## Last Sequence Number
-$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
-
-## Active Tasks
-$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} || echo "none")
-
-## Recently Completed
-$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} || echo "none")
-EOF
-```
+Use the full cognition_state.md format from "REQUIRED: Update Cache After Each Agent" section above.
+This provides cognitive grounding, not just operational state.
 
 **4. Update task** — mark complete:
 ```bash

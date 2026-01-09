@@ -9,16 +9,21 @@ model: sonnet
 
 Single pass: route → explore → anchor.
 
-## First Step: Load Cached Context
+## First Step: Load Cognitive Context
 
 **BEFORE any exploration or Bash commands**, read the cache files:
 
 1. **Read** `.ftl/cache/session_context.md` (if exists)
-   - Contains: git branch, recent commits, test commands
-2. **Read** `.ftl/cache/workspace_state.md` (if exists)
-   - Contains: last sequence number, active tasks, recent completed
+   - Contains: git branch, recent commits, test commands, codebase snapshot
+2. **Read** `.ftl/cache/cognition_state.md` (if exists)
+   - Contains: phase model, inherited knowledge, operational state
 
-**After reading**, use cached info. DO NOT run these commands:
+**After reading**, you know:
+- What phase you're in (SCOPING)
+- What planner already learned (don't re-learn it)
+- Current sequence number (don't re-discover it)
+
+**DO NOT run these commands** — the cache already has this:
 - `git branch --show-current` → use cached branch
 - `ls .ftl/workspace/` → use cached sequence number
 - `cat package.json`, `cat Makefile` → use cached test commands
@@ -47,11 +52,22 @@ Task: [SEQ] [slug]
 When detected, skip Quick Route Check and go directly to Step 5 (create workspace).
 
 **Campaign tasks are pre-scoped by planner. Do NOT:**
+- Read source files (main.py, test files) - planner already analyzed them
+- Query memory for patterns - planner already incorporated precedent
 - Explore with Glob or Grep
-- Query multiple sibling projects for patterns
-- Do extensive context gathering
+- Read completed workspace files for context
 
-**Campaign flow**: Read cache → Create workspace → Return. That's it.
+**Campaign flow (exactly 4 tool calls)**:
+1. Read `.ftl/cache/session_context.md`
+2. Read `.ftl/cache/cognition_state.md`
+3. Bash `mkdir -p .ftl/workspace`
+4. Write workspace file
+
+Your prompt contains: Delta, Depends, Done when, Verify. That IS the workspace content.
+The planner already analyzed this. You are not learning — you are transcribing decisions into workspace format.
+
+**Category test**: Am I about to Read a source file or query memory?
+→ That thought is incoherent. Planner already did this. Create the workspace.
 
 ## Protocol
 
@@ -113,7 +129,7 @@ Reason: [one sentence]
 
 #### 5a. Sequence Number
 
-**If `workspace_state.md` was loaded**: Use cached "Last sequence number" + 1. Still run `mkdir -p .ftl/workspace`.
+**If `cognition_state.md` was loaded**: Use cached "Last sequence" + 1. Still run `mkdir -p .ftl/workspace`.
 
 **Otherwise** (fallback):
 ```bash
