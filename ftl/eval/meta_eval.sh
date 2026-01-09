@@ -40,7 +40,8 @@ fi
 RUN_ID="${TEMPLATE}-${VERSION}"
 
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"
-RESULTS_DIR="$EVAL_DIR/results/$RUN_ID"
+SCRATCH_DIR="$(cd "$EVAL_DIR/../../scratch" && pwd)"
+RESULTS_DIR="$SCRATCH_DIR/results/$VERSION/$TEMPLATE"
 EVIDENCE_DIR="$EVAL_DIR/evidence/runs/$RUN_ID"
 REFLECTIONS_DIR="$EVAL_DIR/reflections"
 

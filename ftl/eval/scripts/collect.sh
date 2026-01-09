@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EVAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRATCH_DIR="$(cd "$EVAL_DIR/../../scratch" && pwd)"
 
 TEMPLATE=$1
 VERSION=$2
@@ -29,7 +30,7 @@ fi
 FULL_PATH=$(cd "$TARGET" && pwd)
 PROJECT_NAME=$(echo "$FULL_PATH" | sed 's|/|-|g')
 
-RESULTS_DIR="$EVAL_DIR/results/${TEMPLATE}-${VERSION}"
+RESULTS_DIR="$SCRATCH_DIR/results/${VERSION}/${TEMPLATE}"
 mkdir -p "$RESULTS_DIR"
 
 # Copy all session logs (agents + main orchestrator)

@@ -2,6 +2,26 @@
 
 CSV data pipeline for testing FTL's data flow tracking, lineage chains, and Path specification accuracy.
 
+---
+
+## REQUIRED TASK BREAKDOWN (Spec-First TDD)
+
+**The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
+
+| Task | Type | Slug | Description | Delta | Verify |
+|------|------|------|-------------|-------|--------|
+| 000 | SPEC | test-spec | Complete test_pipeline.py: fill in assertions for all tests | test_pipeline.py | `uv run pytest test_pipeline.py --collect-only` |
+| 001 | BUILD | parse-validate | Implement parse_csv + validate_record | pipeline.py, test_pipeline.py | `uv run pytest test_pipeline.py -k "parse or valid" -v` |
+| 002 | BUILD | transform | Implement transform_employee | pipeline.py, test_pipeline.py | `uv run pytest test_pipeline.py -k transform -v` |
+| 003 | BUILD | aggregate | Implement aggregate_by_department + generate_report | pipeline.py, test_pipeline.py | `uv run pytest test_pipeline.py -k "aggregate or report" -v` |
+| 004 | VERIFY | integration | All tests pass | any | `uv run pytest test_pipeline.py -v` |
+
+**Dependencies:** 000 → 001 → 002 → 003 → 004 (sequential)
+
+**Mutable Tests:** BUILD tasks include test_pipeline.py in Delta. Builders may adjust test assertions if behavioral CONTRACT is preserved.
+
+---
+
 ## Objective
 
 Build a CSV data pipeline with validation, transformation, and aggregation.

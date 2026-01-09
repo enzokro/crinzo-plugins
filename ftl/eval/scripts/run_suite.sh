@@ -7,6 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 EVAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SCRATCH_DIR="$(cd "$EVAL_DIR/../../scratch" && pwd)"
 
 VERSION=$1
 MSG=${2:-"eval: suite $VERSION"}
@@ -21,8 +22,8 @@ fi
 
 cd "$SCRIPT_DIR"
 
-SUITE_LOG="$EVAL_DIR/results/suite-${VERSION}.log"
-mkdir -p "$EVAL_DIR/results"
+SUITE_LOG="$SCRATCH_DIR/results/${VERSION}/suite.log"
+mkdir -p "$SCRATCH_DIR/results/${VERSION}"
 
 # Logging function
 log() {
@@ -76,7 +77,7 @@ for TEMPLATE in $TEMPLATES; do
 
     # Campaign
     log "[2/3] Running campaign..."
-    CAMPAIGN_LOG="$EVAL_DIR/results/${TEMPLATE}-${VERSION}/campaign.log"
+    CAMPAIGN_LOG="$SCRATCH_DIR/results/${VERSION}/${TEMPLATE}/campaign.log"
     mkdir -p "$(dirname "$CAMPAIGN_LOG")"
     if ./campaign.sh "$TEMPLATE" "$VERSION" 2>&1 | tee "$CAMPAIGN_LOG" | tee -a "$SUITE_LOG"; then
         log "Campaign complete"
@@ -123,6 +124,6 @@ log ""
 log "Next: ./eval.sh capture <template>-${VERSION}"
 log ""
 log "Results directories:"
-ls -1d "$EVAL_DIR/results"/*-"$VERSION" 2>/dev/null | tee -a "$SUITE_LOG" || echo "  (none)"
+ls -1d "$SCRATCH_DIR/results/${VERSION}"/* 2>/dev/null | tee -a "$SUITE_LOG" || echo "  (none)"
 log ""
 log "Finished: $(date)"

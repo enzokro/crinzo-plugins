@@ -6,6 +6,7 @@ set -e
 #   run → capture → reflect → learn → integrate
 
 EVAL_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRATCH_DIR="$(cd "$EVAL_DIR/../../scratch" && pwd)"
 
 show_help() {
     cat << 'EOF'
@@ -65,11 +66,15 @@ cmd_capture() {
         exit 1
     fi
 
-    local results_dir="$EVAL_DIR/results/$run_id"
+    # Parse run_id: template-version -> version/template
+    local template="${run_id%-v*}"
+    local version="v${run_id##*-v}"
+    local results_dir="$SCRATCH_DIR/results/$version/$template"
+
     if [ ! -d "$results_dir" ]; then
         echo "Error: Results not found: $results_dir"
-        echo "Available runs:"
-        ls -1 "$EVAL_DIR/results" 2>/dev/null || echo "  (none)"
+        echo "Available versions:"
+        ls -1 "$SCRATCH_DIR/results" 2>/dev/null || echo "  (none)"
         exit 1
     fi
 
@@ -191,8 +196,8 @@ cmd_status() {
     echo ""
 
     echo "Results (raw logs):"
-    if [ -d "$EVAL_DIR/results" ]; then
-        ls -1 "$EVAL_DIR/results" 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+    if [ -d "$SCRATCH_DIR/results" ]; then
+        ls -1 "$SCRATCH_DIR/results" 2>/dev/null | sed 's/^/  /' || echo "  (none)"
     else
         echo "  (none)"
     fi

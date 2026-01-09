@@ -2,6 +2,26 @@
 
 Config parser with strict validation for testing FTL's error recovery (Reflector) capabilities.
 
+---
+
+## REQUIRED TASK BREAKDOWN (Spec-First TDD)
+
+**The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
+
+| Task | Type | Slug | Description | Delta | Verify |
+|------|------|------|-------------|-------|--------|
+| 000 | SPEC | test-spec | Complete test_parser.py: fill in assertions for all tests | test_parser.py | `uv run pytest test_parser.py --collect-only` |
+| 001 | BUILD | data-model | Implement dataclasses (Config, ServerConfig, etc.) | parser.py, test_parser.py | `uv run pytest test_parser.py -k dataclass -v` |
+| 002 | BUILD | parse-valid | Implement parse_config for valid TOML | parser.py, test_parser.py | `uv run pytest test_parser.py -k valid -v` |
+| 003 | BUILD | validation | Implement validation + ConfigError formatting | parser.py, test_parser.py | `uv run pytest test_parser.py -k error -v` |
+| 004 | VERIFY | integration | All tests pass | any | `uv run pytest test_parser.py -v` |
+
+**Dependencies:** 000 → 001 → 002 → 003 → 004 (sequential)
+
+**Mutable Tests:** BUILD tasks include test_parser.py in Delta. Builders may adjust test assertions if behavioral CONTRACT is preserved.
+
+---
+
 ## Objective
 
 Build a config parser with strict validation and helpful error messages.

@@ -64,8 +64,9 @@ ftl/eval/
 │   ├── runs/{run-id}/     # metrics.json, transcript.md
 │   └── comparisons/       # Delta reports
 │
-├── results/                # Raw agent logs
 └── decisions/              # Integrated learning records
+
+# Note: Raw agent logs stored in scratch/results/ (outside git)
 ```
 
 ## Commands

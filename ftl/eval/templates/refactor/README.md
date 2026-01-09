@@ -2,6 +2,28 @@
 
 Existing code evolution scenario for testing FTL's ability to preserve functionality while adding features.
 
+---
+
+## REQUIRED TASK BREAKDOWN (Spec-First TDD)
+
+**The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
+
+| Task | Type | Slug | Description | Delta | Verify |
+|------|------|------|-------------|-------|--------|
+| 000 | SPEC | test-spec | Add tests for priority, due_date, filtering, sorting (keep existing 16 tests) | test_task_manager.py | `uv run pytest test_task_manager.py --collect-only` |
+| 001 | BUILD | priority | Add Priority enum + priority field to Task | task_manager.py, test_task_manager.py | `uv run pytest test_task_manager.py -k priority -v` |
+| 002 | BUILD | due-date | Add due_date field + is_overdue method | task_manager.py, test_task_manager.py | `uv run pytest test_task_manager.py -k "due or overdue" -v` |
+| 003 | BUILD | filter-sort | Add filtering + sorting methods | task_manager.py, test_task_manager.py | `uv run pytest test_task_manager.py -k "filter or sort or list_" -v` |
+| 004 | VERIFY | integration | All tests pass (16 original + new) | any | `uv run pytest test_task_manager.py -v` |
+
+**Dependencies:** 000 → 001 → 002 → 003 → 004 (sequential)
+
+**Mutable Tests:** BUILD tasks include test_task_manager.py in Delta. Builders may adjust test assertions if behavioral CONTRACT is preserved.
+
+**Note:** This template starts with WORKING code - SPEC task ADDS tests, doesn't replace.
+
+---
+
 ## Objective
 
 Extend and refactor the existing task manager to add priorities, due dates, and filtering.
