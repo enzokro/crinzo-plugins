@@ -44,8 +44,9 @@ Budget exceeded → Block with diagnosis.
 
 ### Completion
 
-```bash
-mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_complete.md
+```
+1. Edit workspace: fill ## Delivered with what you built
+2. mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_complete.md
 ```
 
 ## If Blocked
