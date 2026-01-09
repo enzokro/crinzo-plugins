@@ -4,6 +4,33 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Builder CAN fix upstream bugs when detected during testing
+
+**Expected**: Based on v35, believed builders with test-writing Delta couldn't fix bugs in implementation files (main.py). v35 Builder 004 diagnosed "This is a bug in main.py" but ended BLOCKED, unable to fix.
+**Observed**: v36 Builder 004 detected same bug and FIXED main.py (line 52: changed `date.today()` to `date.today().isoformat()` for query comparison). Completed in 307K tokens vs v35's 429K blocked.
+**Gap**: The constraint isn't hard. Either: (1) v36's workspace/Delta was more permissive, allowing main.py edits during test writing, (2) the builder interpreted "test writing" more liberally when bug discovery required upstream fix, or (3) task 004's framing changed between v35/v36 to allow implementation fixes discovered via testing. The mental model "builders can only modify Delta" may be too rigid - effective builders can expand scope when necessary for task completion. This is a positive surprise: flexible scoping enabled recovery.
+**Updated**: journal.md
+
+---
+
+## 2026-01-09: transform=True is necessary but insufficient for date comparisons
+
+**Expected**: The date-string-mismatch warning instructing `transform=True` in db.create() would prevent all date-related bugs. v35's problem was task 003 not using transform=True.
+**Observed**: v36 task 001 correctly used `transform=True`. Bug still manifested in task 004 tests. The issue: `transform=True` handles storage/retrieval (dates round-trip correctly) but NOT query comparisons where `c.next_review <= date.today()` compares SQLite string to Python date. Fix required: `date.today().isoformat()` in query expressions.
+**Gap**: The pattern warning was incomplete. `transform=True` prevents STORAGE bugs; query comparisons need explicit `.isoformat()` on Python date variables. The synthesizer correctly identified this as "date-string-mismatch-query" - an evolution of the original pattern. Pattern needs refinement to include both prevention mechanisms.
+**Updated**: N/A (synthesizer captured the evolution)
+
+---
+
+## 2026-01-09: Entropy correlates with blocked/failed outcomes
+
+**Expected**: Entropy (HT) would remain elevated in v36 since v35's HT=5.4 was attributed to single_planner=true pattern.
+**Observed**: v36 had single_planner=true (same as v35) but HT dropped from 5.4 to 4.3 (-20%). Key difference: v35 had 1 blocked builder; v36 had 0 blocked.
+**Gap**: Entropy is more strongly correlated with blocked/failed outcomes than protocol composition. v35's blocked Builder 004 (429K tokens, debugging exploration patterns) inflated entropy. v36's successful Builder 004 (307K tokens, clean completion) reduced entropy. The mental model "single_planner → high entropy" is incomplete; it's "single_planner + blocked outcomes → highest entropy."
+**Updated**: questions.md (entropy hypothesis update)
+
+---
+
 ## 2026-01-09: Date-string-mismatch migrated to test phase
 
 **Expected**: Workspace warnings for task 003 (study routes) would contain the date-string-mismatch problem as in v29. Task 004 (tests) would be lightweight verification.

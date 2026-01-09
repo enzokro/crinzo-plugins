@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v36
+
+**Observed**: 908K tokens (-16.4% from v35's 1,087K - strong recovery). ST=48.0, HT=4.3, IGR=0.92. 4/4 tasks complete (v35 had 3/4 with 1 blocked). Cache efficiency 79.5% (down from 82.2%). Protocol fidelity perfect: single_planner=true, single_synthesizer=true, router_cache_rate=1.0.
+
+**Noticed**: Date-string-mismatch was HANDLED in v36. Builder 004 detected the bug ("SQLite stores dates as ISO strings") and FIXED it in main.py by changing the comparison to use `.isoformat()`. Key difference from v35: Builder 004's Delta was expanded or builder had permission to fix main.py. The fix shows in reasoning trace: "The bug is in main.py...I need to fix main.py." v35's Builder 004 correctly diagnosed ("This is a bug in main.py") but couldn't fix (outside Delta). Token breakdown: 001=100K (stable), 002=154K, 003=158K, 004=348K (vs v35's 524K = -33%). Task 004 still most expensive but successful.
+
+**Surprised**: Entropy dropped from 5.4 (highest ever in v35) to 4.3. This 20% reduction correlates with: (1) no blocked tasks, (2) clean completion of all 4 builders. Confirms the hypothesis that blocked/failed outcomes add entropy through debugging exploration patterns. Also surprised that even with `transform=True` in task 001, the date comparison bug still manifested - `transform=True` handles storage/retrieval but not query comparisons where Python date vs SQLite string comparison occurs.
+
+**Unclear**: Why did cache efficiency drop (79.5% vs 82.2%) despite cleaner execution? Was task 004 builder allowed to fix main.py via expanded Delta, or did the workspace implicitly permit it? The synthesizer reasoning trace mentions "date-string-mismatch-query" as an evolution of the original pattern - is this a new pattern to extract?
+
+**Updated**: journal.md, surprises.md (recovery from blocked state)
+
+---
+
 ## 2026-01-09: anki-v35
 
 **Observed**: 1,087K tokens (+62% from v34 - severe regression). ST=49.4, HT=5.4 (highest observed), IGR=0.9. 3/4 builder tasks complete, 1 BLOCKED. Cache efficiency 82.2% (improved). Protocol fidelity restored: single_planner=true, single_synthesizer=true. Task 004 builder consumed 429K tokens (39% of total) and ended blocked.

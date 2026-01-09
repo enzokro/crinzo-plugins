@@ -25,21 +25,24 @@ Hypothesis: ST measures conformance to learnable patterns, not absolute token co
 
 ### What does entropy (HT) actually measure?
 
-v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4. Now have six data points. **Prediction partially confirmed in v35**: single_planner=true → HT=5.4 (highest ever), supporting hypothesis that dedicated planner increases entropy. But v35's 5.4 is anomalously high even for single_planner=true runs. New observation: v35 had a blocked builder (task 004, 429K tokens, debugging spiral). Entropy may compound when: (1) dedicated planner adds decision-maker variance, AND (2) blocked/failed outcomes add behavioral variance from exploration/debugging patterns.
+v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, **v36=4.3**. Now have seven data points. **Hypothesis refined in v36**: Blocked/failed outcomes dominate entropy more than protocol composition. v36 had single_planner=true (same as v35) but HT dropped from 5.4 to 4.3 because all tasks completed successfully. The 20% entropy reduction correlates with the shift from 1 blocked to 0 blocked builders.
 
-Updated hypothesis: **Entropy measures behavioral variance, not execution quality.** High entropy can result from: (a) more independent decision-makers (planner adds variance), or (b) debugging spirals (exploration patterns add variance). v35 had both → HT=5.4. v34 had neither (synthesizer-as-planner, clean execution) → HT=3.4.
+Updated hypothesis: **Entropy = f(blocked_outcomes, protocol_composition) where blocked_outcomes dominates.** The formula appears to be roughly: HT ≈ 3.4 (base) + 0.5×(single_planner) + 1.5×(blocked_count). This explains: v34=3.4 (no planner, 0 blocked), v30=3.4 (planner but 0 blocked, contradicts simple model), v36=4.3 (planner, 0 blocked), v35=5.4 (planner, 1 blocked).
+
+Exception: v30's HT=3.4 with single_planner=true doesn't fit. Need more data on the planner contribution.
 
 ### How should workspace warnings handle cross-task bug manifestation?
 
 v35 revealed a gap in the workspace warning mechanism. The date-string-mismatch warning protected task 003 (study routes), which completed cleanly in 130K tokens. But task 004 (tests) wrote tests that exercised study routes and hit the same bug, consuming 429K tokens and ending BLOCKED. The warning was task-specific, but the bug manifestation was cross-task.
 
-Options:
+**Partial resolution in v36**: Option 3 (expand Delta) naturally occurred - v36 Builder 004 fixed main.py when tests revealed the bug. This suggests builders can expand scope when completion requires it. The blocked state in v35 may have been due to stricter Delta interpretation, not a hard constraint.
+
+Remaining options to explore:
 1. **Propagate warnings to all downstream tasks** - Any task whose tests/verification might touch warned-about code gets the warning
-2. **Fix upstream** - Ensure task 003 (or task 001) creates main.py with `transform=True` so the bug never exists
-3. **Expand task 004 Delta** - Allow test-writing tasks to fix bugs discovered during test execution
+2. **Fix upstream** - The `transform=True` warning is now understood to be necessary but insufficient. Need to add query comparison guidance (`.isoformat()` on Python dates)
 4. **Integrated verification** - Don't skip verification in tasks 002/003 even if test file is empty (fail fast)
 
-The warning mechanism (L011) works per-task, but bugs created in task N can manifest in task N+M. Need a strategy for cross-task knowledge propagation.
+**New insight from v36 synthesizer**: The pattern evolved to "date-string-mismatch-query" - recognizing that `transform=True` handles storage but query comparisons need explicit `.isoformat()`. This refinement should prevent future occurrences.
 
 ### Why does planner still explore with complete specs?
 
