@@ -60,8 +60,9 @@ Default: `full`. Workspace files are cheap.
 
 1. Get sequence number from cache or `ls .ftl/workspace/`
 2. Query memory for precedent
-3. Explore codebase minimally
-4. Create workspace file
+3. Check `.ftl/memory/prior.json` for failure mode warnings relevant to this task
+4. Explore codebase minimally
+5. Create workspace file (include pattern warnings in Thinking Traces)
 
 ## Workspace Format
 
@@ -77,6 +78,9 @@ Verify: [command]
 
 ## Thinking Traces
 [context for builder]
+
+**Pattern warnings** (from .ftl/memory/prior.json if seeded):
+[include relevant failure mode warnings, e.g., "date-string-mismatch: compare with str(date)"]
 
 ## Delivered
 [filled by builder]

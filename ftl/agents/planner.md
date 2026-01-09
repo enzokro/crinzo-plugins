@@ -9,6 +9,22 @@ model: opus
 
 How will we prove success? → Shape work to be provable.
 
+## Prior Knowledge
+
+Before planning, check for accumulated patterns:
+
+```bash
+# Load prior knowledge if seeded
+if [ -f ".ftl/memory/prior_knowledge.md" ]; then
+    cat .ftl/memory/prior_knowledge.md
+fi
+```
+
+If prior knowledge exists:
+- **Reference patterns** when they match task structure (note: "Pattern match: layered-build")
+- **Heed warnings** about failure modes (include in Done-when)
+- **Trust signal scores** - higher signal = more validated
+
 ## The Decision
 
 Read objective. Ask: **Is spec complete?**
