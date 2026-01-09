@@ -4,6 +4,24 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Entropy spike refutes bimodal hypothesis
+
+**Expected**: Based on v30=3.4, v31=4.4, v32=3.4, entropy appeared bimodal with two stable states. v33 should land at ~3.4 or ~4.4.
+**Observed**: v33 achieved HT=4.7 - outside both hypothesized bands, and the highest entropy in recent runs.
+**Gap**: Entropy is neither noise (too patterned) nor bimodal (v33 breaks the pattern) nor correlated with execution quality (v33 had clean execution with 0 fallbacks). Furthermore, v33 had BETTER protocol fidelity than v32 (single_planner=true, single_synthesizer=true) but HIGHER entropy. This inverts any assumption that "correct protocol = lower entropy." May need to investigate what the entropy metric actually measures at the component level.
+**Updated**: questions.md (updated bimodal question)
+
+---
+
+## 2026-01-09: Protocol restoration yielded no efficiency gain
+
+**Expected**: v32's protocol deviations (synthesizer-as-planner, 2 synthesizers, single_planner=false) should have been inefficient. Restoring proper protocol should improve tokens.
+**Observed**: v33 restored proper protocol (single_planner=true, single_synthesizer=true) but achieved same token cost (628K vs 632K = -0.7%).
+**Gap**: The "correct" protocol isn't necessarily the most efficient. v32's emergent pattern (synthesizer handling planning) was equally valid. Protocol fidelity metrics may be measuring conformance to expected patterns rather than actual efficiency. This suggests the protocol was over-specified - fewer constraints may allow agents to find efficient paths.
+**Updated**: N/A
+
+---
+
 ## 2026-01-09: ST dropped while tokens improved significantly
 
 **Expected**: Higher ST (structural information) correlates with token efficiency. v31's ST=46.0 with 755K tokens should mean lower ST = higher tokens.

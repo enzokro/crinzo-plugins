@@ -193,7 +193,7 @@ From transcript.md:
 - HT: 4.1 (down from 4.4) - less entropy
 - 4/4 tasks complete, 0 fallbacks
 
-**Observation**: Cross-run learning worked. Prior knowledge seeded, builder avoided date-string debugging spiral.
+**Observation**: Cross-run learning worked. Prior knowledge seeded, builder avoided known failure modes.
 
 **Journal entry**: Token reduction, ST increase, entropy decrease. Cross-run learning effective.
 

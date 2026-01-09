@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v33
+
+**Observed**: 628K tokens (-0.7% from v32 - essentially flat). ST=42.9, HT=4.7, IGR=0.9. 4/4 tasks complete, 0 fallbacks. Cache efficiency 77.2% (up from 72.9%). Protocol fidelity improved: single_planner=true, single_synthesizer=true (v32 had both false).
+
+**Noticed**: Protocol structure restored but no efficiency gain. v32's "deviant" approach (synthesizer-as-planner, 2 synthesizers) was NOT inferior - v33's proper protocol achieved same token cost. Task flows improved for early tasks: 001=87K (v32=115K, -24%), 002=133K (v32=150K, -11%). But task 003=198K (v32=189K, +5%). Entropy jumped significantly: HT=4.7 vs v32's HT=3.4 (+38%). Router cache rate remains 100% effective.
+
+**Surprised**: Entropy spike to 4.7 breaks the bimodal hypothesis. Previous pattern: v30=3.4, v31=4.4, v32=3.4 suggested two stable states. v33's 4.7 is the highest entropy observed in recent runs. Yet execution was clean (0 fallbacks, all single-attempt). High entropy + clean execution suggests entropy measures something other than execution stability.
+
+**Unclear**: What caused the entropy spike? v33 has cleaner protocol fidelity but higher entropy than v32. Possible: HT measures variance in agent behavior patterns, not execution quality. The restored protocol may introduce more variance in how agents approach tasks (more "proper" separation of concerns = more behavioral diversity).
+
+**Updated**: N/A
+
+---
+
 ## 2026-01-09: anki-v32
 
 **Observed**: 632K tokens (-16.2% from v31). ST=42.8, HT=3.4, IGR=0.93. 3/4 tasks marked complete in metrics (task 004 used "unknown" agent type). 0 fallbacks. Cache efficiency 72.9%. Protocol fidelity deviated: single_planner=false (synthesizer did planning), single_synthesizer=false (2 synthesizers spawned).

@@ -4,6 +4,30 @@ Learnings compound into FTL's decision memory via `./eval.sh integrate`.
 
 ---
 
+## 2026-01-09: Eval Pipeline North Star Alignment
+
+**Change**: Aligned eval instruments with FTL's true purpose (gestalt orchestration for ANY template)
+**Result**: Template-agnostic memory detection; 6-dimension output mapping
+
+### Changes Made
+
+1. **info_theory.py**: Replaced hardcoded pattern names with structural signals
+   - Before: `r"date-string-mismatch"` (anki-specific)
+   - After: `r"known.?failure"`, `r"prior.?pattern"` (template-agnostic)
+
+2. **info_theory.py**: Added explicit 6-dimension mapping to output
+   - Cognitive Efficiency, Structural Fidelity, Decision Quality
+   - Pattern Emergence, Error Recovery, Knowledge Accumulation
+
+3. **chronicle.md**: Generalized L003-L006 descriptions
+
+**L007**: Eval instruments must be template-agnostic
+- Hardcoded pattern names only work for one template
+- Structural signals generalize: "prior pattern", "known failure", "from memory"
+- Test by running multiple templates; comparable metrics = success
+
+---
+
 ## 2026-01-09: v28-v32 Meta-Pattern Analysis
 
 **Change**: Analyzed 5 runs to extract generalizable orchestration patterns
@@ -23,7 +47,7 @@ Learnings compound into FTL's decision memory via `./eval.sh integrate`.
 
 **L005**: Memory availability ≠ memory influence
 - v28: Memory was available but not consumed
-- v29+: Memory consumed (no date-string spiral) but cache_effective=0
+- v29+: Memory consumed (avoided known failure modes) but cache_effective=0
 - Need to measure explicit pattern references in reasoning traces
 
 **L006**: Agent type should be determined by behavior, not spawn order
@@ -89,5 +113,10 @@ Learnings compound into FTL's decision memory via `./eval.sh integrate`.
 |----|---------|--------|
 | L001 | Ontological framing > imperative prohibition | +3 |
 | L002 | Main session contains spawn authority | +3 |
+| L003 | Trace pattern predicts cost | +2 |
+| L004 | Task type determines pipeline | +2 |
+| L005 | Memory availability ≠ memory influence | +2 |
+| L006 | Agent type = behavior, not spawn order | +2 |
+| L007 | Eval instruments must be template-agnostic | +2 |
 
 ---

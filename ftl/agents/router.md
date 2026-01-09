@@ -98,7 +98,7 @@ Verify: [command]
 [context for builder]
 
 **Pattern warnings** (from .ftl/memory/prior.json if seeded):
-[include relevant failure mode warnings, e.g., "date-string-mismatch: compare with str(date)"]
+[include relevant failure mode warnings from prior campaigns]
 
 ## Delivered
 [filled by builder]

@@ -12,9 +12,9 @@ v32 showed ST=42.8 with 632K tokens (efficient). v31 showed ST=46.0 with 755K to
 
 Hypothesis: ST measures conformance to learnable patterns, not absolute token cost. A highly structured but verbose execution scores high on ST.
 
-### Is entropy (HT) bimodal rather than continuous?
+### What does entropy (HT) actually measure?
 
-v30: HT=3.4, v31: HT=4.4, v32: HT=3.4. Two runs at 3.4, one at 4.4. Previously interpreted the v30→v31 change as "noise in 4.0-4.5 range." But v32 returning to 3.4 suggests there may be two stable states: ~3.4 (low entropy) and ~4.4 (high entropy). What causes the system to land in one state vs the other?
+v30=3.4, v31=4.4, v32=3.4, v33=4.7. The bimodal hypothesis (two stable states at 3.4 and 4.4) is now refuted - v33's 4.7 is outside both bands. Entropy appears to be neither noise nor bimodal, but genuinely variable. More puzzling: v33 had BETTER protocol fidelity than v32 but HIGHER entropy. Clean protocol → more entropy? Need to understand what HT captures. Current hypothesis: HT measures behavioral variance across agents, not execution quality. Protocol fidelity may actually increase variance by enforcing distinct roles.
 
 ### Why does planner still explore with complete specs?
 

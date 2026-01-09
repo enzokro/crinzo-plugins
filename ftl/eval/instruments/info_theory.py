@@ -75,24 +75,28 @@ ACTION_PATTERNS = [
 ]
 
 # Memory influence patterns - detect when agents reference prior knowledge
+# These are STRUCTURAL signals that work for ANY template, not pattern names
 MEMORY_INFLUENCE_PATTERNS = [
-    # Pattern name references
-    r"post-redirect-get",
-    r"layered-build",
-    r"fastlite-dataclass-sync",
-    r"algorithm-state-in-model",
-    r"date-string-mismatch",
-    r"sqlite-date-safety",
-    # Failure mode references
-    r"warning.*date",
-    r"pattern.*warning",
-    r"prior.*knowledge",
-    r"prior.*pattern",
+    # Explicit memory references
+    r"prior.?knowledge",
+    r"prior.?pattern",
+    r"from.?memory",
+    r"memory.?seeded",
     r"from previous campaign",
-    # Explicit influence signals
-    r"pattern match",
-    r"applying pattern",
-    r"using.*pattern",
+    r"previous.?run",
+    # Pattern application signals
+    r"pattern.?match",
+    r"applying.?pattern",
+    r"using.?pattern",
+    r"pattern.?warning",
+    r"known.?failure",
+    r"failure.?mode",
+    # Knowledge transfer signals
+    r"already.?learned",
+    r"known.?issue",
+    r"documented.?in",
+    r"per.?prior",
+    r"as.?before",
 ]
 
 
@@ -555,6 +559,62 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
     action_first_rate = action_first_count / builder_count if builder_count > 0 else 0
     unique_patterns_used = list(set(all_memory_patterns))
 
+    # Compute dimension metrics (6 dimensions of orchestration quality)
+    total_tokens = metrics.get("totals", {}).get("tokens", 0)
+    task_count = len(metrics.get("task_flow", {}))
+    tokens_per_task = total_tokens / task_count if task_count > 0 else total_tokens
+
+    # Average action density across agents
+    action_densities = [a["epiplexity"]["action_density"] for a in per_agent if "epiplexity" in a]
+    avg_action_density = mean(action_densities) if action_densities else 0
+
+    # Protocol fidelity from metrics
+    protocol = metrics.get("protocol_fidelity", {})
+    protocol_checks = [
+        protocol.get("no_learners", False),
+        protocol.get("single_planner", False),
+        protocol.get("single_synthesizer", False),
+        protocol.get("router_builder_match", False),
+    ]
+    protocol_adherence = sum(protocol_checks) / len(protocol_checks) if protocol_checks else 0
+
+    # Error recovery from loop signals
+    loop_signals = metrics.get("loop_signals", {})
+    tasks_complete = loop_signals.get("tasks_complete", 0)
+    tasks_failed = loop_signals.get("tasks_failed", 0)
+    reflector_count = metrics.get("by_type", {}).get("reflector", {}).get("count", 0)
+    recovery_rate = tasks_complete / (tasks_complete + tasks_failed) if (tasks_complete + tasks_failed) > 0 else 1.0
+
+    # Dimensions mapping (aligned with eval/README.md)
+    dimensions = {
+        "cognitive_efficiency": {
+            "tokens_per_task": round(tokens_per_task, 0),
+            "average_trace_length": round(total_traces / len(agents), 2) if agents else 0,
+            "action_density": round(avg_action_density, 3),
+        },
+        "structural_fidelity": {
+            "protocol_adherence": round(protocol_adherence, 2),
+            "canonical_sequence_match": round(epiplexity["components"]["canonical_sequences"] / max(len(agents), 1), 2),
+        },
+        "decision_quality": {
+            "action_first_rate": round(action_first_rate, 2),
+            "single_attempt_rate": round(epiplexity["components"]["single_attempts"] / (task_count * WEIGHTS["single_attempt"]), 2) if task_count > 0 else 1.0,
+        },
+        "pattern_emergence": {
+            "memory_influence_rate": round(memory_influence_rate, 3),
+            "patterns_detected": len(unique_patterns_used),
+        },
+        "error_recovery": {
+            "reflector_invocations": reflector_count,
+            "recovery_rate": round(recovery_rate, 2),
+            "fallback_count": loop_signals.get("fallback_used", 0),
+        },
+        "knowledge_accumulation": {
+            "cache_effectiveness": round(protocol.get("router_cache_effective", 0), 2),
+            "delta_seeded_vs_unseeded": None,  # Requires paired runs to compute
+        },
+    }
+
     result = {
         "run_id": metrics.get("run_id", evidence_dir.name),
         "computed_at": datetime.now().isoformat(),
@@ -566,6 +626,9 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
         "loss_curve": loss_curve,
 
         "observations": observations,
+
+        # 6 dimensions of orchestration quality (from eval/README.md)
+        "dimensions": dimensions,
 
         # Per-agent granular metrics
         "per_agent": per_agent,

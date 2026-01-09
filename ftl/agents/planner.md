@@ -61,7 +61,7 @@ Each Verify must pass using ONLY that task's Delta.
 | Coherent | Incoherent |
 |----------|------------|
 | Add routes → `python -c "from main import app"` | Add routes → `pytest -k study` (tests in later task) |
-| Add model → `python -c "from main import Card"` | Add model → `pytest` (no tests yet) |
+| Add model → `python -c "from main import User"` | Add model → `pytest` (no tests yet) |
 
 Incoherent verification → builder hits unexpected state → 10x token cost.
 

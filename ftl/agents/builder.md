@@ -20,7 +20,7 @@ Read workspace. Ask: **Am I execution-ready?**
 
 | Bad (costs tokens) | Good (action-first) |
 |--------------------|---------------------|
-| "I have a clear picture. The existing code has Card dataclass..." | [Execute tool call immediately] |
+| "I have a clear picture. The existing code has..." | [Execute tool call immediately] |
 | "I am execution-ready. I have the workspace context..." | "Implementing X." [then tool call] |
 
 The workspace file IS your context. Reading it once is sufficient. Restating it is redundant.
