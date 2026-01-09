@@ -1,0 +1,203 @@
+{
+  "run_a": "anki-v19",
+  "run_b": "anki-v20",
+  "computed_at": "2026-01-08T20:19:37.664459",
+  "comparisons": [
+    {
+      "step": 0,
+      "type": "planner",
+      "task": null,
+      "a": {
+        "tokens": 54965,
+        "ratio": null,
+        "pattern": ".."
+      },
+      "b": {
+        "tokens": 29253,
+        "ratio": null,
+        "pattern": "."
+      },
+      "token_delta": -0.46778859274083506,
+      "ratio_improved": false
+    },
+    {
+      "step": 1,
+      "type": "router",
+      "task": "001",
+      "a": {
+        "tokens": 145598,
+        "ratio": null,
+        "pattern": ".."
+      },
+      "b": {
+        "tokens": 64762,
+        "ratio": null,
+        "pattern": "..."
+      },
+      "token_delta": -0.5551999340650283,
+      "ratio_improved": false
+    },
+    {
+      "step": 2,
+      "type": "builder",
+      "task": "001",
+      "a": {
+        "tokens": 120516,
+        "ratio": null,
+        "pattern": "..AA"
+      },
+      "b": {
+        "tokens": 93698,
+        "ratio": null,
+        "pattern": ".AA"
+      },
+      "token_delta": -0.22252646951442132,
+      "ratio_improved": false
+    },
+    {
+      "step": 3,
+      "type": "router",
+      "task": "002",
+      "a": {
+        "tokens": 76474,
+        "ratio": null,
+        "pattern": ".A."
+      },
+      "b": {
+        "tokens": 64601,
+        "ratio": null,
+        "pattern": "..."
+      },
+      "token_delta": -0.1552553809137746,
+      "ratio_improved": false
+    },
+    {
+      "step": 4,
+      "type": "builder",
+      "task": "002",
+      "a": {
+        "tokens": 132430,
+        "ratio": null,
+        "pattern": "A..A"
+      },
+      "b": {
+        "tokens": 151343,
+        "ratio": null,
+        "pattern": ".A..A"
+      },
+      "token_delta": 0.14281507211356945,
+      "ratio_improved": false
+    },
+    {
+      "step": 5,
+      "type": "router",
+      "task": "003",
+      "a": {
+        "tokens": 104125,
+        "ratio": 1.0,
+        "pattern": ".EA."
+      },
+      "b": {
+        "tokens": 45250,
+        "ratio": null,
+        "pattern": "A."
+      },
+      "token_delta": -0.5654261704681873,
+      "ratio_improved": false
+    },
+    {
+      "step": 6,
+      "type": "builder",
+      "task": "003",
+      "a": {
+        "tokens": 189417,
+        "ratio": 3.0,
+        "pattern": ".AE.AA"
+      },
+      "b": {
+        "tokens": 303964,
+        "ratio": 0.5,
+        "pattern": "E..E...A"
+      },
+      "token_delta": 0.6047345275239286,
+      "ratio_improved": false
+    },
+    {
+      "step": 7,
+      "type": "router",
+      "task": "004",
+      "a": {
+        "tokens": 93873,
+        "ratio": 1.0,
+        "pattern": ".EA."
+      },
+      "b": {
+        "tokens": 55530,
+        "ratio": null,
+        "pattern": ".."
+      },
+      "token_delta": -0.4084561055894666,
+      "ratio_improved": false
+    },
+    {
+      "step": 8,
+      "type": "builder",
+      "task": "004",
+      "a": {
+        "tokens": 161182,
+        "ratio": 3.0,
+        "pattern": "EAA.A"
+      },
+      "b": {
+        "tokens": 95787,
+        "ratio": 1.0,
+        "pattern": "E.A"
+      },
+      "token_delta": -0.40572148254767904,
+      "ratio_improved": false
+    },
+    {
+      "step": 9,
+      "type": "synthesizer",
+      "task": null,
+      "a": {
+        "tokens": 206660,
+        "ratio": null,
+        "pattern": ".A.."
+      },
+      "b": {
+        "tokens": 200820,
+        "ratio": 0.0,
+        "pattern": "E..."
+      },
+      "token_delta": -0.028258976096003096,
+      "ratio_improved": false
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "protocol",
+      "agent": "builder.md",
+      "section": "Core Discipline",
+      "change": "Add: \"Act within first 3 tool calls. Do not explore to understand; understand to act.\"",
+      "rationale": "explore:action ratio 2:1",
+      "priority": "high"
+    },
+    {
+      "type": "protocol",
+      "agent": "builder.md",
+      "section": "Execution",
+      "change": "Add: \"After reading workspace/context, Write or Edit immediately.\"",
+      "rationale": "first action at position 7",
+      "priority": "medium"
+    },
+    {
+      "type": "protocol",
+      "agent": "synthesizer.md",
+      "section": "Core Discipline",
+      "change": "Add: \"Act within first 3 tool calls. Do not explore to understand; understand to act.\"",
+      "rationale": "explore:action ratio 1:0",
+      "priority": "high"
+    }
+  ]
+}

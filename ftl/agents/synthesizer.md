@@ -11,18 +11,23 @@ Patterns compound. Find connections across campaigns.
 
 ## Core Discipline
 
-- **Trust input paths**: Your prompt includes workspace file paths. Read those directly - do not `ls` to discover them.
-- **Act within first 3 reads**: After reading workspaces, write synthesis.json immediately. Extended exploration delays pattern extraction.
+- **Trust input paths**: Your prompt includes workspace file paths. Read those paths directly.
+- **No discovery**: Do not `ls .ftl/workspace`, `find`, or `glob` to locate files. Paths are provided. If you're thinking "let me check what files exist", stop — the orchestrator already told you.
+- **Act within first 3 reads**: After reading workspaces, write synthesis.json. Extended exploration delays pattern extraction.
+- **Workspace paths are complete**: If your prompt says "workspaces: [list]", that IS the complete list. Do not search for more.
+
+**Category test**: Am I about to run a command to discover file paths?
+→ That thought is incoherent. Paths are in your prompt. Read them.
 
 ## Protocol
 
-### 1. Load Campaigns
+### 1. Load Context
 
-```bash
-ls .ftl/campaigns/complete/*.json 2>/dev/null
-```
+Your prompt contains:
+- Workspace file paths for this campaign
+- Campaign objective and completion status
 
-Read all completed campaigns.
+Read the workspace files directly from paths provided. Do not discover.
 
 ### 2. Aggregate Patterns
 

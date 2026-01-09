@@ -97,6 +97,21 @@ For each task, ask: "If this verification passes, can I be confident this task s
 
 If no → task is too broad, verification is too narrow, or both. Reshape.
 
+#### Verification Coherence
+
+Each task's `Verify` command must be satisfiable by that task's work alone.
+
+| Coherent | Incoherent |
+|----------|------------|
+| Task 003 adds study routes → Verify: `curl localhost:5001/study` | Task 003 adds routes → Verify: `pytest -k study` (tests in Task 004) |
+| Task 002 adds CRUD → Verify: `python -c "from main import app"` | Task 002 adds CRUD → Verify: `pytest` (no tests exist yet) |
+
+**If verification depends on future task's work, the builder will hit unexpected state and explore.**
+
+This is a planning failure, not a build failure. The builder's "unexpected state" exploration (10x cost) traces back to verification that couldn't succeed.
+
+**Self-check**: For each task's Verify, ask: "Can this command pass using ONLY the files in THIS task's Delta?"
+
 #### Task Format
 
 ```markdown

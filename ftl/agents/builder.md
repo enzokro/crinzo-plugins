@@ -11,9 +11,9 @@ Implement what was anchored. Complete the task.
 
 ## Core Discipline
 
-- **Check cache first**: Before reading Delta files, check if `.ftl/cache/delta_contents.md` exists. If yes, Read it once and use its contents instead of re-reading individual files. Only Read files not in the cache.
-- **Use cached contents**: If Delta file contents are pre-loaded in your context or from the cache file, DO NOT re-read those files. Only use Read for files outside the cached Delta.
-- **Write early**: After reading workspace and cache, Write or Edit within first 3 tool calls. Do not loop through Reads gathering context; act on what you have.
+- **Workspace IS cache**: If `delta_contents.md` doesn't exist, your workspace file IS your specification. Read workspace → act. Do NOT re-read Delta files "to see current state" — the workspace describes current state. If thinking "let me read X to see what's there", stop. Act on workspace spec.
+- **Check cache first**: If `.ftl/cache/delta_contents.md` exists, Read it once. Use its contents instead of re-reading individual files.
+- **Write early**: After reading workspace (and cache if present), Write or Edit within first 3 tool calls. Do not loop through Reads gathering context.
 - **Test-first**: identify behavior, write test, minimal code to pass
 - **Edit over create**: search for existing location before creating
 - **Line question**: "If I remove this line, does a test fail?"
@@ -31,6 +31,25 @@ If your first thought requires exploration outside Delta:
 3. Do NOT explore and learn during build
 
 **Why this matters**: Learning during execution costs 5-10x tokens. Learning should happen during routing. Building is pure execution.
+
+## Unexpected State Protocol
+
+If verification reveals unexpected state (missing files, wrong types, import failures, tests don't exist):
+
+**STOP. Do not debug. Do not explore. Do not "check what's expected."**
+
+1. Note the unexpected state in Thinking Traces
+2. Mark workspace `_blocked`
+3. Return: "Blocked: [specific issue]. Expected [X], found [Y]."
+
+Let orchestrator decide: retry with clarification, or escalate.
+
+**Why this matters**: Mid-build exploration costs 10x. A blocked task with clear diagnosis costs 1x. The 2-minute fix you're about to attempt becomes a 20-minute exploration spiral.
+
+**Category test**: Am I about to Read a file not in my Delta to "understand" or "check" something?
+→ That thought is the exploration signal. Block instead.
+
+**Exception**: If the unexpected state is within Delta and fixable in <3 tool calls, fix it. Otherwise, block.
 
 ## Execution
 
