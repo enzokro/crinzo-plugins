@@ -6,6 +6,18 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ## Active
 
+### Does TDD methodology reduce or increase token cost?
+
+v38 used TDD (test-first) methodology and regressed +9.3% (993K vs v36's 908K). Builder 001 consumed 272K tokens (vs v36's 59K = +361%) despite following TDD correctly. The test surfaced a library behavior issue (`transform=True` not working as documented in fastlite 0.2.3).
+
+**Hypothesis**: TDD efficiency depends on bug source:
+- Application bugs: TDD reduces cost (catch early, fix once)
+- Library/framework bugs: TDD may INCREASE cost (discover in test phase, investigate external behavior)
+
+v38's Builder 001 trace shows TDD working correctly (write test → run test → see failure) but the failure pointed to library behavior, triggering exploration of fastlite internals. The builder even reached "Debugging budget exceeded" before accepting workaround.
+
+Need more TDD runs to determine if v38 was an outlier (library bug) or if TDD consistently increases token cost by surfacing issues that would have been deferred in implementation-first approach.
+
 ### Why does identical protocol composition yield opposite outcomes?
 
 v32 and v34 both had single_planner=false, single_synthesizer=false (synthesizer-as-planner pattern). Yet v32 achieved -16.2% improvement while v34 regressed +6.8% - a 23 percentage point swing. If protocol composition isn't deterministic, what is? Candidates:
@@ -25,11 +37,17 @@ Hypothesis: ST measures conformance to learnable patterns, not absolute token co
 
 ### What does entropy (HT) actually measure?
 
-v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, **v36=4.3**. Now have seven data points. **Hypothesis refined in v36**: Blocked/failed outcomes dominate entropy more than protocol composition. v36 had single_planner=true (same as v35) but HT dropped from 5.4 to 4.3 because all tasks completed successfully. The 20% entropy reduction correlates with the shift from 1 blocked to 0 blocked builders.
+v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, v36=4.3, **v38=5.6**. Now have eight data points. **Hypothesis REFUTED in v38**: Blocked/failed outcomes do NOT dominate entropy. v38 achieved HT=5.6 (highest ever) with 0 blocked tasks and 0 fallbacks. All 3 builders completed successfully.
 
-Updated hypothesis: **Entropy = f(blocked_outcomes, protocol_composition) where blocked_outcomes dominates.** The formula appears to be roughly: HT ≈ 3.4 (base) + 0.5×(single_planner) + 1.5×(blocked_count). This explains: v34=3.4 (no planner, 0 blocked), v30=3.4 (planner but 0 blocked, contradicts simple model), v36=4.3 (planner, 0 blocked), v35=5.4 (planner, 1 blocked).
+**New hypothesis after v38**: Entropy measures exploration pattern depth within agents, not just failure modes. v38 Builder 001 had trace pattern "AEEEEE.A" (8 reasoning steps with 5 marked as exploration) - high behavioral variance on a SUCCESSFUL task. The extensive debugging of fastlite `transform=True` behavior created high entropy without triggering failure.
 
-Exception: v30's HT=3.4 with single_planner=true doesn't fit. Need more data on the planner contribution.
+**Updated formula candidate**: HT ≈ f(sum of exploration_trace_lengths) + small contribution from blocked_outcomes. This explains:
+- v38=5.6: Builder 001 had 8-step reasoning trace with extensive exploration (no blocks)
+- v35=5.4: Builder 004 had 7 reasoning traces (1 blocked)
+- v36=4.3: Cleaner execution paths, fewer exploration steps per builder
+- v30=3.4: Minimal exploration, action-first patterns throughout
+
+The variance component in entropy is directly measurable: v38's info_theory shows `entropy.components.variance=5.6`. Need to investigate correlation between per-agent trace_count sum and entropy.
 
 ### How should workspace warnings handle cross-task bug manifestation?
 

@@ -28,14 +28,28 @@ Before workspace creation, determine pipeline:
 
 | Type | Signal | Action |
 |------|--------|--------|
-| BUILD | "Create", "Implement", "Add", "Fix" | Full pipeline → create workspace |
+| SPEC | "Write test", "test stubs", "test-spec", Task 000 | Full pipeline → create workspace (tests only) |
+| BUILD | "Implement", "to pass", "Add", "Fix" | Full pipeline → create workspace |
 | VERIFY | "Verify all", "tests pass", final task | Direct → run verify command only |
+
+**SPEC detection**:
+- Task slug is "test-spec" or similar
+- Task description mentions "Write test" or "test stubs"
+- Task number is 000
+- Delta is test file only (e.g., test_app.py)
+
+**BUILD detection**:
+- Task description contains "Implement", "to pass tests"
+- Delta is implementation files (e.g., main.py)
+- Verify runs existing tests
 
 **VERIFY detection**:
 - Task description contains "Verify" + "pass"
 - Task is final in sequence (e.g., 004)
 - No Delta files to modify, only Verify command
 
+If SPEC: Create workspace with Delta = test file only. Builder writes tests, not implementation.
+If BUILD: Create workspace. Builder implements to pass pre-existing tests.
 If VERIFY: Output `Route: direct` and run the verify command. Skip workspace.
 
 ### Step 2: BUILD Pipeline (default)
@@ -112,15 +126,28 @@ Verify: [command]
 
 ## Output
 
+For SPEC tasks:
+```
+Route: full
+Type: SPEC
+Workspace: [path]
+Path: [requirements] → [test design] → [test file]
+Delta: [test files only]
+Verify: [collect-only or similar]
+Ready for Build: Yes
+Note: Builder writes tests only, no implementation
+```
+
 For BUILD tasks:
 ```
 Route: full
 Type: BUILD
 Workspace: [path]
 Path: [transformation]
-Delta: [scope]
-Verify: [command]
+Delta: [implementation files]
+Verify: [command to run existing tests]
 Ready for Build: Yes
+Note: Tests already exist from SPEC phase
 ```
 
 For VERIFY tasks:

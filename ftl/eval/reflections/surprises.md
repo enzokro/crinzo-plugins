@@ -4,6 +4,33 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: TDD methodology INCREASED token cost
+
+**Expected**: TDD (test-first) methodology would reduce debugging by catching issues early through failing tests, leading to lower total token consumption.
+**Observed**: v38 used TDD methodology and consumed 993K tokens (+9.3% from v36's 908K). Builder 001 hit 272K tokens (vs v36's 59K = +361%) despite writing test first. The test revealed `transform=True` doesn't auto-convert date fields in fastlite 0.2.3, triggering investigation spiral.
+**Gap**: TDD catches bugs early but doesn't reduce debugging cost when the bug is in third-party library behavior rather than application logic. Builder 001 followed TDD correctly: wrote test, ran test, saw failure. But the failure pointed to library behavior (fastlite transform=True), not implementation error. This led to extensive exploration of fastlite internals before accepting workaround. TDD is efficient for application bugs; it may AMPLIFY costs for library/framework bugs by surfacing them in test phase rather than integration phase. The mental model "TDD reduces debugging" needs refinement: "TDD shifts bug discovery earlier; cost depends on bug source."
+**Updated**: journal.md
+
+---
+
+## 2026-01-09: Entropy spiked to 5.6 without blocked tasks
+
+**Expected**: Based on v36 analysis, entropy (HT) correlates primarily with blocked/failed outcomes. v38 with 0 blocked tasks and 0 fallbacks should have HT in 3.4-4.5 range.
+**Observed**: v38 achieved HT=5.6 - highest ever observed - with 0 blocked tasks and 0 fallbacks. All 3 builders completed successfully.
+**Gap**: Entropy is NOT dominated by blocked outcomes. Builder 001's exploration pattern "AEEEEE.A" (action, then 5 explores, then action) shows high behavioral variance on a successful task. The trace shows 8 reasoning steps with 5 exploration-marked segments. Entropy measures variance in agent behavior patterns, not just failure modes. The hypothesis "blocked outcomes dominate entropy" is REFUTED. Updated model: **Entropy = f(exploration_pattern_depth, blocked_outcomes)** where exploration patterns can dominate even without failures.
+**Updated**: questions.md (entropy hypothesis needs revision)
+
+---
+
+## 2026-01-09: transform=True heeded but still failed
+
+**Expected**: The date-string-mismatch warning instructing `transform=True` in db.create() would prevent date-related bugs. v38 should execute cleanly with this warning.
+**Observed**: v38 Builder 001 correctly used `transform=True` as instructed. Test still failed because fastlite 0.2.3 doesn't actually auto-convert date fields with this parameter. Builder reasoning: "transform=True isn't working as expected... fastlite 0.2.3 transform=True does not auto-convert date fields."
+**Gap**: The warning was CORRECT (use transform=True) but INCOMPLETE for this fastlite version. `transform=True` behavior is version-dependent. The pattern needs evolution: original (use transform=True) → v36 evolution (also use .isoformat() in queries) → v38 evolution (transform=True may not work at all in some versions; ALWAYS use explicit string handling). The mental model "following the warning prevents the bug" assumes the warning captures all conditions. Library version variance can invalidate correct warnings.
+**Updated**: N/A (synthesizer should capture this evolution)
+
+---
+
 ## 2026-01-09: Builder CAN fix upstream bugs when detected during testing
 
 **Expected**: Based on v35, believed builders with test-writing Delta couldn't fix bugs in implementation files (main.py). v35 Builder 004 diagnosed "This is a bug in main.py" but ended BLOCKED, unable to fix.

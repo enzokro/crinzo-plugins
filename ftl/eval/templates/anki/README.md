@@ -4,35 +4,46 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 
 ---
 
-## REQUIRED TASK BREAKDOWN (TDD)
+## REQUIRED TASK BREAKDOWN (Spec-First TDD)
 
-**Test-Driven Development**: Each task writes tests FIRST, then implements to make them pass.
+**True TDD**: Spec Phase writes ALL tests first. Build Phase implements to pass them.
 
-**The planner MUST create exactly these 4 tasks. Do NOT merge, split, reorder, or add tasks.**
+**The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
 
-| Task | Slug | Description | Verify |
-|------|------|-------------|--------|
-| 001 | data-model | TDD: Test Card import → Implement Card dataclass + fastlite table | `uv run pytest test_app.py -k test_card_model -v` |
-| 002 | routes-crud | TDD: Write CRUD tests (create, list, delete) → Implement routes | `uv run pytest test_app.py -k card -v` |
-| 003 | routes-study | TDD: Write study tests (due, reveal, rate) → Implement routes + SM-2 | `uv run pytest test_app.py -k study -v` |
-| 004 | integration | Verify all 6 tests pass, fix any failures | `uv run pytest test_app.py -v` |
+| Task | Type | Slug | Description | Verify |
+|------|------|------|-------------|--------|
+| 000 | SPEC | test-spec | Write test_app.py with all 6 test stubs (failing). Create pytest fixtures and complete test implementations. | `uv run pytest test_app.py --collect-only` |
+| 001 | BUILD | data-model | Implement Card dataclass + fastlite table to pass test_card_model | `uv run pytest test_app.py -k test_card_model -v` |
+| 002 | BUILD | routes-crud | Implement CRUD routes to pass card tests | `uv run pytest test_app.py -k card -v` |
+| 003 | BUILD | routes-study | Implement study routes + SM-2 to pass study tests | `uv run pytest test_app.py -k study -v` |
+| 004 | VERIFY | integration | Verify all 6 tests pass, fix any remaining failures | `uv run pytest test_app.py -v` |
 
-**Dependencies:** 001 → 002 → 003 → 004 (sequential)
+**Dependencies:** 000 → 001 → 002 → 003 → 004 (sequential)
 
 ---
 
-## TDD Protocol
+## TDD Protocol (Spec-First)
 
-Each builder task (001-003) follows this cycle:
+The key insight: **The agent that writes tests should NOT be the agent that passes them.**
 
 ```
-1. RED:   Write test(s) that define expected behavior
-2. GREEN: Implement minimal code to pass tests
-3. VERIFY: Run tests, confirm pass
+SPEC PHASE (Task 000):
+  - Write ALL 6 tests upfront
+  - Tests define expected behavior
+  - Tests WILL fail (RED state)
+
+BUILD PHASE (Tasks 001-003):
+  - Each Builder has pre-existing Verify
+  - Implement minimal code to pass tests (GREEN)
+  - No test-writing in build tasks
+
+VERIFY PHASE (Task 004):
+  - Integration check
+  - Fix any remaining issues
 ```
 
-**Task 001** bootstraps test_app.py with pytest fixtures and the first test.
-**Tasks 002-003** ADD tests to test_app.py, then implement.
+**Task 000** creates test_app.py with all 6 tests and fixtures.
+**Tasks 001-003** implement code to make tests pass.
 **Task 004** runs full suite - if anything fails, fix it.
 
 ---
@@ -83,37 +94,45 @@ After rating: `next_review = today + interval days`
 
 ### 4. Test Coverage (6 tests total)
 
-Tests are written incrementally via TDD:
+All tests written in **Task 000** (SPEC phase). Builders implement to pass them.
 
-**Task 001** (1 test):
-- `test_card_model` - Card dataclass can be imported and has required fields
+**test_card_model** - Card dataclass can be imported and has required fields
+- Verified by: Task 001
 
-**Task 002** (3 tests):
-- `test_card_creation` - POST /cards/new creates card
-- `test_card_listing` - GET /cards shows all cards
-- `test_card_deletion` - POST /cards/{id}/delete removes card
+**test_card_creation** - POST /cards/new creates card
+**test_card_listing** - GET /cards shows all cards
+**test_card_deletion** - POST /cards/{id}/delete removes card
+- Verified by: Task 002
 
-**Task 003** (2 tests):
-- `test_study_shows_due` - GET /study shows only due cards
-- `test_rating_updates_interval` - POST /study/{id}/rate applies SM-2 correctly
+**test_study_shows_due** - GET /study shows only due cards
+**test_rating_updates_interval** - POST /study/{id}/rate applies SM-2 correctly
+- Verified by: Task 003
 
 ## Verification Commands
 
 ```bash
-# Full test suite
-uv run pytest test_app.py -v
+# Task 000: Verify tests are collected (will fail when run - expected)
+uv run pytest test_app.py --collect-only
 
-# Per-task verification
-uv run pytest test_app.py -k test_card_model -v  # Task 001
-uv run pytest test_app.py -k card -v              # Task 002
-uv run pytest test_app.py -k study -v             # Task 003
+# Task 001: Data model tests
+uv run pytest test_app.py -k test_card_model -v
+
+# Task 002: CRUD tests
+uv run pytest test_app.py -k card -v
+
+# Task 003: Study tests
+uv run pytest test_app.py -k study -v
+
+# Task 004: Full suite
+uv run pytest test_app.py -v
 ```
 
 ## Success Criteria
 
-1. All 6 tests pass
-2. Each task followed TDD (test written before implementation)
-3. No runtime errors
+1. All 6 tests pass after Task 004
+2. Tests were written in SPEC phase (Task 000) before implementation
+3. Each BUILD task only implements, never writes tests
+4. No runtime errors
 
 ## Non-Goals (Out of Scope)
 

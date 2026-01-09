@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v38
+
+**Observed**: 993K tokens (+9.3% from v36's 908K - regression). ST=42.5 (down from 48.0), HT=5.6 (highest ever, up from 4.3), IGR=0.88. 3/3 builders marked complete. Cache efficiency 83.4% (improved). Protocol fidelity: router_builder_match=false, single_planner=true, single_synthesizer=true. 9 agents (v36 had 10). TDD methodology with 4 tasks.
+
+**Noticed**: TDD protocol change - tasks are now (data-model, routes-crud, routes-study, integration) instead of tests task. Task 004 (integration) was verification-only: router ran pytest directly, no builder spawned. This explains router_builder_match=false and 9 vs 10 agents. Builder 001 hit MAJOR debugging spiral (272K tokens) despite `transform=True` warning - trace shows "Debugging budget exceeded" then relaxed test assertions. The fastlite `transform=True` parameter does NOT auto-convert date fields in v0.2.3 - builder explored this extensively before accepting workaround. Task token breakdown: 001=314K (v36=100K, +214%), 002=165K (v36=154K, +7%), 003=228K (v36=158K, +44%), 004=41K (verification only).
+
+**Surprised**: TDD methodology REGRESSED token efficiency. Expected TDD to reduce debugging through test-first discipline. Instead, Builder 001's test revealed `transform=True` doesn't work as documented, triggering extensive investigation. The warning was heeded (used transform=True) but the underlying assumption (transform=True converts dates) was wrong for fastlite 0.2.3. Also surprised: HT=5.6 is highest ever, yet 0 blocked tasks and 0 fallbacks. This REFUTES the hypothesis that blocked outcomes dominate entropy. Builder exploration patterns (trace "AEEEEE.A" in Builder 001) create high entropy even on successful runs.
+
+**Unclear**: Why did `transform=True` fail to convert date fields? fastlite version-specific behavior? The date-string-mismatch pattern may need another evolution: "transform=True is version-dependent, use explicit isoformat() regardless." Why did entropy spike without blocked outcomes - is it purely exploration pattern count?
+
+**Updated**: journal.md, surprises.md (TDD regression, entropy spike without blocks)
+
+---
+
 ## 2026-01-09: anki-v36
 
 **Observed**: 908K tokens (-16.4% from v35's 1,087K - strong recovery). ST=48.0, HT=4.3, IGR=0.92. 4/4 tasks complete (v35 had 3/4 with 1 blocked). Cache efficiency 79.5% (down from 82.2%). Protocol fidelity perfect: single_planner=true, single_synthesizer=true, router_cache_rate=1.0.
