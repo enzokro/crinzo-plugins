@@ -4,6 +4,15 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-08: Upfront knowledge doesn't prevent runtime spirals
+
+**Expected**: Memory injection (prior_knowledge.md → session_context, planner prompts) would prevent date-string debugging spiral in v28
+**Observed**: v28 Builder 003 hit 286K tokens with exact same pattern: "The database stores dates as strings" discovery during test verification
+**Gap**: Knowledge seeding happens at task START. The date-string issue is discovered at test verification AFTER implementation. The builder has no opportunity to apply prior knowledge - it's in the middle of debugging when it discovers the issue. Cross-run learning needs runtime-level intervention (workspace warnings, code comments, test fixtures) not just upfront context.
+**Updated**: Questions.md (new question about runtime vs planning knowledge)
+
+---
+
 ## 2026-01-08: Incremental patches can regress
 
 **Expected**: Each patch improves or is neutral; patches accumulate benefit

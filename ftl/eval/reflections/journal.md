@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-08: anki-v28
+
+**Observed**: 834K tokens (+9.9% from v26). ST=48.5 (improved), HT=4.3 (slight degradation from 3.7), IGR=0.92 (slight degradation from 0.93). Cache efficiency 78.8% (down from 80.4%). All 4 tasks complete, 0 fallbacks.
+
+**Noticed**: Builder 003 hit 286K tokens - the date-string debugging spiral PERSISTS despite memory injection fixes. Reasoning trace shows "The database stores dates as strings. I need to convert strings when comparing" - exact same discovery as v23, v26. Knowledge injection at planning time doesn't prevent runtime discovery.
+
+**Surprised**: Token regression despite stable protocol. The date-string pattern is now 4 runs deep (v23: 224K, v26: 227K, v28: 286K). Cross-run learning may need runtime-level intervention, not just upfront knowledge seeding. The builder reads workspace, hits issue during test run, debugs - no opportunity to apply prior knowledge.
+
+**Unclear**: How to prevent runtime debugging spirals? Workspace injection? Pre-computed test fixtures? The pattern occurs AFTER implementation, during verification - outside knowledge seeding window.
+
+**Updated**: N/A (analysis only)
+
+---
+
 ## 2026-01-08: anki-v26
 
 **Observed**: 759K tokens (+6.6% from v24). ST=46.6 (improved), HT=3.7 (improved), IGR=0.93 (improved). Cache efficiency 80.4% (best yet). All 4 tasks complete, 0 fallbacks.

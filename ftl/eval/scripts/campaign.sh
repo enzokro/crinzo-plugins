@@ -51,6 +51,25 @@ fi
 
 cd "$TARGET"
 
+## NOTE:: FUTURE FIX
+# Memory injection currently happens via shell pre-hook because:
+# 1. SKILL.md bash code blocks are descriptive, not executed by Claude
+# 2. Claude interprets skill instructions but doesn't run embedded bash
+#
+# Proper fix: Implement formal FTL hook system with:
+# - hooks/pre-campaign.sh (environment setup, memory injection)
+# - hooks/post-campaign.sh (cleanup, collection)
+# - Hook discovery and execution in skill framework
+#
+# This would allow skills to declare dependencies on shell setup
+# without hardcoding paths in wrapper scripts.
+#
+# For now: Direct call to session_context.sh works.
+## END NOTE
+
+# Initialize session context with prior knowledge injection
+"$EVAL_DIR/../scripts/session_context.sh"
+
 echo "Starting campaign in $TARGET"
 echo "Template: $TEMPLATE"
 echo "Objective: $OBJECTIVE"

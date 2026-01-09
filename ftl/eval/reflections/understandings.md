@@ -163,3 +163,19 @@ Beliefs with explicit uncertainty. Updated via reflection.
 **Would update if**: Found implicit learning mechanisms that persisted without explicit memory.
 
 ---
+
+## L011: Upfront seeding ≠ runtime prevention
+
+**Belief**: Knowledge seeded at task start does not prevent debugging spirals discovered during execution. Runtime issues require runtime intervention.
+
+**Confidence**: 8/10
+
+**Evidence**: v23, v26, v28 all hit date-string-mismatch during Builder 003 despite different levels of upfront knowledge. v28 had full memory injection (prior_knowledge.md → session_context, planner) yet Builder 003 still hit 286K tokens with "The database stores dates as strings" discovery during test verification.
+
+**Mechanism**: Upfront knowledge is consumed at task START. Runtime debugging spirals occur AFTER implementation when tests fail. By the time the builder discovers the issue, it's in debugging mode - the upfront context window has passed. The builder encounters the issue fresh through test failure, not through missing context.
+
+**Generalizes to**: Any agent system with multi-phase execution. Knowledge timing matters. Planning-phase knowledge doesn't reach execution-phase failures.
+
+**Would update if**: Found upfront seeding that successfully prevented a runtime debugging spiral.
+
+---

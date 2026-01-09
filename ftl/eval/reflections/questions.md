@@ -12,7 +12,25 @@ v25 receives patterns from v23+v24. Will pattern signals increase appropriately?
 
 This is the key unlock for autonomous improvement.
 
-**Status**: Partially answered in v26. Memory was SEEDED correctly but NOT CONSUMED. Protocol changes were descriptive (bash snippets in markdown) rather than prescriptive (actual injection into prompts). Fixed by modifying SKILL.md to inject prior_knowledge.md into session_context and planner prompts. Awaiting v27 to verify fix works.
+**Status**: Answered in v28. Upfront memory injection WORKS (prior_knowledge.md reaches session_context and planner) but DOESN'T PREVENT runtime debugging spirals. Builder 003 hit date-string pattern at 286K despite knowledge seeding. The issue: knowledge is seeded at task START, but the debugging spiral occurs DURING test verification (after implementation). The builder discovers the issue through runtime failure, not through missing context.
+
+**Conclusion**: Cross-run learning requires TWO mechanisms:
+1. Upfront seeding (DONE) - knowledge available at planning
+2. Runtime injection (NOT DONE) - warnings in implementation (code comments, workspace caveats, test fixtures)
+
+New question added: "How to prevent runtime debugging spirals?"
+
+### How to prevent runtime debugging spirals?
+
+v23, v26, v28 all hit date-string-mismatch during Builder 003 test verification. Pattern: implement route → run tests → discover SQLite stores dates as strings → debug string/date comparison. Each time: 220K-286K tokens.
+
+Knowledge seeding doesn't help because the issue is discovered DURING test verification, not at task start. Potential interventions:
+1. **Workspace warning**: Add "Known issue: SQLite dates stored as strings" to 003 workspace
+2. **Code comment injection**: Pre-seed main.py with `# Note: next_review is stored as ISO string`
+3. **Test fixture setup**: Pre-configure test to expect string dates
+4. **Planner specification**: Include date handling in task description
+
+Which intervention is least invasive yet most effective?
 
 ### Why does planner still explore with complete specs?
 

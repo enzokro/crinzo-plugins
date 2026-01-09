@@ -1,4 +1,21 @@
 #!/bin/bash
+## NOTE:: FUTURE FIX
+# This script is called by campaign.sh as a shell pre-hook.
+# It creates .ftl/cache/session_context.md with:
+# - Git state (branch, recent commits)
+# - Project verification tools
+# - Prior knowledge from .ftl/memory/prior_knowledge.md (if seeded)
+#
+# This is a workaround because:
+# - SKILL.md bash code blocks are not executed by Claude
+# - Agents need context BEFORE they start reasoning
+#
+# Future: Replace with formal FTL hook system that:
+# - Discovers hooks from hooks/ directory
+# - Runs pre-campaign hooks before skill invocation
+# - Supports hook dependencies and ordering
+## END NOTE
+#
 # session_context.sh - Pre-cache STATIC project metadata at session start
 # Writes to .ftl/cache/session_context.md for orchestrator to read and inject
 #
