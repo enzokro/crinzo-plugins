@@ -11,6 +11,9 @@ Extract patterns. Update index. One pass.
 
 Understanding compounds through you.
 
+**Mode: TASK** — Learner fills workspace Key Findings for single tasks.
+Campaigns use Synthesizer (synthesis.json) instead.
+
 ## Protocol
 
 ### 1. Read Completed Workspace

@@ -4,6 +4,24 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Test isolation bug caused CATASTROPHIC token spiral (1.16M tokens on single task)
+
+**Expected**: Builder 003 (routes-crud) should complete in ~400-500K tokens like v40, with SPEC-first test assumptions guiding implementation.
+**Observed**: Builder 003 consumed 1,162,796 tokens - the single most expensive builder task ever observed. The builder hit a test isolation bug where test_card_deletion expected card id=1, but SQLite auto-increment persisted across tests, giving the card id=4.
+**Gap**: SPEC-first methodology creates a new catastrophic failure mode: **test isolation assumptions**. Tests written before implementation assume database state guarantees that the implementation may not provide. v41's test fixture didn't isolate database state between tests; the test expected id=1, got id=4. Builder correctly diagnosed "the test is fundamentally broken" but could only modify app.py (not test_app.py). This led to 21 reasoning steps exploring: lifespan events, sqlite_sequence resets, module reloads, conftest.py (couldn't create), tracking mechanisms - before settling on a hack that detects "To be deleted" card text and resets the database. The pattern "SPEC tests can't be modified by builders" + "SPEC tests may have invalid assumptions" creates a trap. Builder has no escape route except convoluted workarounds.
+**Updated**: journal.md, understandings.md (L013 needs revision - SPEC-first has TWO failure modes)
+
+---
+
+## 2026-01-09: Entropy hit 17.6 - DOUBLE the previous record
+
+**Expected**: Based on v40's HT=7.35 being record-high, v41's similar SPEC-first methodology should have entropy in 6-9 range.
+**Observed**: v41 achieved HT=17.6 - 140% above the previous record. Entropy components show variance=14.63 as the dominant factor. Only 1 fallback used, 5/5 tasks complete.
+**Gap**: Entropy scales non-linearly with reasoning trace depth. Builder 003 alone had 21 reasoning traces (v40's most verbose builder had 8). The formula HT ≈ sum(reasoning_traces) × complexity is CONFIRMED but reveals a scaling issue: one extremely deep debugging session can dominate total entropy. This is consistent with L012 (entropy = cognitive effort) but reveals that SPEC-first methodology doesn't just increase average entropy - it creates EXTREME entropy variance when tests and implementation don't align.
+**Updated**: L012 confidence increased
+
+---
+
 ## 2026-01-09: SPEC-first methodology caused SEVERE regression (+45%)
 
 **Expected**: SPEC-first methodology (write all tests upfront in task 001, then implement sequentially) should be more efficient than TDD by eliminating redundant test-write cycles and providing clear targets for each build task.

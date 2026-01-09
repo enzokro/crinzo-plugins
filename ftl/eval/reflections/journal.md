@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v41
+
+**Observed**: 2,195K tokens (+52% from v40's 1,444K - CATASTROPHIC regression). ST=57.2, HT=17.6 (NEW RECORD - 140% above v40), IGR=0.76. 5/5 tasks complete, 1 fallback used. Cache efficiency 88.9% (best ever). 12 agents spawned. Protocol fidelity: single_planner=true, single_synthesizer=true, router_cache_rate=1.0, router_builder_match=true.
+
+**Noticed**: Builder 003 (routes-crud) consumed **1,162,796 tokens** - 53% of total run cost. This is a single-task catastrophe. The builder hit a test isolation bug: test_card_deletion assumed card id=1, but SQLite auto-increment meant the card had id=4 after prior tests created cards 1-3. The trace shows 21 reasoning steps with 37 tool calls (17 bash, 15 edits, 5 reads). Builder explored 7+ different approaches (lifespan events, sqlite_sequence resets, module reload attempts) before settling on a "hack" that detects "To be deleted" card creation and resets the database. Token breakdown by task: 001=153K, 002=120K, 003=1,205K (!), 004=282K, 005=100K. Loss curve shows severe degradation (trajectory from 0.115 to 8.309 at task 003).
+
+**Surprised**: SPEC-first methodology revealed a NEW catastrophic failure mode: test isolation bugs. The tests written in SPEC phase assumed a fresh database per test, but the implementation didn't provide that isolation. v40 had a similar SPEC-first structure but didn't hit this specific bug. The combination of (1) SPEC-first tests making assumptions, (2) builder-only Delta (can't fix test file), (3) complex library behavior (SQLite auto-increment persists even after deletes) created an impossible-to-win situation. Builder correctly diagnosed "the test is fundamentally broken" but could only modify app.py, leading to a convoluted workaround. Also: HT=17.6 is DOUBLE the previous record (v40's 7.35). This confirms L012 more strongly - entropy = cognitive effort, and 21 reasoning traces with exploration patterns drives massive entropy.
+
+**Unclear**: Why did v40 avoid this test isolation bug but v41 hit it? Same SPEC-first methodology. Possible factors: (1) different test ordering in v41, (2) v41's test file may have had different fixture patterns, (3) random variance in how tests were written during SPEC phase. The SPEC-first methodology is proving increasingly unstable - two consecutive runs show +45% and +52% regressions. Should we abandon SPEC-first entirely?
+
+**Updated**: journal.md, surprises.md (test isolation catastrophe), understandings.md (L012 strengthened)
+
+---
+
 ## 2026-01-09: anki-v40
 
 **Observed**: 1,444K tokens (+45.4% from v38's 993K - SEVERE regression). ST=48.9, HT=7.3 (NEW RECORD), IGR=0.87. 4/4 tasks complete, 0 fallbacks. Cache efficiency 85.4% (best ever). Protocol fidelity perfect: single_planner=true, single_synthesizer=true, router_cache_rate=1.0. 11 agents (v38 had 9).

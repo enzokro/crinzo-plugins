@@ -255,6 +255,23 @@ Main thread spawns phases directly (subagents cannot spawn subagents):
     Return question to user
 ```
 
+### Mode Detection: How Agents Know
+
+| Signal | Mode | Effect |
+|--------|------|--------|
+| Prompt starts with `Campaign:` | CAMPAIGN | Force workspace, Synthesizer at end |
+| No `Campaign:` prefix | TASK | Router decides, Learner at end |
+
+**Learner self-check**: If workspace path exists AND no active campaign → TASK mode → run Learner.
+```bash
+# Check for active campaign
+ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null || echo "")
+if [ -z "$ACTIVE" ]; then
+  # TASK mode: Learner appropriate
+  Task(ftl:learner) with workspace path
+fi
+```
+
 ### Direct vs Full Routing (router decides)
 
 **Direct** (no workspace):
@@ -269,6 +286,34 @@ Main thread spawns phases directly (subagents cannot spawn subagents):
 - Understanding benefits future work
 
 Router merges assess + anchor: explores AND routes in one pass.
+
+### Verification in TASK Mode
+
+**If user has tests** (typical):
+- Router surfaces test file path → Builder's Verify command runs it
+- TDD loop: implement → run test → pass
+
+**If user has NO tests** (clarify route):
+- Router returns `clarify` with question: "What should verify success?"
+- Options presented:
+  1. User provides a command to run
+  2. User says "manual verification" → Builder reports what was implemented
+  3. User provides expected behavior → Router creates ad-hoc Verify
+
+**Router clarify response format**:
+```
+Route: clarify
+Question: How should I verify this change works?
+Options:
+- Provide a test command (e.g., `pytest test_foo.py -k test_name`)
+- Describe expected behavior for manual check
+- Say "no verification needed" (not recommended)
+```
+
+**Rationale**: Verify should never be guessed. If unclear, ask. This prevents:
+- Builder implementing wrong behavior
+- False "complete" status
+- Bugs discovered much later
 
 ---
 

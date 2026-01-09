@@ -8,23 +8,35 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ### What is the optimal test methodology for token efficiency?
 
-Three methodologies have now been tested:
+Four data points now:
 - **v36 baseline**: Implementation-first, tests written during integration → 908K tokens
 - **v38 TDD**: Test-per-task, tests co-evolve with implementation → 993K tokens (+9.3%)
 - **v40 SPEC-first**: All tests written upfront, then implement to pass → 1,444K tokens (+45.4%)
+- **v41 SPEC-first**: Same methodology, different failure → 2,195K tokens (+142%)
 
-**Ranking by efficiency**: Implementation-first > TDD > SPEC-first
+**Ranking by efficiency**: Implementation-first > TDD >> SPEC-first
 
-**Hypothesis**: Test methodology efficiency depends on implementation certainty:
-- **High certainty** (known APIs, familiar patterns): SPEC-first could work (tests as spec)
-- **Medium certainty** (known domain, new implementation): TDD is appropriate
-- **Low certainty** (exploring library behavior, unknown constraints): Implementation-first is safest
+**SPEC-first has proven DISASTROUSLY inefficient** with two consecutive runs showing +45% and +142% regressions. TWO distinct failure modes identified:
+1. **v40**: API mismatch (tests assumed Table interface, got Database)
+2. **v41**: Test isolation assumptions (tests assumed id=1, got id=4 due to SQLite auto-increment)
 
-v40's SPEC-first failure mode: tests were written before understanding implementation constraints (deferred imports, DBWrapper for test API compatibility). Builder 003 spent 405K tokens resolving test expectation vs implementation reality. The tests became a constraint rather than a guide.
+**Critical insight**: SPEC-first creates immutable contracts that builders cannot renegotiate. When tests have invalid assumptions, builders must work around them instead of fixing them.
 
-v38's TDD failure mode: test revealed library bug (fastlite transform=True), causing investigation spiral.
+**Updated hypothesis**: SPEC-first should be ABANDONED for exploratory builds. The combination of (1) uncertainty about implementation constraints and (2) inability to modify tests creates a structural trap with no escape.
 
-**Open question**: Is there a hybrid approach (skeleton tests → implementation → test refinement) that captures SPEC-first's clarity with TDD's adaptability?
+**Open question**: Is there a "SPEC-lite" approach? E.g., write test NAMES/signatures upfront, but defer test BODIES until implementation is understood?
+
+### Should SPEC-first methodology be abandoned entirely?
+
+v40 and v41 both used SPEC-first and both showed catastrophic regressions (+45% and +142% respectively). The methodology has TWO identified failure modes:
+1. API mismatch (v40)
+2. Test isolation assumptions (v41)
+
+Both failures share the root cause: **builders cannot modify tests**. When SPEC tests contain invalid assumptions, builders have no escape except convoluted workarounds in implementation code.
+
+v41's Builder 003 explicitly diagnosed "the test is fundamentally broken because it assumes id=1" but could only modify app.py, leading to a 1.16M token debugging spiral implementing a hack.
+
+**Recommendation**: Return to implementation-first or TDD for next run. If SPEC-first is to be retained, tests MUST be modifiable by downstream builders.
 
 ### Why does identical protocol composition yield opposite outcomes?
 
@@ -45,19 +57,20 @@ Hypothesis: ST measures conformance to learnable patterns, not absolute token co
 
 ### What does entropy (HT) actually measure?
 
-**Status**: CONFIRMED in v40 - moving to Resolved section.
+**Status**: DEFINITIVELY CONFIRMED in v41 - moving to Resolved section.
 
-v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, v36=4.3, v38=5.6, **v40=7.35 (NEW RECORD)**. Now have nine data points.
+v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, v36=4.3, v38=5.6, v40=7.35, **v41=17.6 (NEW RECORD - 140% above v40)**. Now have ten data points.
 
-**CONFIRMED**: Entropy measures exploration pattern depth within agents, NOT failure modes. v40 achieved HT=7.35 - 30% above previous record - with 0 blocked tasks and 0 fallbacks. All 4 builders completed successfully.
+**DEFINITIVELY CONFIRMED**: Entropy measures exploration pattern depth within agents, NOT failure modes. v41 achieved HT=17.6 with 5/5 tasks complete. Builder 003 alone had 21 reasoning traces - one deep debugging session dominated total entropy.
 
 **Confirmed formula**: HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor
+- v41=17.6: Builder 003 had 21 traces. Entropy variance component = 14.63.
 - v40=7.35: Total traces across builders ~25+, SPEC-first methodology required extensive exploration
 - v38=5.6: Builder 001 had 8-step trace with extensive exploration
 - v35=5.4: Builder 004 had 7 reasoning traces (1 blocked)
 - v30=3.4: Minimal exploration, action-first patterns throughout
 
-**Key insight**: Entropy = cognitive effort, not failure correlation. v40 proves this definitively - perfect success with record-high entropy. Optimization implication: reduce entropy by providing better upfront context, not by avoiding failures.
+**Key insight**: Entropy = cognitive effort, not failure correlation. One extremely deep debugging session can DOMINATE total entropy. v41's successful but painful completion proves entropy is NOT capped by task success. Optimization: reduce entropy by preventing debugging spirals (better context, mutable specs), not by avoiding failures.
 
 ### How should workspace warnings handle cross-task bug manifestation?
 
@@ -98,13 +111,17 @@ The epiplexity metric is new (v23). Is it measuring what we think?
 
 ### What does entropy (HT) measure?
 
-**Resolved in anki-v40**. Entropy measures cognitive exploration depth within agents, NOT failure modes.
+**Definitively resolved in anki-v41**. Entropy measures cognitive exploration depth within agents, NOT failure modes.
 
-v40 definitively confirmed: HT=7.35 (record high) with 0 blocked tasks, 0 fallbacks, 4/4 success. The SPEC-first methodology required extensive reasoning chains (Builder 003: 8 traces, Builder 001: 6 traces), driving entropy up without any failures.
+v41 provides ultimate confirmation: HT=17.6 (140% above v40) with 5/5 tasks complete, 1 fallback. Builder 003 alone had 21 reasoning traces, driving entropy to record levels despite successful completion.
 
 **Confirmed formula**: HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor
 
-**Optimization implication**: Reduce entropy by providing better upfront context (workspace warnings, implementation hints), not by avoiding failures. Entropy is cognitive effort; low entropy = action-first patterns with minimal exploration.
+Data points: v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4, v35=5.4, v36=4.3, v38=5.6, v40=7.35, v41=17.6
+
+**Key insight**: One extremely deep debugging session can DOMINATE total entropy. Entropy is NOT capped by task success.
+
+**Optimization implication**: Reduce entropy by preventing debugging spirals (better upfront context, mutable specs, workspace warnings), not by avoiding failures. Entropy is cognitive effort; low entropy = action-first patterns with minimal exploration.
 
 ### Why did entropy drop significantly in v30?
 

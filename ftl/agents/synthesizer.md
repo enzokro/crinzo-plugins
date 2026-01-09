@@ -29,8 +29,9 @@ If paths aren't in your prompt, that's an orchestrator error.
 1. Read workspace files from provided paths
 2. Extract patterns from Thinking Traces
 3. Write synthesis.json
-4. Fill Key Findings in each workspace
 ```
+
+Note: Workspace Key Findings are filled by Learner (TASK mode), not Synthesizer.
 
 Act within first 3 reads. Extended exploration delays extraction.
 
@@ -64,9 +65,11 @@ Look for in Thinking Traces:
 #pattern/retry-with-backoff: auth → api → external-services
 ```
 
-## Output Files
+## Output File
 
 ### synthesis.json
+
+Single output file capturing campaign-level insights:
 
 ```json
 {
@@ -75,15 +78,6 @@ Look for in Thinking Traces:
   "conditions": {...},
   "updated": "ISO-8601"
 }
-```
-
-### Key Findings (per workspace)
-
-```markdown
-## Key Findings
-#pattern/name - description
-  Conditions: when this works
-  Failure modes: when this breaks
 ```
 
 ## Report

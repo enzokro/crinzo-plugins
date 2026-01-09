@@ -187,37 +187,43 @@ Beliefs with explicit uncertainty. Updated via reflection.
 
 **Belief**: The entropy metric (HT) measures cumulative reasoning trace depth across agents, not task success/failure rates. High entropy correlates with exploration patterns, not blocked outcomes.
 
-**Confidence**: 9/10
+**Confidence**: 10/10
 
 **Evidence**:
-- v40: HT=7.35 (record) with 0 blocked, 0 fallbacks, 4/4 success. SPEC-first methodology drove exploration.
+- v41: HT=17.6 (NEW RECORD - 140% above v40) with 5/5 success. Single builder (003) had 21 reasoning traces.
+- v40: HT=7.35 with 0 blocked, 0 fallbacks, 4/4 success. SPEC-first methodology drove exploration.
 - v38: HT=5.6 with 0 blocked, 0 fallbacks, 3/3 success. Library bug investigation drove exploration.
 - v35: HT=5.4 with 1 blocked. Blocked outcome added SMALL contribution, not dominant.
 - v30: HT=3.4 with action-first patterns, minimal exploration.
 
-**Mechanism**: HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor. Entropy measures cognitive effort - how much an agent had to think before acting. SPEC-first methodology forces more thinking (anticipate unknown implementation) vs implementation-first (discover constraints incrementally). The variance component of entropy directly correlates with reasoning trace counts.
+**Mechanism**: HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor. v41 DEFINITIVELY confirms this: Builder 003 alone had 21 traces with 37 tool calls, driving entropy to 17.6 despite successful completion. Entropy measures cognitive effort - how much an agent had to think before acting. Debugging spirals that eventually succeed can generate EXTREME entropy. The variance component (14.63 in v41) directly reflects reasoning depth variance across agents.
 
-**Generalizes to**: Any LLM agent system. Entropy/cognitive load metrics reflect exploration depth, not outcome quality. Optimize by providing better upfront context to enable action-first patterns.
+**Generalizes to**: Any LLM agent system. Entropy/cognitive load metrics reflect exploration depth, not outcome quality. One extremely deep debugging session can dominate total entropy. Optimize by providing better upfront context to enable action-first patterns.
 
-**Would update if**: Found a run where blocked outcomes dominated entropy despite minimal exploration, OR found high entropy from non-exploration sources.
+**Would update if**: Found a run with high entropy from sources OTHER than reasoning trace depth.
 
 ---
 
 ## L013: SPEC-first methodology amplifies token cost
 
-**Belief**: Writing all tests before implementation (SPEC-first) is significantly less efficient than TDD or implementation-first approaches for exploratory builds.
+**Belief**: Writing all tests before implementation (SPEC-first) is significantly less efficient than TDD or implementation-first approaches for exploratory builds, with TWO distinct failure modes.
 
-**Confidence**: 7/10
+**Confidence**: 9/10
 
 **Evidence**:
-- v40 SPEC-first: 1,444K tokens
-- v38 TDD: 993K tokens (+45% cheaper than SPEC-first)
-- v36 implementation-first: 908K tokens (+59% cheaper than SPEC-first)
+- v41 SPEC-first: 2,195K tokens (Builder 003 alone: 1,163K due to test isolation bug)
+- v40 SPEC-first: 1,444K tokens (test API mismatch)
+- v38 TDD: 993K tokens (+55% cheaper than v41)
+- v36 implementation-first: 908K tokens (+142% cheaper than v41)
 
-**Mechanism**: SPEC-first frontloads complexity to the wrong phase. Tests must handle: (1) non-existent imports (deferred import patterns), (2) unknown implementation constraints (fixture design without data structures), (3) API assumptions that may not match reality (DBWrapper needed in v40). When implementation doesn't match test assumptions, builders spend tokens reconciling the mismatch.
+**Mechanism**: SPEC-first has TWO catastrophic failure modes:
+1. **API mismatch** (v40): Tests assume implementation details (e.g., `db` is a Table vs Database) that don't match reality. Builders reconcile at high cost.
+2. **Test isolation assumptions** (v41): Tests assume database state guarantees (e.g., fresh IDs per test) that implementation doesn't provide. Builder 003 diagnosed "the test is fundamentally broken" but couldn't modify test file, leading to 21 reasoning traces and 1.16M tokens of workaround exploration.
 
-**Generalizes to**: Any test-driven development context. SPEC-first works when implementation is fully specified. For exploratory builds, let implementation constraints inform test design.
+The critical structural trap: **SPEC tests can't be modified by builders** + **SPEC tests may have invalid assumptions** = builder has no escape route. Can only implement convoluted workarounds within app.py.
 
-**Would update if**: Found SPEC-first run that outperformed TDD/implementation-first on an exploratory build task.
+**Generalizes to**: Any test-driven development with immutable test specifications. SPEC-first creates a contract that downstream builders cannot renegotiate. Invalid assumptions become irreversible constraints.
+
+**Would update if**: Found SPEC-first run with mutable tests that outperformed TDD on exploratory builds.
 
 ---

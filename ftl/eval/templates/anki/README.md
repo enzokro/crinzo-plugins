@@ -6,13 +6,16 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 
 ## REQUIRED TASK BREAKDOWN (Spec-First TDD)
 
-**True TDD**: Spec Phase writes ALL tests first. Build Phase implements to pass them.
+**True TDD**: Spec Phase completes test scaffold. Build Phase implements to pass them.
+
+**Test scaffold provided**: `test_app.py` contains fixtures + test signatures + docstrings.
+SPEC task fills in assertions. This saves ~200K tokens vs writing from scratch.
 
 **The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
 
 | Task | Type | Slug | Description | Verify |
 |------|------|------|-------------|--------|
-| 000 | SPEC | test-spec | Write test_app.py with all 6 test stubs (failing). Create pytest fixtures and complete test implementations. | `uv run pytest test_app.py --collect-only` |
+| 000 | SPEC | test-spec | Complete test_app.py scaffold: fill in assertions for all 6 tests, implement db_with_card fixture | `uv run pytest test_app.py --collect-only` |
 | 001 | BUILD | data-model | Implement Card dataclass + fastlite table to pass test_card_model | `uv run pytest test_app.py -k test_card_model -v` |
 | 002 | BUILD | routes-crud | Implement CRUD routes to pass card tests | `uv run pytest test_app.py -k card -v` |
 | 003 | BUILD | routes-study | Implement study routes + SM-2 to pass study tests | `uv run pytest test_app.py -k study -v` |
@@ -22,14 +25,15 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 
 ---
 
-## TDD Protocol (Spec-First)
+## TDD Protocol (Scaffold-Based)
 
 The key insight: **The agent that writes tests should NOT be the agent that passes them.**
 
 ```
 SPEC PHASE (Task 000):
-  - Write ALL 6 tests upfront
-  - Tests define expected behavior
+  - Scaffold exists with fixtures + test signatures
+  - Complete assertions in each test
+  - Implement db_with_card fixture
   - Tests WILL fail (RED state)
 
 BUILD PHASE (Tasks 001-003):
@@ -42,7 +46,8 @@ VERIFY PHASE (Task 004):
   - Fix any remaining issues
 ```
 
-**Task 000** creates test_app.py with all 6 tests and fixtures.
+**Scaffold provides**: Fixtures, test signatures, docstrings with expected behavior.
+**Task 000** completes test_app.py by filling in assertions and the db_with_card fixture.
 **Tasks 001-003** implement code to make tests pass.
 **Task 004** runs full suite - if anything fails, fix it.
 
