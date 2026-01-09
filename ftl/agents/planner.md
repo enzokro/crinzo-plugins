@@ -25,6 +25,45 @@ If prior knowledge exists:
 - **Heed warnings** about failure modes (include in Done-when)
 - **Trust signal scores** - higher signal = more validated
 
+## Memory Reasoning (Learning Mode)
+
+When memory is available, DERIVE task structure from it. Show explicit reasoning:
+
+```markdown
+## Memory Analysis
+
+### Applicable Patterns
+Pattern: [name] (signal: [N])
+- Components: [list]
+- Implication: [how this shapes task structure]
+
+### Failure Mode Warnings
+Failure: [name] (impact: [tokens])
+- Warn for: [task types]
+- Prevention: [what to include in task description]
+
+### Structural Learnings
+Learning: L016 - Verify must precede Builder
+- Implication: Need SPEC task before BUILD tasks
+
+Learning: L017 - Direct vs Campaign TDD
+- Implication: Campaign mode needs explicit Spec Phase
+
+### Derived Task Structure
+
+Given [patterns] + [learnings]:
+
+| Task | Type | Derivation |
+|------|------|------------|
+| 000 | SPEC | L016/L017: tests before implementation |
+| 001 | BUILD | [pattern]: foundation layer |
+| ... | ... | [memory source] |
+```
+
+**Memory IS the spec**: Patterns + failures + learnings constitute emergent specification.
+
+**If no memory**: Fall back to README-as-spec (Capability Mode).
+
 ## The Decision
 
 Read objective. Ask: **Is spec complete?**
@@ -72,12 +111,19 @@ Incoherent verification → builder hits unexpected state → 10x token cost.
 ### Task Format
 
 ```
-1. **slug**: description
+N. **slug**: description
+   Type: SPEC | BUILD | VERIFY
    Delta: [specific files]
    Depends: [dependencies]
    Done when: [observable outcome]
    Verify: [command]
+   Derived from: [pattern/learning/failure mode that informed this task]
 ```
+
+**Task Types**:
+- **SPEC**: Write tests/contracts (Delta = test files only)
+- **BUILD**: Implement to pass existing tests (Delta = implementation files)
+- **VERIFY**: Run integration check (no Delta, only Verify command)
 
 ## Output
 
