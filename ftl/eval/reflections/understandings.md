@@ -164,18 +164,21 @@ Beliefs with explicit uncertainty. Updated via reflection.
 
 ---
 
-## L011: Upfront seeding ≠ runtime prevention
+## L011: Workspace warnings bridge planning→execution gap
 
-**Belief**: Knowledge seeded at task start does not prevent debugging spirals discovered during execution. Runtime issues require runtime intervention.
+**Belief**: Workspace warnings (embedded in task workspace files) prevent runtime debugging spirals that upfront seeding (session context, planner prompts) cannot reach. The workspace is read at task START but remains contextually available DURING implementation.
 
-**Confidence**: 8/10
+**Confidence**: 9/10
 
-**Evidence**: v23, v26, v28 all hit date-string-mismatch during Builder 003 despite different levels of upfront knowledge. v28 had full memory injection (prior_knowledge.md → session_context, planner) yet Builder 003 still hit 286K tokens with "The database stores dates as strings" discovery during test verification.
+**Evidence**:
+- v23, v26, v28: Upfront knowledge seeding failed to prevent date-string debugging spiral (286K tokens in v28)
+- v29: Workspace contained "CRITICAL WARNING - date-string-mismatch" → Builder 003 completed in 154K tokens (-46%)
+- v29 Builder 003 reasoning trace: "I have clear context. I'll implement the study routes" (action-first, no spiral)
 
-**Mechanism**: Upfront knowledge is consumed at task START. Runtime debugging spirals occur AFTER implementation when tests fail. By the time the builder discovers the issue, it's in debugging mode - the upfront context window has passed. The builder encounters the issue fresh through test failure, not through missing context.
+**Mechanism**: Workspace files serve two roles: (1) task specification at start, (2) reference material during implementation. Warnings embedded in workspace are available when the builder writes the code that would trigger the failure mode. Unlike session context (consumed once at session start) or planner prompts (lost after planning), workspace warnings travel with the task to the builder's execution context.
 
-**Generalizes to**: Any agent system with multi-phase execution. Knowledge timing matters. Planning-phase knowledge doesn't reach execution-phase failures.
+**Generalizes to**: Any multi-agent system with task handoff. Knowledge that must reach execution phase should be embedded in task-level artifacts, not session-level context.
 
-**Would update if**: Found upfront seeding that successfully prevented a runtime debugging spiral.
+**Would update if**: Found workspace warnings that failed where code-level injection succeeded.
 
 ---

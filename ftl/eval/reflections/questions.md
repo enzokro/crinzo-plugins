@@ -6,32 +6,6 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ## Active
 
-### Will cross-run learning compound?
-
-v25 receives patterns from v23+v24. Will pattern signals increase appropriately? Will failure mode warnings actually prevent debugging spirals? Will knowledge transfer across domains (anki → pipeline)?
-
-This is the key unlock for autonomous improvement.
-
-**Status**: Answered in v28. Upfront memory injection WORKS (prior_knowledge.md reaches session_context and planner) but DOESN'T PREVENT runtime debugging spirals. Builder 003 hit date-string pattern at 286K despite knowledge seeding. The issue: knowledge is seeded at task START, but the debugging spiral occurs DURING test verification (after implementation). The builder discovers the issue through runtime failure, not through missing context.
-
-**Conclusion**: Cross-run learning requires TWO mechanisms:
-1. Upfront seeding (DONE) - knowledge available at planning
-2. Runtime injection (NOT DONE) - warnings in implementation (code comments, workspace caveats, test fixtures)
-
-New question added: "How to prevent runtime debugging spirals?"
-
-### How to prevent runtime debugging spirals?
-
-v23, v26, v28 all hit date-string-mismatch during Builder 003 test verification. Pattern: implement route → run tests → discover SQLite stores dates as strings → debug string/date comparison. Each time: 220K-286K tokens.
-
-Knowledge seeding doesn't help because the issue is discovered DURING test verification, not at task start. Potential interventions:
-1. **Workspace warning**: Add "Known issue: SQLite dates stored as strings" to 003 workspace
-2. **Code comment injection**: Pre-seed main.py with `# Note: next_review is stored as ISO string`
-3. **Test fixture setup**: Pre-configure test to expect string dates
-4. **Planner specification**: Include date handling in task description
-
-Which intervention is least invasive yet most effective?
-
 ### Why does planner still explore with complete specs?
 
 v24 planner said "PROCEED" first but still did 5 tool calls (3 reads, 2 bash). The spec was complete. Is this confirmation behavior? Or protocol ambiguity?
@@ -55,6 +29,14 @@ The epiplexity metric is new (v23). Is it measuring what we think?
 ---
 
 ## Resolved
+
+### Will cross-run learning compound?
+
+**Resolved in anki-v29**. Yes, cross-run learning compounds when BOTH mechanisms are active: (1) upfront seeding via session_context/planner prompts, (2) runtime injection via workspace warnings. v29 achieved 690K tokens (-17.2% from v28's 834K). Task 003 specifically improved 46% (286K → 154K). The workspace warning "CRITICAL WARNING - date-string-mismatch" prevented the debugging spiral that plagued v23, v26, v28. See L011.
+
+### How to prevent runtime debugging spirals?
+
+**Resolved in anki-v29**. Workspace warnings work. Embed "CRITICAL WARNING - [pattern-name]" with mitigation in task workspace. Builder consumes workspace at task start AND references it during implementation. v29 achieved 46% token reduction on task 003 (154K vs 286K) using this approach. No code injection needed - workspace-level warnings are sufficient. See L011.
 
 ### Can learner spawning in campaigns be prevented?
 

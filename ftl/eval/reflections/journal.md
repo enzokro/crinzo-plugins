@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-08: anki-v29
+
+**Observed**: 690K tokens (-17.2% from v28). ST=44.5, HT=4.3, IGR=0.91. All 4 tasks complete, 0 fallbacks. Cache efficiency 74.6%.
+
+**Noticed**: Builder 003 hit 154K tokens (vs v28's 286K = -46%). The date-string debugging spiral was AVOIDED. Builder 003 reasoning trace shows "I have clear context. I'll implement the study routes" - action-first, no exploration. Router workspace included "**CRITICAL WARNING - date-string-mismatch**: Use `str(date.today())` for comparison" - the warning was consumed during execution.
+
+**Surprised**: Workspace warning injection WORKED. v28's 286K debugging spiral reduced to v29's 154K clean execution. The intervention we hypothesized in questions.md ("Add known issue warning to 003 workspace") was implemented and delivered -46% token reduction for that task. Runtime knowledge injection is the missing piece.
+
+**Unclear**: Why did cache efficiency drop (74.6% vs 78.8%)? Was this a trade-off for the cleaner execution path?
+
+**Updated**: L011 updated (upfront seeding + workspace warnings = effective). Questions.md prediction confirmed.
+
+---
+
 ## 2026-01-08: anki-v28
 
 **Observed**: 834K tokens (+9.9% from v26). ST=48.5 (improved), HT=4.3 (slight degradation from 3.7), IGR=0.92 (slight degradation from 0.93). Cache efficiency 78.8% (down from 80.4%). All 4 tasks complete, 0 fallbacks.

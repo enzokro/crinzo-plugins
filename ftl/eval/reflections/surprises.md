@@ -4,6 +4,15 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-08: Workspace warnings DO prevent runtime spirals
+
+**Expected**: Based on v28 analysis, believed runtime interventions needed to be code-level (comments, test fixtures) - workspace warnings seemed insufficient since builders would already be deep in implementation by the time issues surfaced
+**Observed**: v29 Builder 003 received workspace with "CRITICAL WARNING - date-string-mismatch" and completed in 154K tokens (vs v28's 286K = -46%). Reasoning trace shows builder applied the knowledge during implementation, not during debugging.
+**Gap**: Underestimated workspace consumption timing. Builders read workspace at start, but also reference it DURING implementation. The warning was contextually available when writing date comparison code. Workspace warnings are a valid runtime intervention - they don't require code injection.
+**Updated**: L011, questions.md
+
+---
+
 ## 2026-01-08: Upfront knowledge doesn't prevent runtime spirals
 
 **Expected**: Memory injection (prior_knowledge.md → session_context, planner prompts) would prevent date-string debugging spiral in v28
