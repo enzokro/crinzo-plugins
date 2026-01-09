@@ -8,25 +8,26 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ### What is the optimal test methodology for token efficiency?
 
-Four data points now:
+Five data points now:
 - **v36 baseline**: Implementation-first, tests written during integration → 908K tokens
 - **v38 TDD**: Test-per-task, tests co-evolve with implementation → 993K tokens (+9.3%)
-- **v40 SPEC-first**: All tests written upfront, then implement to pass → 1,444K tokens (+45.4%)
-- **v41 SPEC-first**: Same methodology, different failure → 2,195K tokens (+142%)
+- **v40 SPEC-first (rigid)**: All tests written upfront, immutable → 1,444K tokens (+59.1%)
+- **v41 SPEC-first (rigid)**: Same methodology, test isolation failure → 2,195K tokens (+142%)
+- **v42 SPEC-first (mutable)**: Tests written upfront, builders can fix → 1,667K tokens (+83.6%)
 
-**Ranking by efficiency**: Implementation-first > TDD >> SPEC-first
+**Ranking by efficiency**: Implementation-first > TDD > SPEC-first (mutable) >> SPEC-first (rigid)
 
-**SPEC-first has proven DISASTROUSLY inefficient** with two consecutive runs showing +45% and +142% regressions. TWO distinct failure modes identified:
-1. **v40**: API mismatch (tests assumed Table interface, got Database)
-2. **v41**: Test isolation assumptions (tests assumed id=1, got id=4 due to SQLite auto-increment)
+**NEW INSIGHT from v42**: The -24% improvement from v41 to v42 came from allowing test modifications. Same logical task (routes-crud) dropped from 1,162K to 387K tokens (-67%). v42 builders fixed broken test fixtures when encountered.
 
-**Critical insight**: SPEC-first creates immutable contracts that builders cannot renegotiate. When tests have invalid assumptions, builders must work around them instead of fixing them.
+**Updated hypothesis**: The problem is NOT SPEC-first methodology, but TEST IMMUTABILITY. When builders can adjust test implementation (assertions, fixtures) while preserving test contracts (behavior), SPEC-first becomes viable. The critical factor:
+- **Rigid Delta** (v40, v41): Tests outside BUILD scope → catastrophic workaround spirals
+- **Flexible Delta** (v42): Tests modifiable → efficient recovery from bad assumptions
 
-**Updated hypothesis**: SPEC-first should be ABANDONED for exploratory builds. The combination of (1) uncertainty about implementation constraints and (2) inability to modify tests creates a structural trap with no escape.
-
-**Open question**: Is there a "SPEC-lite" approach? E.g., write test NAMES/signatures upfront, but defer test BODIES until implementation is understood?
+**Remaining question**: Can SPEC-first with mutable tests + relative assertions approach TDD efficiency? Current gap is still ~67% (993K vs 1,667K). May need v43 to test fully optimized SPEC-first.
 
 ### Should SPEC-first methodology be abandoned entirely?
+
+**Status**: PARTIALLY RESOLVED in anki-v42. SPEC-first is NOT inherently broken.
 
 v40 and v41 both used SPEC-first and both showed catastrophic regressions (+45% and +142% respectively). The methodology has TWO identified failure modes:
 1. API mismatch (v40)
@@ -36,7 +37,9 @@ Both failures share the root cause: **builders cannot modify tests**. When SPEC 
 
 v41's Builder 003 explicitly diagnosed "the test is fundamentally broken because it assumes id=1" but could only modify app.py, leading to a 1.16M token debugging spiral implementing a hack.
 
-**Recommendation**: Return to implementation-first or TDD for next run. If SPEC-first is to be retained, tests MUST be modifiable by downstream builders.
+**RESOLUTION from v42**: v42 used SPEC-first AND achieved -24% improvement over v41. The critical difference: v42 builders MODIFIED tests when they encountered issues. Builder 002 fixed test fixtures (changed `db.get(Card, card_id)` to `cards[card_id]`, updated deletion assertions). Same logical task (routes-crud): v41=1,162K tokens, v42=387K tokens (-67%).
+
+**Updated recommendation**: Don't abandon SPEC-first. Ensure builders CAN modify tests. The methodology works when test contracts (behavior) are fixed but test implementation (assertions, fixtures) is adjustable.
 
 ### Why does identical protocol composition yield opposite outcomes?
 

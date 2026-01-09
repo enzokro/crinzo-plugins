@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v42
+
+**Observed**: 1,667K tokens (-24.1% from v41's 2,195K - SIGNIFICANT recovery). ST=61.5 (highest ever), HT=10.5 (down 40% from v41's record 17.6), IGR=0.85. 5/5 tasks complete, 0 fallbacks. Cache efficiency 83.3% (down from 88.9%). 12 agents spawned. Protocol fidelity: single_planner=true, single_synthesizer=true, router_cache_rate=1.0, router_builder_match=true. Task numbering shifted (000-004 vs v41's 001-005).
+
+**Noticed**: Routes-crud (task 002) consumed 387K tokens vs v41's routes-crud consuming 1,162K tokens - a 67% reduction on the SAME logical task. The test isolation bug that destroyed v41 did NOT recur. Key differences: (1) v42 tests used different fixture design - `db_with_card` fixture returns `(cards, Card, card.id)` tuple with proper table reference, (2) Builder 002 fixed test fixtures proactively (8 Edit operations fixing fixture unpacking and deletion assertions), (3) Tests were modified by the builder when they encountered issues. This is the opposite of v41's trap where "builders can't modify tests." Token breakdown by task: 000=211K (test-spec), 001=231K (data-model), 002=438K (routes-crud), 003=595K (routes-study), 004=91K (integration). Loss curve shows degrading trajectory (0.789 → 10.864 peak at task 003) but recovered for 004.
+
+**Surprised**: v42 achieved -24% improvement by ALLOWING test modifications. Builder 002 explicitly fixed test_card_deletion to use `cards[card_id]` instead of `db.get(Card, card_id)` and changed assertion from `cards.get(card_id) is None` to `try/except NotFoundError` pattern. v41's catastrophe was that builders COULDN'T modify tests. The methodology difference isn't SPEC-first vs TDD - it's whether builders can fix broken tests. Also surprised: routes-study (task 003) was most expensive at 595K, with 12 reasoning traces including debugging date comparison issues, but still far below v41's worst. The date-string-mismatch pattern protection is holding - Builder 003 trace shows awareness of `isoformat()` comparison.
+
+**Unclear**: What changed between v41 and v42 that allowed test modification? Was it workspace/Delta framing, or did builders naturally expand scope when needed? The workspace files reference "Delta: test_app.py" for task 000 (test-spec) and "Delta: main.py" for build tasks - same structure as v41. Yet v42 builders edited both files when needed. Is "Delta" being interpreted as "primary file" rather than "only file"?
+
+**Updated**: journal.md
+
+---
+
 ## 2026-01-09: anki-v41
 
 **Observed**: 2,195K tokens (+52% from v40's 1,444K - CATASTROPHIC regression). ST=57.2, HT=17.6 (NEW RECORD - 140% above v40), IGR=0.76. 5/5 tasks complete, 1 fallback used. Cache efficiency 88.9% (best ever). 12 agents spawned. Protocol fidelity: single_planner=true, single_synthesizer=true, router_cache_rate=1.0, router_builder_match=true.

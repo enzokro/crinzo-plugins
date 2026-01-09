@@ -11,15 +11,18 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 **Test scaffold provided**: `test_app.py` contains fixtures + test signatures + docstrings.
 SPEC task fills in assertions. This saves ~200K tokens vs writing from scratch.
 
+**Mutable Tests**: BUILD tasks may adjust test assertions if the behavioral CONTRACT is preserved.
+See "Mutable Tests Principle" section below.
+
 **The planner MUST create exactly these 5 tasks. Do NOT merge, split, reorder, or add tasks.**
 
-| Task | Type | Slug | Description | Verify |
-|------|------|------|-------------|--------|
-| 000 | SPEC | test-spec | Complete test_app.py scaffold: fill in assertions for all 6 tests, implement db_with_card fixture | `uv run pytest test_app.py --collect-only` |
-| 001 | BUILD | data-model | Implement Card dataclass + fastlite table to pass test_card_model | `uv run pytest test_app.py -k test_card_model -v` |
-| 002 | BUILD | routes-crud | Implement CRUD routes to pass card tests | `uv run pytest test_app.py -k card -v` |
-| 003 | BUILD | routes-study | Implement study routes + SM-2 to pass study tests | `uv run pytest test_app.py -k study -v` |
-| 004 | VERIFY | integration | Verify all 6 tests pass, fix any remaining failures | `uv run pytest test_app.py -v` |
+| Task | Type | Slug | Description | Delta | Verify |
+|------|------|------|-------------|-------|--------|
+| 000 | SPEC | test-spec | Complete test_app.py scaffold: fill in assertions for all 6 tests, implement db_with_card fixture | test_app.py | `uv run pytest test_app.py --collect-only` |
+| 001 | BUILD | data-model | Implement Card dataclass + fastlite table to pass test_card_model | main.py, test_app.py | `uv run pytest test_app.py -k test_card_model -v` |
+| 002 | BUILD | routes-crud | Implement CRUD routes to pass card tests | main.py, test_app.py | `uv run pytest test_app.py -k card -v` |
+| 003 | BUILD | routes-study | Implement study routes + SM-2 to pass study tests | main.py, test_app.py | `uv run pytest test_app.py -k study -v` |
+| 004 | VERIFY | integration | Verify all 6 tests pass, fix any remaining failures | any | `uv run pytest test_app.py -v` |
 
 **Dependencies:** 000 → 001 → 002 → 003 → 004 (sequential)
 
@@ -32,14 +35,15 @@ The key insight: **The agent that writes tests should NOT be the agent that pass
 ```
 SPEC PHASE (Task 000):
   - Scaffold exists with fixtures + test signatures
-  - Complete assertions in each test
-  - Implement db_with_card fixture
+  - Complete assertions in each test (use RELATIVE assertions - see below)
+  - Implement db_with_card fixture (return actual ID, not assumed)
   - Tests WILL fail (RED state)
 
 BUILD PHASE (Tasks 001-003):
   - Each Builder has pre-existing Verify
   - Implement minimal code to pass tests (GREEN)
-  - No test-writing in build tasks
+  - MAY adjust test assertions if implementation requires (tests are mutable)
+  - Contract (behavior) is fixed; implementation (assertions) is adjustable
 
 VERIFY PHASE (Task 004):
   - Integration check
@@ -48,8 +52,27 @@ VERIFY PHASE (Task 004):
 
 **Scaffold provides**: Fixtures, test signatures, docstrings with expected behavior.
 **Task 000** completes test_app.py by filling in assertions and the db_with_card fixture.
-**Tasks 001-003** implement code to make tests pass.
+**Tasks 001-003** implement code to make tests pass (may adjust tests if needed).
 **Task 004** runs full suite - if anything fails, fix it.
+
+---
+
+## Mutable Tests Principle
+
+BUILD tasks may adjust test assertions if:
+1. The behavioral **CONTRACT** is preserved (what the test verifies)
+2. The **IMPLEMENTATION** is adjusted (how it verifies)
+
+**Example - Contract vs Implementation:**
+- Contract: "Card deletion removes the card from database"
+- Implementation: `assert db[Card].get(card_id) is None` (adjustable based on actual API)
+
+**Why this matters:** If SPEC phase wrote assertions with incorrect assumptions (e.g., assumed ID=1 when SQLite gave ID=4), Builder SHOULD fix the test rather than implementing convoluted workarounds in app code.
+
+**Test Design Principles (for SPEC phase):**
+1. Never assume specific IDs - use what fixtures return (`card_id` from `db_with_card`)
+2. Never assume specific counts - use relative changes
+3. Never assume clean state - fixtures provide isolation
 
 ---
 

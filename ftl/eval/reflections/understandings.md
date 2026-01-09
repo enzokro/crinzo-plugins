@@ -204,26 +204,89 @@ Beliefs with explicit uncertainty. Updated via reflection.
 
 ---
 
-## L013: SPEC-first methodology amplifies token cost
+## L013: SPEC-first with rigid Delta causes token explosion
 
-**Belief**: Writing all tests before implementation (SPEC-first) is significantly less efficient than TDD or implementation-first approaches for exploratory builds, with TWO distinct failure modes.
+**Belief**: SPEC-first methodology itself is NOT the problem. The v40-41 failures were caused by TWO bugs: (1) rigid Delta preventing builders from fixing broken tests, and (2) test assumptions using hardcoded values instead of relative assertions.
+
+**Confidence**: 8/10 (updated from 9/10 after root cause analysis)
+
+**Evidence**:
+- v41 SPEC-first + rigid Delta: 2,195K tokens (Builder 003: 1,163K due to test isolation bug)
+- v40 SPEC-first + rigid Delta: 1,444K tokens (test API mismatch)
+- v38 TDD: 993K tokens
+- v36 implementation-first: 908K tokens
+
+**Mechanism (REVISED)**: The failures were NOT inherent to SPEC-first, but to TWO specific bugs:
+1. **Rigid Delta** - test_app.py was excluded from BUILD task Delta. When tests had invalid assumptions, builders couldn't fix them.
+2. **Absolute assertions** - Tests assumed `id=1` when SQLite auto-increment gave `id=4`. Builder diagnosed "the test is fundamentally broken" but could only implement workarounds.
+
+**Fix**: Include test_app.py in BUILD Delta (tests are mutable). Use relative assertions from fixtures.
+
+**Generalizes to**: Any workflow where upstream artifacts constrain downstream agents without escape routes. The issue is rigidity, not the SPEC-first pattern itself.
+
+**Would update if**: v43 with mutable tests + relative assertions still shows regression vs TDD.
+
+---
+
+## L022: Rigid Delta causes workaround spirals
+
+**Belief**: When a builder cannot modify a file it needs to fix, it enters an expensive workaround exploration spiral. The correct fix should be in-scope, not worked around.
 
 **Confidence**: 9/10
 
 **Evidence**:
-- v41 SPEC-first: 2,195K tokens (Builder 003 alone: 1,163K due to test isolation bug)
-- v40 SPEC-first: 1,444K tokens (test API mismatch)
-- v38 TDD: 993K tokens (+55% cheaper than v41)
-- v36 implementation-first: 908K tokens (+142% cheaper than v41)
+- v41 Builder 003: 1,163K tokens, 21 reasoning traces, 37 tool calls
+- Builder correctly diagnosed: "the test is fundamentally broken because it assumes id=1"
+- Builder COULD NOT fix test (outside Delta) → explored 7+ workarounds → eventual hack
 
-**Mechanism**: SPEC-first has TWO catastrophic failure modes:
-1. **API mismatch** (v40): Tests assume implementation details (e.g., `db` is a Table vs Database) that don't match reality. Builders reconcile at high cost.
-2. **Test isolation assumptions** (v41): Tests assume database state guarantees (e.g., fresh IDs per test) that implementation doesn't provide. Builder 003 diagnosed "the test is fundamentally broken" but couldn't modify test file, leading to 21 reasoning traces and 1.16M tokens of workaround exploration.
+**Mechanism**: Delta constraint creates a structural trap. Builder sees the fix but can't apply it. Each workaround attempt costs ~50-100K tokens. Spiral continues until either success-via-hack or BLOCKED.
 
-The critical structural trap: **SPEC tests can't be modified by builders** + **SPEC tests may have invalid assumptions** = builder has no escape route. Can only implement convoluted workarounds within app.py.
+**Fix**: Include test files in BUILD Delta. Contract (behavior) is fixed; implementation (assertions) is adjustable.
 
-**Generalizes to**: Any test-driven development with immutable test specifications. SPEC-first creates a contract that downstream builders cannot renegotiate. Invalid assumptions become irreversible constraints.
+**Generalizes to**: Any scoped task where the real fix lies outside the defined scope. Scope should be "what's needed to complete the task", not "predetermined file list".
 
-**Would update if**: Found SPEC-first run with mutable tests that outperformed TDD on exploratory builds.
+**Would update if**: Found cases where rigid Delta prevented beneficial scope creep.
+
+---
+
+## L023: Test assumptions must be relative, not absolute
+
+**Belief**: Tests that assume specific values (e.g., `id=1`, `count=0`) are fragile and cause failures when those assumptions don't hold. Tests should use values returned by fixtures.
+
+**Confidence**: 9/10
+
+**Evidence**:
+- v41: Tests assumed card id=1, SQLite auto-increment gave id=4
+- v40: Tests assumed specific db interface that didn't match implementation
+
+**Mechanism**: Absolute assumptions encode implementation details in tests. When reality differs, tests "break" even though the behavior is correct. Relative assertions (`card_id` from fixture) adapt to actual state.
+
+**Pattern**:
+```python
+# BAD: card_id = 1
+# GOOD: db, Card, card_id = db_with_card
+```
+
+**Generalizes to**: Any test design. Tests should verify BEHAVIOR against whatever state exists, not verify STATE matches expectations.
+
+**Would update if**: Found scenarios where absolute assertions were necessary and relative ones insufficient.
+
+---
+
+## L024: Mutable tests enable robust SPEC-first
+
+**Belief**: SPEC-first works when BUILD phase can adjust test IMPLEMENTATION while preserving test CONTRACT. The bug was rigid Delta, not the methodology.
+
+**Confidence**: 5/10 (hypothesis - needs v43 validation)
+
+**Evidence**: Root cause analysis of v40-41 shows the failures were bugs (rigid Delta + absolute assertions), not inherent SPEC-first problems.
+
+**Mechanism**: The contract is the BEHAVIOR ("card deletion removes it"), not the specific assertion (`id == 1`). Builder can adjust HOW the contract is verified while preserving WHAT is verified.
+
+**Expected**: v43 with mutable tests + relative assertions should achieve ~1,000K tokens (competitive with TDD).
+
+**Generalizes to**: Any contract-driven development where downstream can refine how contracts are verified.
+
+**Would update if**: v43 validates or invalidates this hypothesis.
 
 ---

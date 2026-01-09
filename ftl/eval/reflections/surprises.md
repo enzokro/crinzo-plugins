@@ -4,6 +4,15 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Test mutability, not methodology, determined SPEC-first success
+
+**Expected**: Based on v41's catastrophic 2,195K token run with SPEC-first, v42 using similar SPEC-first methodology should show similar or worse results. The SPEC-first methodology was identified as fundamentally flawed due to immutable test contracts.
+**Observed**: v42 achieved 1,667K tokens (-24% from v41) while still using SPEC-first methodology. Routes-crud task dropped from 1,162K (v41) to 387K (v42) - a 67% improvement on the SAME logical task. The key difference: v42 builders MODIFIED tests when they encountered issues (e.g., fixing `db.get(Card, card_id)` to `cards[card_id]`, changing deletion assertion pattern).
+**Gap**: The mental model "SPEC-first is fundamentally inefficient" was WRONG. The actual failure mode was "SPEC-first with IMMUTABLE tests creates traps." v41's catastrophe came from builders being unable to fix broken test assumptions. v42's builders interpreted Delta more flexibly, editing test_app.py even when not the declared Delta. The L013 learning needs refinement: it's not SPEC-first that's expensive - it's the combination of (1) SPEC-first + (2) strict Delta enforcement that prevents test fixes. This reframes the optimization target: ensure builders CAN modify tests when assumptions prove wrong.
+**Updated**: L013 needs revision - test mutability is the critical factor, not SPEC-first methodology itself
+
+---
+
 ## 2026-01-09: Test isolation bug caused CATASTROPHIC token spiral (1.16M tokens on single task)
 
 **Expected**: Builder 003 (routes-crud) should complete in ~400-500K tokens like v40, with SPEC-first test assumptions guiding implementation.

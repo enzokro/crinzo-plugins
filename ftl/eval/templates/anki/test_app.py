@@ -8,6 +8,19 @@ This scaffold provides:
 
 SPEC task (000) fills in the actual assertions.
 BUILD tasks (001-003) implement code to pass these tests.
+BUILD tasks MAY adjust assertions if the CONTRACT is preserved.
+
+## CRITICAL: Relative Assertions
+
+Tests MUST use values returned by fixtures, NOT hardcoded assumptions.
+
+BAD:  card_id = 1  # Assumes first card always has id=1
+GOOD: db, Card, card_id = db_with_card  # Uses actual ID
+
+BAD:  assert db[Card].count() == 1  # Assumes starting count
+GOOD: count_before = db[Card].count(); ...; assert db[Card].count() == count_before + 1
+
+The fixture returns (db, Card, card_id) - always use card_id, never assume it equals 1.
 """
 import pytest
 from datetime import date, timedelta
@@ -51,18 +64,26 @@ def db_with_card(app_components):
     """
     Database with one test card already inserted.
 
-    Returns tuple: (db, Card, card_id)
+    Returns tuple: (db, Card, card_id)  # card_id is the ACTUAL ID assigned
 
     Card has:
     - front: "Test Question"
     - back: "Test Answer"
     - next_review: today (due now)
     - interval: 1
+
+    IMPORTANT: card_id may NOT be 1 (SQLite auto-increment persists).
+    Always use the returned card_id, never assume a specific value.
     """
     app, db, Card = app_components
-    # SPEC task: implement card insertion
-    # card = db.insert(Card(...))
-    # return db, Card, card.id
+    # SPEC task: implement card insertion and return actual ID
+    # Example (adjust API as needed):
+    #   card = Card(front="Test Question", back="Test Answer",
+    #               next_review=date.today(), interval=1)
+    #   db[Card].insert(card)
+    #   # Get the actual ID assigned
+    #   yield db, Card, card.id
+    #   # Optional cleanup
     pytest.skip("Fixture not yet implemented by SPEC task")
 
 
@@ -143,20 +164,23 @@ def test_card_deletion(client, db_with_card, app_components):
     POST /cards/{id}/delete removes card and redirects.
 
     Test flow:
-    1. Use db_with_card fixture
-    2. POST to /cards/{id}/delete
+    1. Use db_with_card fixture (provides actual card_id)
+    2. POST to /cards/{card_id}/delete  # Use card_id from fixture!
     3. Assert redirect (303) to /cards
-    4. Verify card no longer exists
+    4. Verify card with that card_id no longer exists
 
-    SPEC task: Implement assertions.
+    SPEC task: Implement assertions using card_id from fixture.
     BUILD task 002: Implement DELETE route.
+
+    CRITICAL: Use card_id from db_with_card fixture. Do NOT assume id=1.
     """
-    db, Card, card_id = db_with_card
+    db, Card, card_id = db_with_card  # card_id is actual ID, may not be 1
 
     # SPEC task fills in:
     # response = client.post(f"/cards/{card_id}/delete", follow_redirects=False)
     # assert response.status_code == 303
-    # ... verify card is gone
+    # Verify card is gone using card_id (NOT hardcoded 1):
+    # assert db[Card].get(card_id) is None  # Or similar based on API
     pass
 
 
@@ -202,24 +226,26 @@ def test_rating_updates_interval(client, db_with_card, app_components):
     After rating: next_review = today + interval days
 
     Test flow:
-    1. db_with_card has card with interval=1
-    2. POST /study/{id}/rate with rating=2 (Good)
+    1. db_with_card has card with interval=1 (use card_id from fixture!)
+    2. POST /study/{card_id}/rate with rating=2 (Good)
     3. Assert redirect to /study
     4. Verify interval is now 2 (1 * 2.0)
     5. Verify next_review is today + 2 days
 
-    SPEC task: Implement full SM-2 test.
+    SPEC task: Implement full SM-2 test using card_id from fixture.
     BUILD task 003: Implement rating route with SM-2 logic.
+
+    CRITICAL: Use card_id from db_with_card fixture. Do NOT assume id=1.
     """
-    db, Card, card_id = db_with_card
+    db, Card, card_id = db_with_card  # card_id is actual ID, may not be 1
     app, _, _ = app_components
 
     # SPEC task fills in:
     # response = client.post(f"/study/{card_id}/rate", data={"rating": "2"}, follow_redirects=False)
     # assert response.status_code == 303
     #
-    # # Verify interval updated
-    # card = db.get(Card, card_id)  # or db[Card][card_id]
+    # # Verify interval updated using card_id (NOT hardcoded 1):
+    # card = db[Card][card_id]  # Or similar based on API
     # assert card.interval == 2
     # assert card.next_review == date.today() + timedelta(days=2)
     pass
