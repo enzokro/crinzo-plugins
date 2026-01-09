@@ -1,0 +1,896 @@
+{
+  "run_id": "anki-v40",
+  "captured_at": "2026-01-09T10:12:13.715063",
+  "agents": [
+    {
+      "file": "agent-a150d34.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 15,
+        "cache_read": 68505,
+        "cache_create": 10341,
+        "output": 991,
+        "total": 79852
+      },
+      "api_calls": 9,
+      "tools": {
+        "Read": 3,
+        "Write": 1,
+        "Bash": 2,
+        "Edit": 1
+      },
+      "tool_calls": 7,
+      "first_reads": [
+        "002_data-model_active_from-001.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "002",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Read",
+        "Write",
+        "Bash",
+        "Edit",
+        "Bash"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Implementing Card dataclass and database table in main.py.",
+          "then": "Write"
+        },
+        {
+          "thinking": "Status: complete\nDelivered: Card dataclass with 5 fields (id, front, back, next_review, interval), fastlite Database with transform=True, FastHTML app initialization\nVerified: pass\nWorkspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/002_data-model_complete.md\n\n**Implementation in `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`**",
+          "then": null
+        }
+      ],
+      "first_user_full": "Workspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/002_data-model_active_from-001.md\n\n# 002: Implement Card Dataclass and Database Table\n\n## Implementation\nPath: [test_card_model requirements] \u2192 [Card dataclass definition] \u2192 [fastlite table creation] \u2192 [passing test]\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`\nVerify: `uv run pytest test_app.py -k test_card_model -v`\n\n**Test Requirements** (from test_app.py):\n- Card class must have 5 fields: id, front, back, next_review, interval\n- Must be importable from main.py\n- Test uses hasattr() checks for each field\n\n**Pattern Match: fastlite-dataclass-sync**\n- Dataclass defines both Python type and database schema\n- Use db.create(Card, pk='id', transform=True)\n- The transform=True handles automatic date conversion\n\n**Critical Warning: date-string-mismatch**\n- MUST use transform=True in db.create() call\n- This enables automatic conversion between Python date objects and SQLite ISO strings\n- Without this, date comparisons will fail in study routes\n\n**Implementation Checklist**:\n1. Import dataclass, date from datetime, fastlite Database\n2. Define Card dataclass with 5 fields (id: int, front: str, back: str, next_review: str, interval: int)\n3. Initialize db = Database(':memory:') for testing or Database('cards.db') for persistence\n4. Create table: cards = db.create(Card, pk='id', transform=True)\n5. Create minimal FastHTML app\n6. Export: app, Card, db at module level",
+      "file_mtime": 1767971533.3709195,
+      "task_outcome": "complete",
+      "used_fallback": false,
+      "bash_commands": [
+        "uv run pytest test_app.py -k test_card_model -v",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/002_data-model_"
+      ],
+      "spawn_order": 2
+    },
+    {
+      "file": "agent-a2006d2.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 25,
+        "cache_read": 36428,
+        "cache_create": 5286,
+        "output": 629,
+        "total": 42368
+      },
+      "api_calls": 6,
+      "tools": {
+        "Read": 2,
+        "Bash": 1,
+        "Write": 1
+      },
+      "tool_calls": 4,
+      "first_reads": [
+        "session_context.md",
+        "cognition_state.md"
+      ],
+      "cache_hit": true,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "004",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Bash",
+        "Write"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "I'll analyze this BUILD task and create the workspace.",
+          "then": "Read"
+        },
+        {
+          "thinking": "Route: full\nType: BUILD\nWorkspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/004_routes-study_active.md\nPath: [Due card query] \u2192 [SM-2 calculation] \u2192 [Updated card state]\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py\nVerify: uv run pytest test_app.py -k study -v\nReady for Build: Yes\nNote: Tests already exist from SPEC phas",
+          "then": null
+        }
+      ],
+      "first_user_full": "## FTL Session Context\n\n### Git State\n- Branch: main\n\n## Prior Knowledge\n\n**post-redirect-get** (signal: +6)\n- Pattern: All state mutations use POST, redirect with 303 to GET route\n\n**algorithm-state-in-model** (signal: +4)\n- Pattern: Algorithm state (interval, next_review) stored directly in entity dataclass\n\n**date-string-mismatch** (impact: ~429K tokens when hit)\n- PREVENTION: Compare with date.today().isoformat() not date.today() directly\n\n---\n\n# Cognition State\n\nLast sequence: 003\nRecent: 003_routes-crud_complete.md\n\nmain.py has Card dataclass, db with transform=True, CRUD routes working.\nnext_review stored as date.today().isoformat()\n\n---\n\nCampaign: Build the flashcard app per README.md\nTask: 004 routes-study\n\nImplement study routes + SM-2 to pass study tests\n\nType: BUILD\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`\nDepends: 003\nDone when: Routes `/study`, `/study/{id}/reveal`, `/study/{id}/rate` functional; SM-2 algorithm correctly updates interval (Again=1, Hard=1.2x, Good=2.0x, Easy=3.0x) and next_review\nVerify: `uv run pytest test_app.py -k study -v`\n\n**WARNING (date-string-mismatch)**: When querying due cards, compare `next_review` with `date.today().isoformat()` not `date.today()` directly.",
+      "file_mtime": 1767971533.3722684,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace"
+      ],
+      "spawn_order": 1
+    },
+    {
+      "file": "agent-a220ee1.jsonl",
+      "type": "direct",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 12,
+        "cache_read": 17147,
+        "cache_create": 1461,
+        "output": 161,
+        "total": 18781
+      },
+      "api_calls": 3,
+      "tools": {
+        "Bash": 1
+      },
+      "tool_calls": 1,
+      "first_reads": [],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "005",
+      "tool_sequence": [
+        "Bash"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "I'll verify that all 6 tests pass by running the test suite.",
+          "then": "Bash"
+        },
+        {
+          "thinking": "Excellent! All 6 tests pass with exit code 0.\n\n## Verification Complete\n\n```\nRoute: direct\nType: VERIFY\nWorkspace: N/A (verification task)\nPath: test_app.py \u2192 pytest \u2192 all tests passing\nVerify: uv run pytest test_app.py -v\n```\n\n### Test Results\nAll 6 tests passed successfully:\n1. \u2713 test_card_model - Card model structure validation\n2. \u2713 test_card_creation - POST /cards endpoint\n3. \u2713 test_card_listi",
+          "then": null
+        }
+      ],
+      "first_user_full": "## FTL Session Context\n\n### Git State\n- Branch: main\n\n---\n\n# Cognition State\n\nLast sequence: 004\nRecent: 004_routes-study_complete.md, 003_routes-crud_complete.md\n\nmain.py has all routes: CRUD + study with SM-2 algorithm.\nAll 6 tests should pass.\n\n---\n\nCampaign: Build the flashcard app per README.md\nTask: 005 integration\n\nVerify all 6 tests pass, fix any remaining failures\n\nType: VERIFY\nDelta: none (fix in `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py` if needed)\nDepends: 004\nDone when: All 6 tests pass with exit code 0\nVerify: `uv run pytest test_app.py -v`",
+      "file_mtime": 1767971533.3727674,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "uv run pytest test_app.py -v"
+      ]
+    },
+    {
+      "file": "agent-a2d31c9.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 31,
+        "cache_read": 375529,
+        "cache_create": 25909,
+        "output": 3917,
+        "total": 405386
+      },
+      "api_calls": 27,
+      "tools": {
+        "Read": 4,
+        "Edit": 10,
+        "Bash": 5
+      },
+      "tool_calls": 19,
+      "first_reads": [
+        "main.py",
+        "test_app.py",
+        "test_app.py",
+        "003_routes-crud_active_from-002.md"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "003",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Edit",
+        "Edit",
+        "Bash",
+        "Edit",
+        "Edit",
+        "Edit",
+        "Edit",
+        "Read",
+        "Edit",
+        "Bash",
+        "Edit",
+        "Bash",
+        "Edit",
+        "Bash",
+        "Read",
+        "Edit",
+        "Bash"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Implementing CRUD routes.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "Two issues: Redirect doesn't use `status_code` kwarg, and the tests expect `cards` table not `db` to be exported. Fixing.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "Now I need to check the test fixture issue. The tests import `db` but use `db.insert()` and `db.delete()`. Looking at the tests, the fixture expects `db` to be the table (cards), not the Database. The test uses `db()` to list cards, `db.insert()`, `db.delete()`, `db[id]`. This is table behavior. Exporting `cards` as `db` for compatibility.",
+          "then": "Read"
+        },
+        {
+          "thinking": "The tests import `db` but use it as a table (calling `db()`, `db.insert()`, `db.delete()`, `db[id]`). I need to alias `cards` as `db` for the tests.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "Test is using wrong delete signature. The test has `db.delete(Card, created[0].id)` but for a Table it should be `db.delete(created[0].id)`. This is a test issue, not implementation issue. The test inconsistently uses both `db.delete(Card, card.id)` in fixture and `db.delete(Card, created[0].id)` in test body. Looking at test_card_deletion - it passed, meaning the fixture cleanup worked.\n\nLet me c",
+          "then": "Edit"
+        },
+        {
+          "thinking": "The tests are using mixed API. The test expects `db` to be something that:\n- `db()` - callable to iterate\n- `db.insert(Card(...))` - insert method\n- `db.delete(Card, id)` - delete with class and id\n- `db[id]` - subscript access\n\nThis is actually the Table interface for iteration/insert/subscript, but the Database interface for delete. The test spec has inconsistent expectations.\n\nThis appears to b",
+          "then": "Edit"
+        },
+        {
+          "thinking": "All card tests pass. Updating workspace and marking complete.",
+          "then": "Read"
+        },
+        {
+          "thinking": "Status: complete\nDelivered: CRUD routes for cards - GET `/`, GET `/cards`, GET `/cards/new`, POST `/cards/new`, POST `/cards/{id}/delete` with 303 redirects and DBWrapper for test compatibility\nVerified: pass (4/4 card tests)\nWorkspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/003_routes-crud_complete.md\n\nKey implementation in `/Users/cck/CC/plugins/marketp",
+          "then": null
+        }
+      ],
+      "first_user_full": "Workspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/003_routes-crud_active_from-002.md\n\n# 003: CRUD Routes Implementation\n\n## Implementation\nPath: [Card dataclass + db + app] \u2192 [Route handlers] \u2192 [Functional CRUD operations]\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py\nVerify: `uv run pytest test_app.py -k card -v`\n\n**Task Context**:\n- Type: BUILD - implementing routes to pass pre-existing tests from 001_test-spec\n- Foundation exists: Card dataclass, db with transform=True, FastHTML app (app, rt)\n- Tests ready in test_app.py\n\n**Routes Required**:\n1. GET `/` - Redirect to /cards\n2. GET `/cards` - Cards listing\n3. GET `/cards/new` - Form to create new card\n4. POST `/cards/new` - Handle card creation\n5. POST `/cards/{id}/delete` - Delete card by ID\n\n**Pattern Application**:\n- **post-redirect-get**: All POST routes must redirect with 303 to GET route\n  - POST `/cards/new` \u2192 303 redirect to `/cards`\n  - POST `/cards/{id}/delete` \u2192 303 redirect to `/cards`\n- Database: `cards = db.create(Card, pk='id', transform=True)` already exists\n\n**Implementation Strategy**:\n1. Define route handlers using @rt decorator\n2. GET `/` - Redirect to /cards\n3. GET `/cards` - Query cards table, render list\n4. GET `/cards/new` - Render form with front/back inputs\n5. POST `/cards/new` - Insert Card with next_review=date.today().isoformat(), interval=1, redirect 303\n6. POST `/cards/{id}/delete` - Delete by ID, redirect 303\n7. Use FastHTML Redirect for redirects\n\n**Done When**:\n- All routes functional\n- POST routes use 303 redirect pattern\n- Tests pass: `uv run pytest test_app.py -k card -v`",
+      "file_mtime": 1767971533.3736978,
+      "task_outcome": "complete",
+      "used_fallback": false,
+      "bash_commands": [
+        "uv run pytest test_app.py -k card -v",
+        "uv run pytest test_app.py -k card -v",
+        "uv run pytest test_app.py -k card -v",
+        "uv run pytest test_app.py -k card -v",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/003_routes-crud"
+      ],
+      "spawn_order": 4
+    },
+    {
+      "file": "agent-a3004ea.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 28,
+        "cache_read": 36188,
+        "cache_create": 16885,
+        "output": 1255,
+        "total": 54356
+      },
+      "api_calls": 7,
+      "tools": {
+        "Read": 3,
+        "Bash": 1,
+        "Write": 1
+      },
+      "tool_calls": 5,
+      "first_reads": [
+        "session_context.md",
+        "cognition_state.md",
+        "README.md"
+      ],
+      "cache_hit": true,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "001",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Read",
+        "Bash",
+        "Write"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Route: full\nType: SPEC\nWorkspace: .ftl/workspace/001_test-spec_active.md\nPath: README requirements \u2192 test design \u2192 test_app.py\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/test_app.py\nVerify: uv run pytest test_app.py --collect-only\nReady for Build: Yes\nNote: Builder writes tests only, no implementation",
+          "then": "Read"
+        },
+        {
+          "thinking": "Workspace created at `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/001_test-spec_active.md`\n\n**Type**: SPEC - Builder will write complete test suite only (6 tests + fixtures)\n**Delta**: test_app.py only - no implementation files\n**Verify**: uv run pytest test_app.py --collect-only (expects 6 tests collected)\n\nThe workspace includes pattern warnings about date-s",
+          "then": null
+        }
+      ],
+      "first_user_full": "## FTL Session Context (Static - Cached at Session Start)\n\nCached at: 2026-01-09T14:58:21Z\n\n### Git State\n- Branch: main\n- Recent commits: 58a9f60 eval: anki-v40\n\n### Project Verification Tools\n- Package.json scripts: \n- Makefile targets: \n- Pyproject test config: \n\n**DO NOT re-run**: `git branch`, `cat package.json`, `cat Makefile` \u2014 this info is current.\n\n## Prior Knowledge\n\n**date-string-mismatch** (impact: ~429K tokens when hit)\n- PREVENTION: (1) Use db.create(Card, pk='id', transform=True) (2) Compare with date.today().isoformat()\n\n---\n\n# Cognition State\n\nLast sequence: 000\nActive: none\nRecent: none\n\n---\n\nCampaign: Build the flashcard app per README.md\nTask: 001 test-spec\n\nWrite test_app.py with all 6 test stubs (failing). Create pytest fixtures and complete test implementations.\n\nType: SPEC\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/test_app.py`\nDepends: none\nDone when: `pytest --collect-only` shows 6 tests collected: test_card_model, test_card_creation, test_card_listing, test_card_deletion, test_study_shows_due, test_rating_updates_interval\nVerify: `uv run pytest test_app.py --collect-only`",
+      "file_mtime": 1767971533.374301,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace"
+      ],
+      "spawn_order": 3
+    },
+    {
+      "file": "agent-a40d1ba.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 25,
+        "cache_read": 36153,
+        "cache_create": 4928,
+        "output": 1059,
+        "total": 42165
+      },
+      "api_calls": 6,
+      "tools": {
+        "Read": 2,
+        "Bash": 1,
+        "Write": 1
+      },
+      "tool_calls": 4,
+      "first_reads": [
+        "session_context.md",
+        "cognition_state.md"
+      ],
+      "cache_hit": true,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "003",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Bash",
+        "Write"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "I'll analyze this BUILD task and create the workspace.",
+          "then": "Read"
+        },
+        {
+          "thinking": "---\n\n```\nRoute: full\nType: BUILD\nWorkspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/003_routes-crud_active_from-002.md\nPath: [Card dataclass + db + app] \u2192 [Route handlers] \u2192 [Functional CRUD operations]\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py\nVerify: uv run pytest test_app.py -k card -v\nReady for Build: Yes\nNote: T",
+          "then": null
+        }
+      ],
+      "first_user_full": "## FTL Session Context\n\n### Git State\n- Branch: main\n\n## Prior Knowledge\n\n**post-redirect-get** (signal: +6)\n- Pattern: All state mutations use POST, redirect with 303 to GET route\n- Use for: Any state-changing route (create, delete)\n\n---\n\n# Cognition State\n\nLast sequence: 002\nRecent: 002_data-model_complete.md, 001_test-spec_complete.md\n\nmain.py exists with Card dataclass, db with transform=True, FastHTML app (app, rt = fast_app())\n\n---\n\nCampaign: Build the flashcard app per README.md\nTask: 003 routes-crud\n\nImplement CRUD routes to pass card tests\n\nType: BUILD\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`\nDepends: 002\nDone when: Routes `/`, `/cards`, `/cards/new` (GET/POST), `/cards/{id}/delete` (POST) all functional with post-redirect-get pattern\nVerify: `uv run pytest test_app.py -k card -v`",
+      "file_mtime": 1767971533.374977,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace"
+      ],
+      "spawn_order": 5
+    },
+    {
+      "file": "agent-a492211.jsonl",
+      "type": "planner",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 12,
+        "cache_read": 21612,
+        "cache_create": 24794,
+        "output": 433,
+        "total": 46851
+      },
+      "api_calls": 6,
+      "tools": {
+        "Read": 3,
+        "Bash": 2
+      },
+      "tool_calls": 5,
+      "first_reads": [
+        "README.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": null,
+      "tool_sequence": [
+        "Read",
+        "Bash",
+        "Bash",
+        "Read",
+        "Read"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "## Campaign: Build the flashcard app per README.md\n\n### Confidence: PROCEED\n\nRationale: Specification is complete with exact task breakdown, data model, routes, verification commands, and success criteria. Prior knowledge provides critical warnings for date handling.\n\n## Memory Analysis\n\n### Applicable Patterns\n- **layered-build** (signal: +5): Foundation-first approach - dataclass -> database -> ",
+          "then": null
+        }
+      ],
+      "first_user_full": "## Prior Knowledge (from previous campaigns)\n\nThis knowledge comes from successful campaigns. Use it to inform your planning.\n\n### Meta-Patterns (high confidence)\n\n**post-redirect-get** (signal: +6)\n- Pattern: All state mutations use POST, redirect with 303 to GET route\n- Conditions: Works for form-based web apps; prevents duplicate submissions\n- Use for: Any state-changing route (create, update, delete, rate)\n\n**layered-build** (signal: +5)\n- Pattern: Foundation-first layering: dataclass -> database -> CRUD -> domain logic -> tests\n- Conditions: Works when each layer has clear inputs/outputs and minimal coupling\n- Use for: Sequential task dependencies with foundation-first approach\n\n**fastlite-dataclass-sync** (signal: +4)\n- Pattern: Dataclass defines both Python type and database schema via db.create(Class, pk=...)\n- Conditions: Works when schema is simple; may not scale to complex relations\n- Use for: FastHTML apps with SQLite persistence\n\n**algorithm-state-in-model** (signal: +4)\n- Pattern: Algorithm state (interval, next_review) stored directly in entity dataclass\n- Conditions: Works when algorithm state is per-entity; clean for simple algorithms\n- Use for: Simple per-entity algorithm state storage\n\n### Known Failure Modes\n\n**date-string-mismatch** (impact: ~429K tokens when hit)\n- Issue: SQLite stores Python date objects as ISO strings. Direct comparison fails.\n- Symptom: card.next_review <= date.today() returns unexpected results or fails silently\n- **PREVENTION**: TWO-PART FIX: (1) Use db.create(Class, pk='id', transform=True) for storage/retrieval. (2) In query logic, compare with date.today().isoformat() not date.today() directly.\n- Mitigation (if prevention missed): If table already created without transform: compare with str(date.today()) or parse dates explicitly.\n- **WARN builders** when: Task involves data-model, study-routes, date-fields, next_review, db.create, date-comparison\n\n---\n\nObjective: Build the flashcard app per README.md - see REQUIRED TASK BREAKDOWN for exact tasks\n\n**CRITICAL CONSTRAINT**: The README.md specifies EXACTLY 5 tasks that must be created. Do NOT merge, split, reorder, or add tasks. The planner MUST create exactly these tasks:\n\n| Task | Type | Slug | Description | Verify |\n|------|------|------|-------------|--------|\n| 000 | SPEC | test-spec | Write test_app.py with all 6 test stubs (failing). Create pytest fixtures and complete test implementations. | `uv run pytest test_app.py --collect-only` |\n| 001 | BUILD | data-model | Implement Card dataclass + fastlite table to pass test_card_model | `uv run pytest test_app.py -k test_card_model -v` |\n| 002 | BUILD | routes-crud | Implement CRUD routes to pass card tests | `uv run pytest test_app.py -k card -v` |\n| 003 | BUILD | routes-study | Implement study routes + SM-2 to pass study tests | `uv run pytest test_app.py -k study -v` |\n| 004 | VERIFY | integration | Verify all 6 tests pass, fix any remaining failures | `uv run pytest test_app.py -v` |\n\nReturn your plan using these exact tasks. Include warnings from prior knowledge in task descriptions.",
+      "file_mtime": 1767971533.3761737,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "cat /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/pyproject.toml 2>/dev/null",
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/"
+      ],
+      "spawn_order": 0
+    },
+    {
+      "file": "agent-a5ca71d.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 18,
+        "cache_read": 112792,
+        "cache_create": 14360,
+        "output": 1456,
+        "total": 128626
+      },
+      "api_calls": 12,
+      "tools": {
+        "Read": 3,
+        "Edit": 3,
+        "Bash": 3
+      },
+      "tool_calls": 9,
+      "first_reads": [
+        "004_routes-study_active.md",
+        "main.py",
+        "test_app.py"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "004",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Read",
+        "Edit",
+        "Edit",
+        "Bash",
+        "Bash",
+        "Edit",
+        "Bash"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Implementing three study routes with SM-2 algorithm.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "All tests pass. Updating workspace to complete.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "Status: complete\nDelivered: Three study routes with SM-2 algorithm in `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`:\n- `GET /study` - displays first due card or \"No cards due\"\n- `POST /study/{id}/reveal` - shows front/back with rating buttons\n- `POST /study/{id}/rate` - applies SM-2 multipliers, updates card, redirects 303\nVerified: pass (2 study tests pass)\nWorkspac",
+          "then": null
+        }
+      ],
+      "first_user_full": "Workspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/004_routes-study_active.md\n\n# 004: Study Routes with SM-2 Algorithm\n\n## Implementation\nPath: [Due card query] \u2192 [SM-2 calculation] \u2192 [Updated card state]\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py\nVerify: uv run pytest test_app.py -k study -v\n\n**Task Type**: BUILD\nFoundation exists from tasks 002-003: Card dataclass with algorithm state (interval, next_review), db with transform=True, working CRUD routes.\n\n**Objective**: Implement three study routes:\n1. GET /study - Display first due card (next_review <= today), or \"No cards due\" message\n2. POST /study/{id}/reveal - Show card front and back with rating buttons\n3. POST /study/{id}/rate - Apply SM-2, update card, redirect to /study\n\n**SM-2 Algorithm Requirements**:\n- Again (rating=0): interval = 1 day\n- Hard (rating=1): interval = current * 1.2\n- Good (rating=2): interval = current * 2.0\n- Easy (rating=3): interval = current * 3.0\n- next_review = today + interval days (use timedelta)\n\n**CRITICAL: date-string-mismatch prevention**:\nWhen querying due cards, MUST compare `next_review` with `date.today().isoformat()` NOT `date.today()` directly.\nExample: `[c for c in cards() if c.next_review <= date.today().isoformat()]`\n\n**Pattern: post-redirect-get**:\nPOST /study/{id}/rate must redirect with 303 to GET /study\n\n**Data Flow**:\n1. Query: Filter cards where next_review <= date.today().isoformat()\n2. Calculation: Apply SM-2 multiplier to interval based on rating\n3. Persistence: Update card.interval and card.next_review, use cards.update()\n4. Redirect: 303 to GET /study\n\n**Done When**: Tests pass: `uv run pytest test_app.py -k study -v`",
+      "file_mtime": 1767971533.3770885,
+      "task_outcome": "complete",
+      "used_fallback": false,
+      "bash_commands": [
+        "uv run pytest test_app.py -k study -v",
+        "uv run pytest test_app.py -k \"study or rating\" -v",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/004_routes-stud"
+      ],
+      "spawn_order": 6
+    },
+    {
+      "file": "agent-a6882a7.jsonl",
+      "type": "router",
+      "model": "claude-sonnet-4-5-20250929",
+      "tokens": {
+        "input": 35,
+        "cache_read": 50380,
+        "cache_create": 12063,
+        "output": 595,
+        "total": 63073
+      },
+      "api_calls": 8,
+      "tools": {
+        "Read": 3,
+        "Bash": 1,
+        "Write": 1
+      },
+      "tool_calls": 5,
+      "first_reads": [
+        "session_context.md",
+        "cognition_state.md",
+        "test_app.py"
+      ],
+      "cache_hit": true,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "002",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Read",
+        "Bash",
+        "Write"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "I'll analyze this BUILD task and create the workspace for implementing the Card dataclass.",
+          "then": "Read"
+        },
+        {
+          "thinking": "Now I'll create the workspace file for this BUILD task.",
+          "then": "Write"
+        },
+        {
+          "thinking": "Route: full\nType: BUILD\nWorkspace: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/002_data-model_active_from-001.md`\nPath: [test_card_model requirements] \u2192 [Card dataclass definition] \u2192 [fastlite table creation] \u2192 [passing test]\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`\nVerify: `uv run pytest test_app.py -k test_card_mod",
+          "then": null
+        }
+      ],
+      "first_user_full": "## FTL Session Context\n\n### Git State\n- Branch: main\n\n## Prior Knowledge\n\n**date-string-mismatch** (impact: ~429K tokens when hit)\n- PREVENTION: (1) Use db.create(Card, pk='id', transform=True) (2) Compare with date.today().isoformat()\n\n**fastlite-dataclass-sync** (signal: +4)\n- Pattern: Dataclass defines both Python type and database schema via db.create(Class, pk=...)\n\n---\n\n# Cognition State\n\nLast sequence: 001\nActive: none\nRecent: 001_test-spec_complete.md\n\ntest_app.py already created with 6 tests. Uses deferred imports from main.py.\n\n---\n\nCampaign: Build the flashcard app per README.md\nTask: 002 data-model\n\nImplement Card dataclass + fastlite table to pass test_card_model\n\nType: BUILD\nDelta: `/Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/main.py`\nDepends: 001\nDone when: Card dataclass has id, front, back, next_review, interval fields; database table created with `transform=True`\nVerify: `uv run pytest test_app.py -k test_card_model -v`\n\n**WARNING (date-string-mismatch)**: MUST use `db.create(Card, pk='id', transform=True)` for automatic date conversion.",
+      "file_mtime": 1767971533.377853,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "mkdir -p /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace"
+      ],
+      "spawn_order": 7
+    },
+    {
+      "file": "agent-a88f941.jsonl",
+      "type": "synthesizer",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 377,
+        "cache_read": 211014,
+        "cache_create": 41827,
+        "output": 3028,
+        "total": 256246
+      },
+      "api_calls": 21,
+      "tools": {
+        "Read": 6,
+        "Bash": 9
+      },
+      "tool_calls": 15,
+      "first_reads": [
+        "001_test-spec_complete.md",
+        "002_data-model_complete.md",
+        "003_routes-crud_complete.md",
+        "004_routes-study_complete.md",
+        "prior.json",
+        "synthesis.json"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": null,
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Read",
+        "Read",
+        "Bash",
+        "Read",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Bash",
+        "Read"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Now let me check if there is an existing synthesis.json or decision index to update.",
+          "then": "Bash"
+        },
+        {
+          "thinking": "Now I have all the data needed. Let me analyze the patterns from this campaign and create the synthesis output.\n\n**Pattern Analysis from Workspace Files:**\n\n1. **Task 001 (test-spec)**: Used deferred import pattern via `get_app_components()` for test fixtures - tests written before implementation exists\n2. **Task 002 (data-model)**: `fastlite-dataclass-sync` with `transform=True` - critical preven",
+          "then": "Bash"
+        },
+        {
+          "thinking": "Now let me update the Key Findings sections in each workspace file.",
+          "then": "Bash"
+        },
+        {
+          "thinking": "Let me verify the updates were applied correctly.",
+          "then": "Bash"
+        },
+        {
+          "thinking": "The updates were applied but there's leftover placeholder text. Let me clean that up.",
+          "then": "Bash"
+        },
+        {
+          "thinking": "## Synthesis Complete\n\n### Meta-Patterns Extracted\n\n1. **transform-plus-isoformat**: `db.create(transform=True)` + `date.today().isoformat()` (signal: +7)\n   - Components: fastlite transform flag, isoformat() string comparison\n   - Evolution from: date-string-mismatch failure mode (429K tokens prevented)\n\n2. **spec-build-verify-cycle**: Test-first SPEC phase + sequential BUILD phases + pytest veri",
+          "then": null
+        }
+      ],
+      "first_user_full": "Campaign: Build the flashcard app per README.md\nStatus: Completed successfully\n\nWorkspace files to analyze:\n- .ftl/workspace/001_test-spec_complete.md\n- .ftl/workspace/002_data-model_complete.md\n- .ftl/workspace/003_routes-crud_complete.md\n- .ftl/workspace/004_routes-study_complete.md\n\nPrior patterns that were applied:\n- post-redirect-get (signal: +6)\n- layered-build (signal: +5)\n- fastlite-dataclass-sync (signal: +4)\n- algorithm-state-in-model (signal: +4)\n\nKnown failure mode that was prevented:\n- date-string-mismatch: Used db.create(Card, pk='id', transform=True) and date.today().isoformat() for comparisons\n\nExtract meta-patterns from this completed campaign. Look for cross-task patterns and update the decision index.",
+      "file_mtime": 1767971533.3788462,
+      "task_outcome": null,
+      "used_fallback": false,
+      "bash_commands": [
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/ 2>/dev/null || echo ",
+        "cat > /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/synthesis.json << 'EOF",
+        "cat > /tmp/key_findings_001.txt << 'EOF'\n## Key Findings\n#pattern/test-first-deferred-import - Defer",
+        "# Update 002 workspace file - data model\nsed -i '' 's/## Key Findings.*/## Key Findings\\\n#pattern\\/f",
+        "# Update 003 workspace file - CRUD routes\nsed -i '' 's/## Key Findings.*/## Key Findings\\\n#pattern\\/",
+        "# Update 004 workspace file - study routes\nsed -i '' 's/## Key Findings.*/## Key Findings\\\n#pattern\\",
+        "grep -A 8 \"## Key Findings\" /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/",
+        "grep -A 8 \"## Key Findings\" /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/",
+        "# Clean up leftover placeholder text from all workspace files\nfor f in /Users/cck/CC/plugins/marketp"
+      ],
+      "spawn_order": 10
+    },
+    {
+      "file": "agent-aeb7973.jsonl",
+      "type": "builder",
+      "model": "claude-opus-4-5-20251101",
+      "tokens": {
+        "input": 24,
+        "cache_read": 266895,
+        "cache_create": 33093,
+        "output": 6040,
+        "total": 306052
+      },
+      "api_calls": 20,
+      "tools": {
+        "Read": 4,
+        "Write": 3,
+        "Bash": 5,
+        "Edit": 2
+      },
+      "tool_calls": 14,
+      "first_reads": [
+        "001_test-spec_active.md",
+        "README.md",
+        "test_app.py",
+        "main.py"
+      ],
+      "cache_hit": false,
+      "cache_had_content": false,
+      "errors": [],
+      "task_id": "001",
+      "tool_sequence": [
+        "Read",
+        "Read",
+        "Write",
+        "Bash",
+        "Read",
+        "Write",
+        "Bash",
+        "Read",
+        "Edit",
+        "Bash",
+        "Write",
+        "Bash",
+        "Edit",
+        "Bash"
+      ],
+      "reasoning_trace": [
+        {
+          "thinking": "Writing test_app.py with all 6 tests and fixtures.",
+          "then": "Write"
+        },
+        {
+          "thinking": "The import error is expected at SPEC phase since main.py doesn't have the implementation yet. The workspace says tests should import from main.py which doesn't exist yet. Let me check if pytest has a way to collect tests without importing, or if I need to adjust the test structure to allow collection.",
+          "then": "Read"
+        },
+        {
+          "thinking": "The verify command is `pytest --collect-only` which requires successful import. For the tests to be collectable, main.py needs minimal stubs. Looking at the workspace - it says tests WILL fail when run (expected) but collection should work. I need to add pytest.importorskip or restructure. Let me use a conditional import pattern so tests can be collected.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "The importorskip doesn't help because main module exists but doesn't have the exports. I need to defer the import using a try/except or make it a fixture-level import. Let me restructure to put imports inside fixtures/tests where they're needed.",
+          "then": "Write"
+        },
+        {
+          "thinking": "Verification passes - 6 tests collected. Now updating workspace.",
+          "then": "Edit"
+        },
+        {
+          "thinking": "Status: complete\nDelivered: test_app.py with 6 tests (test_card_model, test_card_creation, test_card_listing, test_card_deletion, test_study_shows_due, test_rating_updates_interval) and fixtures (client, db_table, card_class, sample_card, future_card) using deferred imports\nVerified: pass (6 tests collected)\nWorkspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspa",
+          "then": null
+        }
+      ],
+      "first_user_full": "Workspace: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/001_test-spec_active.md\n\n# 001: Write Complete Test Suite (SPEC Phase)\n\n## Implementation\nPath: README requirements \u2192 test design \u2192 test_app.py (6 tests with fixtures)\nDelta: /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/test_app.py\nVerify: uv run pytest test_app.py --collect-only\n\n## Task Type: SPEC (Test Specification)\nBuilder writes ALL 6 tests upfront. No implementation code.\n\n**Pattern warnings** (from prior knowledge):\n- **date-string-mismatch**: Tests involving next_review comparisons MUST use date.today().isoformat() for comparison logic in test assertions\n\n**Test Requirements** (from README):\n1. test_card_model - Card dataclass can be imported and has required fields (id, front, back, next_review, interval)\n2. test_card_creation - POST /cards/new creates card\n3. test_card_listing - GET /cards shows all cards\n4. test_card_deletion - POST /cards/{id}/delete removes card\n5. test_study_shows_due - GET /study shows only due cards (next_review <= today)\n6. test_rating_updates_interval - POST /study/{id}/rate applies SM-2 correctly (Again=1, Hard=1.2x, Good=2.0x, Easy=3.0x)\n\n**Fixtures Needed**:\n- app: FastHTML test client\n- db: In-memory database with Card table\n- sample_card: Card fixture for CRUD/study tests\n\n**Done When**:\n`pytest --collect-only` shows exactly 6 tests collected\n\n**Builder Instructions**:\nWrite test_app.py with:\n1. Import statements (pytest, datetime, FastHTML testing utilities)\n2. Pytest fixtures (app, db, sample_card)\n3. All 6 complete test implementations with assertions\n4. NO implementation code (no main.py, no Card class definition in test file)\n5. Tests should import from main.py (which doesn't exist yet - will fail, expected)",
+      "file_mtime": 1767971533.3801057,
+      "task_outcome": "complete",
+      "used_fallback": false,
+      "bash_commands": [
+        "ls -la /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/",
+        "uv run pytest test_app.py --collect-only 2>&1",
+        "uv run pytest test_app.py --collect-only 2>&1",
+        "uv run pytest test_app.py --collect-only 2>&1",
+        "mv /Users/cck/CC/plugins/marketplaces/crinzo-plugins/scratch/anki-v40/.ftl/workspace/001_test-spec_a"
+      ],
+      "spawn_order": 8
+    }
+  ],
+  "by_type": {
+    "builder": {
+      "count": 4,
+      "tokens": 919916,
+      "cache_hits": 0,
+      "models": {
+        "claude-opus-4-5-20251101": 4
+      }
+    },
+    "router": {
+      "count": 4,
+      "tokens": 201962,
+      "cache_hits": 4,
+      "models": {
+        "claude-sonnet-4-5-20250929": 4
+      }
+    },
+    "direct": {
+      "count": 1,
+      "tokens": 18781,
+      "cache_hits": 0,
+      "models": {
+        "claude-sonnet-4-5-20250929": 1
+      }
+    },
+    "planner": {
+      "count": 1,
+      "tokens": 46851,
+      "cache_hits": 0,
+      "models": {
+        "claude-opus-4-5-20251101": 1
+      }
+    },
+    "synthesizer": {
+      "count": 1,
+      "tokens": 256246,
+      "cache_hits": 0,
+      "models": {
+        "claude-opus-4-5-20251101": 1
+      }
+    }
+  },
+  "totals": {
+    "tokens": 1443756,
+    "tokens_by_category": {
+      "input": 602,
+      "cache_read": 1232643,
+      "cache_create": 190947,
+      "output": 19564
+    },
+    "api_calls": 125,
+    "tool_calls": 88,
+    "agents": 11
+  },
+  "cache_efficiency": 0.8537751531422207,
+  "protocol_fidelity": {
+    "no_learners": true,
+    "single_planner": true,
+    "single_synthesizer": true,
+    "router_builder_match": true,
+    "router_cache_rate": 1.0,
+    "router_cache_effective": 0.0
+  },
+  "loop_signals": {
+    "tasks_complete": 4,
+    "tasks_failed": 0,
+    "fallback_used": 0,
+    "agents_with_fallback": []
+  },
+  "main_session": {
+    "session_id": "7e79b1db-9e35-48cf-966d-19815ce74a08",
+    "total_spawns": 11
+  },
+  "spawn_graph": {
+    "orchestrator": [
+      "planner-a492211",
+      "router-a2006d2",
+      "builder-a150d34",
+      "router-a3004ea",
+      "builder-a2d31c9",
+      "router-a40d1ba",
+      "builder-a5ca71d",
+      "router-a6882a7",
+      "builder-aeb7973",
+      "synthesizer-a88f941"
+    ]
+  },
+  "spawn_sequence": [
+    {
+      "order": 0,
+      "type": "planner",
+      "task": null,
+      "description": "Plan flashcard campaign",
+      "subagent_type": "ftl:ftl-planner"
+    },
+    {
+      "order": 1,
+      "type": "router",
+      "task": null,
+      "description": "Route test-spec task",
+      "subagent_type": "ftl:ftl-router"
+    },
+    {
+      "order": 2,
+      "type": "builder",
+      "task": null,
+      "description": "Build test-spec",
+      "subagent_type": "ftl:ftl-builder"
+    },
+    {
+      "order": 3,
+      "type": "router",
+      "task": null,
+      "description": "Route data-model task",
+      "subagent_type": "ftl:ftl-router"
+    },
+    {
+      "order": 4,
+      "type": "builder",
+      "task": null,
+      "description": "Build data-model",
+      "subagent_type": "ftl:ftl-builder"
+    },
+    {
+      "order": 5,
+      "type": "router",
+      "task": null,
+      "description": "Route routes-crud task",
+      "subagent_type": "ftl:ftl-router"
+    },
+    {
+      "order": 6,
+      "type": "builder",
+      "task": null,
+      "description": "Build routes-crud",
+      "subagent_type": "ftl:ftl-builder"
+    },
+    {
+      "order": 7,
+      "type": "router",
+      "task": null,
+      "description": "Route routes-study task",
+      "subagent_type": "ftl:ftl-router"
+    },
+    {
+      "order": 8,
+      "type": "builder",
+      "task": null,
+      "description": "Build routes-study",
+      "subagent_type": "ftl:ftl-builder"
+    },
+    {
+      "order": 9,
+      "type": "router",
+      "task": null,
+      "description": "Route integration task",
+      "subagent_type": "ftl:ftl-router"
+    },
+    {
+      "order": 10,
+      "type": "synthesizer",
+      "task": null,
+      "description": "Synthesize campaign patterns",
+      "subagent_type": "ftl:ftl-synthesizer"
+    }
+  ],
+  "task_flow": {
+    "001": {
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
+      "tokens": 360408
+    },
+    "002": {
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
+      "tokens": 142925
+    },
+    "003": {
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
+      "tokens": 447551
+    },
+    "004": {
+      "routers": 1,
+      "builders": 1,
+      "attempts": 1,
+      "tokens": 170994
+    },
+    "005": {
+      "routers": 0,
+      "builders": 0,
+      "attempts": 1,
+      "tokens": 18781
+    }
+  }
+}

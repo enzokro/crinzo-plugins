@@ -4,9 +4,10 @@
   "accumulated_from": [
     "anki-v23",
     "anki-v24",
-    "anki-v26"
+    "anki-v26",
+    "anki-v40"
   ],
-  "updated": "2026-01-08",
+  "updated": "2026-01-09",
   "meta_patterns": [
     {
       "name": "layered-build",
@@ -119,6 +120,80 @@
       "campaigns": [
         "anki-v26"
       ]
+    },
+    {
+      "name": "transform-plus-isoformat",
+      "components": [
+        "db.create(transform=True)",
+        "date.today().isoformat()"
+      ],
+      "description": "Two-part date handling: transform=True for storage/retrieval, isoformat() for query comparisons",
+      "signal": 7,
+      "occurrences": 4,
+      "conditions": "Required when SQLite stores dates and code compares against current date",
+      "failure_modes": [
+        "date-string-mismatch if either part missing"
+      ],
+      "derived_from": [
+        "date-string-mismatch prevention",
+        "fastlite-dataclass-sync"
+      ],
+      "campaigns": [
+        "anki-v40"
+      ]
+    },
+    {
+      "name": "test-first-deferred-import",
+      "components": [
+        "get_app_components()",
+        "pytest fixtures",
+        "try/except import"
+      ],
+      "description": "Tests written before implementation using deferred import to handle ImportError gracefully",
+      "signal": 4,
+      "occurrences": 1,
+      "conditions": "Works for spec-first development; fixtures defer import until test runtime",
+      "failure_modes": [
+        "Confusing errors if defer pattern not explained in fixture"
+      ],
+      "campaigns": [
+        "anki-v40"
+      ]
+    },
+    {
+      "name": "adapter-bridge-testing",
+      "components": [
+        "DBWrapper",
+        "dual-API support"
+      ],
+      "description": "Adapter class bridges test expectations (db.delete(id)) with ORM API (db.delete(Class, id))",
+      "signal": 3,
+      "occurrences": 1,
+      "conditions": "Useful when test assumptions differ from implementation reality",
+      "failure_modes": [
+        "Extra abstraction layer adds complexity"
+      ],
+      "campaigns": [
+        "anki-v40"
+      ]
+    },
+    {
+      "name": "spec-build-verify-cycle",
+      "components": [
+        "001_test-spec",
+        "002-004_build",
+        "pytest verification"
+      ],
+      "description": "SPEC phase writes all tests upfront; BUILD phases implement to pass tests; each task verifies with pytest",
+      "signal": 5,
+      "occurrences": 1,
+      "conditions": "Works when requirements are clear upfront; reduces scope creep",
+      "failure_modes": [
+        "Test assumptions may need adjustment during build"
+      ],
+      "campaigns": [
+        "anki-v40"
+      ]
     }
   ],
   "failure_modes": [
@@ -173,6 +248,24 @@
       "reason": "Dataclass defines schema; ORM handles CRUD operations",
       "campaigns": [
         "anki-v26"
+      ]
+    },
+    {
+      "from": "date-string-mismatch failure mode",
+      "to": "transform-plus-isoformat meta-pattern",
+      "reason": "Codified prevention: transform=True alone insufficient, also need isoformat() in queries",
+      "campaigns": [
+        "anki-v36",
+        "anki-v40"
+      ]
+    },
+    {
+      "from": "layered-build pattern",
+      "to": "spec-build-verify-cycle pattern",
+      "reason": "Added test-first phase before build layers; explicit verification gates",
+      "campaigns": [
+        "anki-v24",
+        "anki-v40"
       ]
     }
   ],

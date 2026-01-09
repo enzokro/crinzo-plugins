@@ -1,0 +1,78 @@
+{
+  "campaign": "anki-v40",
+  "meta_patterns": [
+    {
+      "name": "transform-plus-isoformat",
+      "components": ["db.create(transform=True)", "date.today().isoformat()"],
+      "description": "Two-part date handling: transform=True for storage/retrieval, isoformat() for query comparisons",
+      "signal": 7,
+      "occurrences": 4,
+      "conditions": "Required when SQLite stores dates and code compares against current date",
+      "failure_modes": ["date-string-mismatch if either part missing"],
+      "derived_from": ["date-string-mismatch prevention", "fastlite-dataclass-sync"]
+    },
+    {
+      "name": "test-first-deferred-import",
+      "components": ["get_app_components()", "pytest fixtures", "try/except import"],
+      "description": "Tests written before implementation using deferred import to handle ImportError gracefully",
+      "signal": 4,
+      "occurrences": 1,
+      "conditions": "Works for spec-first development; fixtures defer import until test runtime",
+      "failure_modes": ["Confusing errors if defer pattern not explained in fixture"]
+    },
+    {
+      "name": "adapter-bridge-testing",
+      "components": ["DBWrapper", "dual-API support"],
+      "description": "Adapter class bridges test expectations (db.delete(id)) with ORM API (db.delete(Class, id))",
+      "signal": 3,
+      "occurrences": 1,
+      "conditions": "Useful when test assumptions differ from implementation reality",
+      "failure_modes": ["Extra abstraction layer adds complexity"]
+    },
+    {
+      "name": "spec-build-verify-cycle",
+      "components": ["001_test-spec", "002-004_build", "pytest verification"],
+      "description": "SPEC phase writes all tests upfront; BUILD phases implement to pass tests; each task verifies with pytest",
+      "signal": 5,
+      "occurrences": 1,
+      "conditions": "Works when requirements are clear upfront; reduces scope creep",
+      "failure_modes": ["Test assumptions may need adjustment during build"]
+    }
+  ],
+  "evolution": [
+    {
+      "from": "date-string-mismatch failure mode",
+      "to": "transform-plus-isoformat meta-pattern",
+      "reason": "Codified prevention: transform=True alone insufficient, also need isoformat() in queries",
+      "campaigns": ["anki-v36", "anki-v40"]
+    },
+    {
+      "from": "layered-build pattern",
+      "to": "spec-build-verify-cycle pattern",
+      "reason": "Added test-first phase before build layers; explicit verification gates",
+      "campaigns": ["anki-v24", "anki-v40"]
+    }
+  ],
+  "conditions": {
+    "fasthtml-flashcard-apps": {
+      "required_patterns": ["fastlite-dataclass-sync", "post-redirect-get", "transform-plus-isoformat"],
+      "optional_patterns": ["test-first-deferred-import", "adapter-bridge-testing"],
+      "failure_prevention": ["date-string-mismatch"]
+    }
+  },
+  "bridges": [
+    {
+      "pattern": "post-redirect-get",
+      "domains": ["crud-routes", "study-routes", "form-submission"],
+      "note": "303 redirect pattern applies uniformly across all state mutations"
+    }
+  ],
+  "statistics": {
+    "tasks_analyzed": 4,
+    "patterns_applied": 4,
+    "failure_modes_prevented": 1,
+    "new_meta_patterns": 2,
+    "pattern_evolutions": 2
+  },
+  "updated": "2026-01-09T10:15:00Z"
+}

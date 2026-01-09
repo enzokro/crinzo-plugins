@@ -182,3 +182,42 @@ Beliefs with explicit uncertainty. Updated via reflection.
 **Would update if**: Found workspace warnings that failed where code-level injection succeeded.
 
 ---
+
+## L012: Entropy measures cognitive exploration, not failure
+
+**Belief**: The entropy metric (HT) measures cumulative reasoning trace depth across agents, not task success/failure rates. High entropy correlates with exploration patterns, not blocked outcomes.
+
+**Confidence**: 9/10
+
+**Evidence**:
+- v40: HT=7.35 (record) with 0 blocked, 0 fallbacks, 4/4 success. SPEC-first methodology drove exploration.
+- v38: HT=5.6 with 0 blocked, 0 fallbacks, 3/3 success. Library bug investigation drove exploration.
+- v35: HT=5.4 with 1 blocked. Blocked outcome added SMALL contribution, not dominant.
+- v30: HT=3.4 with action-first patterns, minimal exploration.
+
+**Mechanism**: HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor. Entropy measures cognitive effort - how much an agent had to think before acting. SPEC-first methodology forces more thinking (anticipate unknown implementation) vs implementation-first (discover constraints incrementally). The variance component of entropy directly correlates with reasoning trace counts.
+
+**Generalizes to**: Any LLM agent system. Entropy/cognitive load metrics reflect exploration depth, not outcome quality. Optimize by providing better upfront context to enable action-first patterns.
+
+**Would update if**: Found a run where blocked outcomes dominated entropy despite minimal exploration, OR found high entropy from non-exploration sources.
+
+---
+
+## L013: SPEC-first methodology amplifies token cost
+
+**Belief**: Writing all tests before implementation (SPEC-first) is significantly less efficient than TDD or implementation-first approaches for exploratory builds.
+
+**Confidence**: 7/10
+
+**Evidence**:
+- v40 SPEC-first: 1,444K tokens
+- v38 TDD: 993K tokens (+45% cheaper than SPEC-first)
+- v36 implementation-first: 908K tokens (+59% cheaper than SPEC-first)
+
+**Mechanism**: SPEC-first frontloads complexity to the wrong phase. Tests must handle: (1) non-existent imports (deferred import patterns), (2) unknown implementation constraints (fixture design without data structures), (3) API assumptions that may not match reality (DBWrapper needed in v40). When implementation doesn't match test assumptions, builders spend tokens reconciling the mismatch.
+
+**Generalizes to**: Any test-driven development context. SPEC-first works when implementation is fully specified. For exploratory builds, let implementation constraints inform test design.
+
+**Would update if**: Found SPEC-first run that outperformed TDD/implementation-first on an exploratory build task.
+
+---

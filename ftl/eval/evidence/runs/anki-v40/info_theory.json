@@ -1,0 +1,392 @@
+{
+  "run_id": "anki-v40",
+  "computed_at": "2026-01-09T10:12:13.750951",
+  "observer": "haiku-bounded",
+  "epiplexity": {
+    "total": 48.89,
+    "components": {
+      "canonical_sequences": 14.0,
+      "type_consistency": 10.5,
+      "single_attempts": 15.0,
+      "cache_efficiency": 9.39
+    },
+    "by_type": {
+      "builder": 11.75,
+      "router": 12.85,
+      "direct": 1.75,
+      "planner": 1.17,
+      "synthesizer": 2.33
+    }
+  },
+  "entropy": {
+    "total": 7.35,
+    "components": {
+      "retries": 0.0,
+      "fallbacks": 0.0,
+      "variance": 7.35
+    }
+  },
+  "info_gain_ratio": 0.869,
+  "loss_curve": {
+    "area": 1.64,
+    "baseline": 208457,
+    "slope": 0.1019,
+    "trajectory": [
+      0.225,
+      0.203,
+      0.383,
+      0.261,
+      1.945,
+      0.202,
+      0.617,
+      0.303,
+      1.468,
+      1.229
+    ]
+  },
+  "observations": [
+    "High structural information - execution follows learnable patterns",
+    "All 5 tasks completed single-attempt (strong task definitions)",
+    "Degrading trajectory - token consumption increased over time",
+    "Cache efficiency 85.4% indicates strong context reuse"
+  ],
+  "dimensions": {
+    "cognitive_efficiency": {
+      "tokens_per_task": 288751.0,
+      "average_trace_length": 3.36,
+      "action_density": 0.595
+    },
+    "structural_fidelity": {
+      "protocol_adherence": 1.0,
+      "canonical_sequence_match": 1.27
+    },
+    "decision_quality": {
+      "action_first_rate": 1.0,
+      "single_attempt_rate": 1.0
+    },
+    "pattern_emergence": {
+      "memory_influence_rate": 0.081,
+      "patterns_detected": 3
+    },
+    "error_recovery": {
+      "reflector_invocations": 0,
+      "recovery_rate": 1.0,
+      "fallback_count": 0
+    },
+    "knowledge_accumulation": {
+      "cache_effectiveness": 0.0,
+      "delta_seeded_vs_unseeded": null
+    }
+  },
+  "per_agent": [
+    {
+      "step": 0,
+      "type": "planner",
+      "task": null,
+      "tokens": 46851,
+      "epiplexity": {
+        "exploration_overhead": 0.2,
+        "action_density": 0.4,
+        "reasoning_efficiency": 1.0,
+        "first_action_position": 1,
+        "total_tools": 5,
+        "reasoning_depth": 1,
+        "glob_used": false,
+        "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 1,
+        "explore_count": 0,
+        "action_count": 0,
+        "action_explore_ratio": null,
+        "first_action_position": -1,
+        "trace_pattern": ".",
+        "memory_references": 1,
+        "memory_patterns": [
+          "prior.?knowledge"
+        ]
+      }
+    },
+    {
+      "step": 1,
+      "type": "router",
+      "task": "004",
+      "tokens": 42368,
+      "epiplexity": {
+        "exploration_overhead": 0.5,
+        "action_density": 0.5,
+        "reasoning_efficiency": 2.0,
+        "first_action_position": 2,
+        "total_tools": 4,
+        "reasoning_depth": 2,
+        "glob_used": false,
+        "read_count": 2
+      },
+      "cognition": {
+        "trace_count": 2,
+        "explore_count": 0,
+        "action_count": 0,
+        "action_explore_ratio": null,
+        "first_action_position": -1,
+        "trace_pattern": "..",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 2,
+      "type": "builder",
+      "task": "002",
+      "tokens": 79852,
+      "epiplexity": {
+        "exploration_overhead": 0.429,
+        "action_density": 0.571,
+        "reasoning_efficiency": 2.0,
+        "first_action_position": 3,
+        "total_tools": 7,
+        "reasoning_depth": 2,
+        "glob_used": false,
+        "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 2,
+        "explore_count": 0,
+        "action_count": 2,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 0,
+        "trace_pattern": "AA",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 3,
+      "type": "router",
+      "task": "001",
+      "tokens": 54356,
+      "epiplexity": {
+        "exploration_overhead": 0.6,
+        "action_density": 0.4,
+        "reasoning_efficiency": 1.594,
+        "first_action_position": 3,
+        "total_tools": 5,
+        "reasoning_depth": 2,
+        "glob_used": false,
+        "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 2,
+        "explore_count": 0,
+        "action_count": 0,
+        "action_explore_ratio": null,
+        "first_action_position": -1,
+        "trace_pattern": "..",
+        "memory_references": 1,
+        "memory_patterns": [
+          "pattern.?warning"
+        ]
+      }
+    },
+    {
+      "step": 4,
+      "type": "builder",
+      "task": "003",
+      "tokens": 405386,
+      "epiplexity": {
+        "exploration_overhead": 0.105,
+        "action_density": 0.789,
+        "reasoning_efficiency": 2.042,
+        "first_action_position": 2,
+        "total_tools": 19,
+        "reasoning_depth": 8,
+        "glob_used": false,
+        "read_count": 4
+      },
+      "cognition": {
+        "trace_count": 8,
+        "explore_count": 0,
+        "action_count": 2,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 0,
+        "trace_pattern": "A......A",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 5,
+      "type": "router",
+      "task": "003",
+      "tokens": 42165,
+      "epiplexity": {
+        "exploration_overhead": 0.5,
+        "action_density": 0.5,
+        "reasoning_efficiency": 1.889,
+        "first_action_position": 2,
+        "total_tools": 4,
+        "reasoning_depth": 2,
+        "glob_used": false,
+        "read_count": 2
+      },
+      "cognition": {
+        "trace_count": 2,
+        "explore_count": 0,
+        "action_count": 0,
+        "action_explore_ratio": null,
+        "first_action_position": -1,
+        "trace_pattern": "..",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 6,
+      "type": "builder",
+      "task": "004",
+      "tokens": 128626,
+      "epiplexity": {
+        "exploration_overhead": 0.333,
+        "action_density": 0.667,
+        "reasoning_efficiency": 2.06,
+        "first_action_position": 3,
+        "total_tools": 9,
+        "reasoning_depth": 3,
+        "glob_used": false,
+        "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 3,
+        "explore_count": 0,
+        "action_count": 2,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 0,
+        "trace_pattern": "A.A",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 7,
+      "type": "router",
+      "task": "002",
+      "tokens": 63073,
+      "epiplexity": {
+        "exploration_overhead": 0.6,
+        "action_density": 0.4,
+        "reasoning_efficiency": 3.0,
+        "first_action_position": 3,
+        "total_tools": 5,
+        "reasoning_depth": 3,
+        "glob_used": false,
+        "read_count": 3
+      },
+      "cognition": {
+        "trace_count": 3,
+        "explore_count": 0,
+        "action_count": 1,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 1,
+        "trace_pattern": ".A.",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 8,
+      "type": "builder",
+      "task": "001",
+      "tokens": 306052,
+      "epiplexity": {
+        "exploration_overhead": 0.143,
+        "action_density": 0.714,
+        "reasoning_efficiency": 0.993,
+        "first_action_position": 2,
+        "total_tools": 14,
+        "reasoning_depth": 6,
+        "glob_used": false,
+        "read_count": 4
+      },
+      "cognition": {
+        "trace_count": 6,
+        "explore_count": 1,
+        "action_count": 2,
+        "action_explore_ratio": 2.0,
+        "first_action_position": 0,
+        "trace_pattern": "AE...A",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    },
+    {
+      "step": 10,
+      "type": "synthesizer",
+      "task": null,
+      "tokens": 256246,
+      "epiplexity": {
+        "exploration_overhead": 0.267,
+        "action_density": 0.6,
+        "reasoning_efficiency": 1.982,
+        "first_action_position": 4,
+        "total_tools": 15,
+        "reasoning_depth": 6,
+        "glob_used": false,
+        "read_count": 6
+      },
+      "cognition": {
+        "trace_count": 6,
+        "explore_count": 1,
+        "action_count": 0,
+        "action_explore_ratio": 0.0,
+        "first_action_position": -1,
+        "trace_pattern": "E.....",
+        "memory_references": 1,
+        "memory_patterns": [
+          "failure.?mode"
+        ]
+      }
+    },
+    {
+      "step": null,
+      "type": "direct",
+      "task": "005",
+      "tokens": 18781,
+      "epiplexity": {
+        "exploration_overhead": 0.0,
+        "action_density": 1.0,
+        "reasoning_efficiency": 2.0,
+        "first_action_position": 0,
+        "total_tools": 1,
+        "reasoning_depth": 2,
+        "glob_used": false,
+        "read_count": 0
+      },
+      "cognition": {
+        "trace_count": 2,
+        "explore_count": 0,
+        "action_count": 2,
+        "action_explore_ratio": 999.0,
+        "first_action_position": 0,
+        "trace_pattern": "AA",
+        "memory_references": 0,
+        "memory_patterns": []
+      }
+    }
+  ],
+  "orchestration": {
+    "memory_influence_rate": 0.081,
+    "memory_patterns_used": [
+      "prior.?knowledge",
+      "failure.?mode",
+      "pattern.?warning"
+    ],
+    "action_first_rate": 1.0,
+    "builder_count": 4,
+    "average_trace_length": 3.36
+  },
+  "summary": {
+    "ST": 48.9,
+    "HT": 7.3,
+    "IGR": 0.87,
+    "interpretation": "highly structured"
+  }
+}

@@ -4,6 +4,24 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: SPEC-first methodology caused SEVERE regression (+45%)
+
+**Expected**: SPEC-first methodology (write all tests upfront in task 001, then implement sequentially) should be more efficient than TDD by eliminating redundant test-write cycles and providing clear targets for each build task.
+**Observed**: v40 used SPEC-first and consumed 1,444K tokens (+45.4% from v38's 993K TDD run). Task 001 (test-spec) alone consumed 306K tokens to write tests without implementation. Task 003 (routes-crud) consumed 405K tokens debugging test expectation vs implementation mismatches.
+**Gap**: SPEC-first frontloads complexity to the wrong phase. Writing tests before implementation forces tests to handle: (1) non-existent imports (deferred import pattern), (2) unknown implementation details (DBWrapper needed for test API compatibility), (3) fixture design without knowing actual data structures. TDD's incremental approach allows tests to co-evolve with implementation. The mental model "write tests once, pass them efficiently" ignores the cost of writing tests that must anticipate unknown implementation constraints. SPEC-first may work when implementation is fully specified; for exploratory builds it AMPLIFIES costs.
+**Updated**: journal.md
+
+---
+
+## 2026-01-09: Entropy hit 7.3 - 30% above previous record
+
+**Expected**: Based on v38's HT=5.6 being the highest observed (with 0 blocked tasks), v40's clean execution (4/4 complete, 0 fallbacks) should have HT in the 4-6 range.
+**Observed**: v40 achieved HT=7.35 - 30% above the previous record. Entropy components show variance=7.35 as the dominant factor. No retries, no fallbacks.
+**Gap**: This STRONGLY CONFIRMS the v38 hypothesis that entropy measures exploration pattern depth, not failure modes. v40's builders had extensive reasoning chains: Builder 003 had 8 traces (trace pattern "A......A"), Builder 001 had 6 traces (trace pattern "AE...A"). The SPEC-first methodology required more exploration because tests were written without implementation context. Updated entropy model: **HT ≈ sum(per_agent_reasoning_trace_count) × complexity_factor**. Entropy is NOT capped by task success - it measures cognitive effort regardless of outcome.
+**Updated**: questions.md (entropy hypothesis confirmed)
+
+---
+
 ## 2026-01-09: TDD methodology INCREASED token cost
 
 **Expected**: TDD (test-first) methodology would reduce debugging by catching issues early through failing tests, leading to lower total token consumption.

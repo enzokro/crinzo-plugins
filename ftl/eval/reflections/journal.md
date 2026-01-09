@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v40
+
+**Observed**: 1,444K tokens (+45.4% from v38's 993K - SEVERE regression). ST=48.9, HT=7.3 (NEW RECORD), IGR=0.87. 4/4 tasks complete, 0 fallbacks. Cache efficiency 85.4% (best ever). Protocol fidelity perfect: single_planner=true, single_synthesizer=true, router_cache_rate=1.0. 11 agents (v38 had 9).
+
+**Noticed**: Major methodology change from v38. v38 used TDD (4 tasks: data-model→crud→study→integration). v40 used SPEC-first (5 tasks: test-spec→data-model→routes-crud→routes-study→integration). The SPEC task (001) consumed 306K tokens writing all 6 tests upfront with deferred imports pattern. Task 003 (routes-crud) was most expensive at 405K tokens (8 reasoning traces, 19 tool calls). Builder encountered test expectation mismatches - tests expected `db` to be a Table with specific API but implementation used Database. Token breakdown by task: 001=360K, 002=143K, 003=448K, 004=171K, 005=19K (verify-only). Loss curve shows degrading trajectory (started efficient, got worse over time).
+
+**Surprised**: SPEC-first methodology MASSIVELY regressed token efficiency vs TDD. Expected SPEC-first to be more efficient (write tests once, pass them sequentially). Instead +45.4% regression. The issue: SPEC creates tests before understanding implementation constraints (deferred imports needed, test fixtures needed DBWrapper wrapper). Builder 001 had to iterate multiple times to make tests collectable without implementation. Builder 003 spent significant tokens resolving test expectation vs implementation reality (db Table vs Database API mismatch). Also: entropy at 7.3 is 30% higher than previous record (5.6) - WITHOUT any blocked tasks. This CONFIRMS the v38 hypothesis: entropy measures exploration pattern depth, not failure modes.
+
+**Unclear**: Why is SPEC-first so expensive? Hypothesis: SPEC-first frontloads complexity (tests must handle non-existent imports, fixtures must be general enough for unknown implementation). TDD allows tests to evolve with implementation. Is there a hybrid approach (skeleton tests → implementation → test refinement) that captures benefits of both? Also: what's driving entropy to 7.3? The per-agent traces show extensive reasoning chains (Builder 003 had 8 traces, Builder 001 had 6) but all successful.
+
+**Updated**: journal.md, surprises.md (SPEC-first regression, entropy record)
+
+---
+
 ## 2026-01-09: anki-v38
 
 **Observed**: 993K tokens (+9.3% from v36's 908K - regression). ST=42.5 (down from 48.0), HT=5.6 (highest ever, up from 4.3), IGR=0.88. 3/3 builders marked complete. Cache efficiency 83.4% (improved). Protocol fidelity: router_builder_match=false, single_planner=true, single_synthesizer=true. 9 agents (v36 had 10). TDD methodology with 4 tasks.
