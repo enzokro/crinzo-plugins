@@ -27,6 +27,22 @@ def load_accumulator(path: Path) -> dict | None:
         return None
 
 
+def normalize_signal(signal) -> int:
+    """Convert signal to int for sorting. Handles 'positive', 'negative', int, str."""
+    if isinstance(signal, int):
+        return signal
+    if isinstance(signal, str):
+        if signal == "positive":
+            return 1
+        if signal == "negative":
+            return -1
+        try:
+            return int(signal)
+        except ValueError:
+            return 0
+    return 0
+
+
 def generate_prior_knowledge(data: dict) -> str:
     """Generate markdown prior knowledge section."""
     lines = [
@@ -39,11 +55,11 @@ def generate_prior_knowledge(data: dict) -> str:
     # High-signal patterns (signal >= 2)
     patterns = sorted(
         data.get("meta_patterns", []),
-        key=lambda p: p.get("signal", 0),
+        key=lambda p: normalize_signal(p.get("signal", 0)),
         reverse=True
     )
 
-    high_signal_patterns = [p for p in patterns if p.get("signal", 0) >= 2]
+    high_signal_patterns = [p for p in patterns if normalize_signal(p.get("signal", 0)) >= 2]
 
     if high_signal_patterns:
         lines.append("## Meta-Patterns (high confidence)")
