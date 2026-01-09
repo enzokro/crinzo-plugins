@@ -26,6 +26,10 @@ Meta-question. The instruments measure FTL; nothing measures the instruments. Po
 
 The epiplexity metric is new (v23). Is it measuring what we think?
 
+### Why did entropy drop significantly in v30?
+
+v30 HT=3.4 vs v29 HT=4.3 (-21%). Both runs had identical task structure (4/4 complete, 0 fallbacks). Yet entropy variance component dropped substantially. Possible explanations: (1) measurement noise, (2) protocol fidelity improvement (single_planner=true restored), (3) workspace warnings reducing exploratory behavior variance. Worth tracking in v31.
+
 ---
 
 ## Resolved

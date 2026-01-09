@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-08: anki-v30
+
+**Observed**: 695K tokens (+0.7% from v29 - stable). ST=46.2, HT=3.4, IGR=0.93. All 4 tasks complete, 0 fallbacks. Cache efficiency 76.5%. Protocol fidelity restored (single_planner=true, vs v29's false).
+
+**Noticed**: Builder 003 (routes-study) continued improving: 126K tokens (vs v29's 154K = -18%). Workspace warning pattern compounding. All builders show "I have a clear picture" first thoughts - action-first cognitive state is now standard. Planner properly typed (was "unknown" in v29). Entropy dropped from 4.3 to 3.4 - system becoming more deterministic.
+
+**Surprised**: None. This is expected stability - the workspace warning pattern established in v29 continues to deliver. Token count flat but quality metrics improved across all dimensions (ST↑, HT↓, IGR↑). The system is doing the same work with better structure.
+
+**Unclear**: Why did HT drop so significantly (4.3 → 3.4)? Is this measurement noise or genuine variance reduction? Worth watching in v31.
+
+**Updated**: N/A (stable run, no protocol changes needed)
+
+---
+
 ## 2026-01-08: anki-v29
 
 **Observed**: 690K tokens (-17.2% from v28). ST=44.5, HT=4.3, IGR=0.91. All 4 tasks complete, 0 fallbacks. Cache efficiency 74.6%.
