@@ -77,5 +77,23 @@ AGENT_COUNT=$(ls "$RESULTS_DIR"/agent-*.jsonl 2>/dev/null | wc -l | tr -d ' ')
 MAIN_COUNT=$(ls "$RESULTS_DIR"/*.jsonl 2>/dev/null | grep -v "agent-" | wc -l | tr -d ' ')
 echo "Copied $AGENT_COUNT agent logs + $MAIN_COUNT main session(s) to $RESULTS_DIR/"
 
+# Collect synthesis.json if exists (cross-run learning)
+SYNTHESIS_SRC="$TARGET/.ftl/synthesis.json"
+if [ -f "$SYNTHESIS_SRC" ]; then
+    cp "$SYNTHESIS_SRC" "$RESULTS_DIR/"
+    echo "Collected synthesis.json"
+
+    # Trigger merge into accumulator
+    MERGE_SCRIPT="$SCRIPT_DIR/merge.sh"
+    if [ -x "$MERGE_SCRIPT" ]; then
+        echo "Merging patterns into accumulator..."
+        "$MERGE_SCRIPT" "$TEMPLATE" "$VERSION" "$SYNTHESIS_SRC" || {
+            echo "Warning: Merge failed (GIGO protection triggered?)"
+        }
+    fi
+else
+    echo "Note: No synthesis.json found (synthesizer may not have run)"
+fi
+
 echo "Collection complete: $RESULTS_DIR"
 echo "Run './eval.sh capture ${TEMPLATE}-${VERSION}' to extract evidence"

@@ -35,6 +35,22 @@ fi
 # Copy template
 cp -r "$TEMPLATE_DIR" "$TARGET"
 
+# Seed memory if accumulator exists (cross-run learning)
+MEMORY_FILE="$EVAL_DIR/memory/patterns/${TEMPLATE}.json"
+if [ -f "$MEMORY_FILE" ]; then
+    mkdir -p "$TARGET/.ftl/memory"
+    cp "$MEMORY_FILE" "$TARGET/.ftl/memory/prior.json"
+
+    # Generate prior knowledge markdown for planner injection
+    PRIOR_MD="$TARGET/.ftl/memory/prior_knowledge.md"
+    python3 "$EVAL_DIR/instruments/generate_prior.py" "$MEMORY_FILE" -o "$PRIOR_MD"
+
+    echo "Seeded memory from $MEMORY_FILE"
+    echo "  Prior knowledge: $PRIOR_MD"
+else
+    echo "No accumulated memory for $TEMPLATE (de novo run)"
+fi
+
 # Initialize uv environment
 cd "$TARGET"
 uv sync

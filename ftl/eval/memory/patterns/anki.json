@@ -1,0 +1,76 @@
+{
+  "domain": "flashcard-app",
+  "framework": "fasthtml-fastlite",
+  "accumulated_from": ["anki-v23", "anki-v24"],
+  "updated": "2026-01-08",
+
+  "meta_patterns": [
+    {
+      "name": "layered-build",
+      "components": ["data-model", "crud-routes", "algorithm-routes", "test-suite"],
+      "description": "Foundation-first layering: dataclass -> database -> CRUD -> domain logic -> tests",
+      "signal": 5,
+      "campaigns": ["anki-v23", "anki-v24"],
+      "conditions": "Works when each layer has clear inputs/outputs and minimal coupling"
+    },
+    {
+      "name": "fastlite-dataclass-sync",
+      "components": ["python-dataclass", "sqlite-table", "fastlite-db.create"],
+      "description": "Dataclass defines both Python type and database schema via db.create(Class, pk=...)",
+      "signal": 4,
+      "campaigns": ["anki-v23", "anki-v24"],
+      "conditions": "Works when schema is simple; may not scale to complex relations"
+    },
+    {
+      "name": "post-redirect-get",
+      "components": ["POST-mutation", "303-redirect", "GET-confirmation"],
+      "description": "All state mutations use POST, redirect with 303 to GET route",
+      "signal": 6,
+      "campaigns": ["anki-v23", "anki-v24"],
+      "conditions": "Works for form-based web apps; prevents duplicate submissions"
+    },
+    {
+      "name": "algorithm-state-in-model",
+      "components": ["dataclass-fields", "algorithm-state"],
+      "description": "Algorithm state (interval, next_review) stored directly in entity dataclass",
+      "signal": 4,
+      "campaigns": ["anki-v23", "anki-v24"],
+      "conditions": "Works when algorithm state is per-entity; clean for simple algorithms"
+    }
+  ],
+
+  "failure_modes": [
+    {
+      "name": "date-string-mismatch",
+      "description": "SQLite stores Python date objects as ISO strings. Direct comparison fails.",
+      "occurrences": 1,
+      "impact_tokens": 72000,
+      "mitigation": "Compare string representations or parse dates explicitly. Use str(date) for comparisons.",
+      "campaigns": ["anki-v23"],
+      "resolved": ["anki-v24"],
+      "warn_for": ["study-routes", "date-fields", "next_review"]
+    }
+  ],
+
+  "evolution": [
+    {
+      "from": "raw SQL queries",
+      "to": "dataclass + fastlite",
+      "reason": "Type-safe CRUD without SQL strings",
+      "campaigns": ["anki-v23"]
+    },
+    {
+      "from": "parallel task routing",
+      "to": "sequential task routing",
+      "reason": "Knowledge flows forward; complex tasks benefit from prior context",
+      "campaigns": ["anki-v23 -> anki-v24"],
+      "impact": "-32% tokens on complex tasks"
+    }
+  ],
+
+  "verification_patterns": {
+    "data-model": "python3 -c \"from main import Model; print(Model)\"",
+    "routes": "uv run pytest test_app.py -k <route_prefix>",
+    "full-suite": "uv run pytest test_app.py -v"
+  }
+}
