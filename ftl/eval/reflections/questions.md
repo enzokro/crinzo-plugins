@@ -26,13 +26,13 @@ Meta-question. The instruments measure FTL; nothing measures the instruments. Po
 
 The epiplexity metric is new (v23). Is it measuring what we think?
 
-### Why did entropy drop significantly in v30?
-
-v30 HT=3.4 vs v29 HT=4.3 (-21%). Both runs had identical task structure (4/4 complete, 0 fallbacks). Yet entropy variance component dropped substantially. Possible explanations: (1) measurement noise, (2) protocol fidelity improvement (single_planner=true restored), (3) workspace warnings reducing exploratory behavior variance. Worth tracking in v31.
-
 ---
 
 ## Resolved
+
+### Why did entropy drop significantly in v30?
+
+**Resolved in anki-v31**. It was measurement noise. v31's HT=4.4 bounced back to v29 levels (HT=4.3). The v30 drop to HT=3.4 was not a genuine reduction in execution variance - entropy fluctuates in the 4.0-4.5 range for stable campaigns. Protocol fidelity restoration was coincidental, not causal. The variance component is inherently noisy at this scale.
 
 ### Will cross-run learning compound?
 

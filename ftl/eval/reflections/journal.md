@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v31
+
+**Observed**: 755K tokens (+8.5% from v30 - first regression after 2 stable runs). ST=46.0, HT=4.4, IGR=0.91. All 4 tasks complete, 0 fallbacks. Cache efficiency 74.8%. Protocol fidelity perfect (single_planner, single_synthesizer, router_cache_rate=1.0).
+
+**Noticed**: Builder 003 (routes-study) regressed: 162K tokens vs v30's 126K (+28%). This is the same task that hit 154K in v29 and 286K in v28. The workspace warning pattern is still active, so this isn't a return to the debugging spiral - the reasoning traces still show "I have a clear picture" action-first patterns. The extra tokens appear to be in Edit operations (5 edits in v31 vs 2 in v30) - more iterative refinement rather than debugging.
+
+**Surprised**: v30's entropy drop (HT=3.4) reversed to HT=4.4 in v31. This confirms the v30 journal hypothesis - the drop WAS measurement noise, not genuine variance reduction. Entropy is inherently noisy in the 4-4.5 range for stable campaigns.
+
+**Unclear**: Why did builder 003 need 5 edits instead of 2? Both runs had the same workspace specification. Possible factors: (1) random variation in LLM output, (2) subtle prompt differences, (3) test file state differences. Not concerning unless pattern persists.
+
+**Updated**: questions.md (entropy question resolved)
+
+---
+
 ## 2026-01-08: anki-v30
 
 **Observed**: 695K tokens (+0.7% from v29 - stable). ST=46.2, HT=3.4, IGR=0.93. All 4 tasks complete, 0 fallbacks. Cache efficiency 76.5%. Protocol fidelity restored (single_planner=true, vs v29's false).
