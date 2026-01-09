@@ -4,6 +4,24 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Date-string-mismatch migrated to test phase
+
+**Expected**: Workspace warnings for task 003 (study routes) would contain the date-string-mismatch problem as in v29. Task 004 (tests) would be lightweight verification.
+**Observed**: v35 Task 003 completed cleanly in 130K tokens. Task 004 builder wrote tests that exercised study routes and hit the date-string-mismatch bug, consuming 429K tokens and ending BLOCKED. Total run: 1.087M tokens (+62% regression).
+**Gap**: Workspace warnings protect the task they're attached to, not downstream tasks that interact with the code. The bug was in main.py (created by task 003), but task 003 builder never ran tests (empty test file). Task 004 builder couldn't fix main.py (outside its Delta). The warning mechanism needs to propagate to ANY task whose tests touch date-sensitive code, OR main.py needs to be fixed with `transform=True` in task 001/003. Current mitigation is per-task; bug manifestation is cross-task.
+**Updated**: journal.md, questions.md
+
+---
+
+## 2026-01-09: Entropy breaks 5.0 for first time
+
+**Expected**: Entropy would remain in observed range (3.4-4.7). Pattern suggested single_planner=true → higher entropy (~4.4-4.7), single_planner=false → lower entropy (~3.4).
+**Observed**: v35 achieved HT=5.4 with single_planner=true - highest observed value, 15% above previous max (4.7).
+**Gap**: Entropy is not capped by execution quality. v35 had clean protocol fidelity but extremely high entropy. The blocked task 004 builder (429K tokens, 7 reasoning traces, exploration pattern "A.E.E..") likely contributed - entropy measures variance in agent behavior patterns, and debugging spirals have high behavioral variance. The spike correlates with the blocked outcome more than protocol composition.
+**Updated**: questions.md
+
+---
+
 ## 2026-01-09: Same protocol deviation, opposite outcome
 
 **Expected**: Based on v32's success (-16.2% with synthesizer-as-planner, no dedicated planner), v34's identical protocol deviation should perform similarly or better.

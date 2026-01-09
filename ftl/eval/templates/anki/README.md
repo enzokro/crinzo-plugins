@@ -13,9 +13,11 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 | 001 | data-model | Card dataclass + SQLite table via fastlite | `python3 -c "from main import Card; print(Card)"` |
 | 002 | routes-crud | CRUD routes: /, /cards, /cards/new, /cards/{id}/delete | `uv run pytest test_app.py -k card` |
 | 003 | routes-study | Study routes: /study, /study/{id}/reveal, /study/{id}/rate + SM-2 | `uv run pytest test_app.py -k study` |
-| 004 | tests | Verify all 6 test behaviors pass | `uv run pytest test_app.py -v` |
+| 004 | tests | **BUILD** test_app.py with 6 test functions | `uv run pytest test_app.py -v` |
 
 **Dependencies:** 001 → 002 → 003 → 004 (sequential)
+
+**IMPORTANT for task 004**: This is a BUILD task, not a VERIFY task. The test file starts empty. Builder must WRITE the 6 test functions, then verify they pass.
 
 ---
 
@@ -35,6 +37,8 @@ Card:
   - next_review: date (when card is next due)
   - interval: int (days until next review, starts at 1)
 ```
+
+**CRITICAL for fastlite with date fields**: Use `db.create(Card, pk="id", transform=True)` to enable automatic date conversion. Without `transform=True`, dates are stored as strings and comparisons fail.
 
 ### 2. Routes
 

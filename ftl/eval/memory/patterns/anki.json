@@ -125,19 +125,24 @@
     {
       "name": "date-string-mismatch",
       "description": "SQLite stores Python date objects as ISO strings. Direct comparison fails.",
-      "occurrences": 1,
-      "impact_tokens": 72000,
-      "mitigation": "Compare string representations or parse dates explicitly. Use str(date) for comparisons.",
+      "occurrences": 2,
+      "impact_tokens": 429000,
+      "prevention": "ALWAYS use db.create(Class, pk='id', transform=True) when dataclass has date/datetime fields. The transform=True enables automatic type conversion.",
+      "mitigation": "If table already created without transform: compare with str(date.today()) or parse dates explicitly.",
+      "symptom": "card.next_review <= date.today() returns unexpected results or fails silently",
       "campaigns": [
-        "anki-v23"
+        "anki-v23",
+        "anki-v35"
       ],
       "resolved": [
         "anki-v24"
       ],
       "warn_for": [
+        "data-model",
         "study-routes",
         "date-fields",
-        "next_review"
+        "next_review",
+        "db.create"
       ]
     }
   ],

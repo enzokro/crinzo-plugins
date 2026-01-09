@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v35
+
+**Observed**: 1,087K tokens (+62% from v34 - severe regression). ST=49.4, HT=5.4 (highest observed), IGR=0.9. 3/4 builder tasks complete, 1 BLOCKED. Cache efficiency 82.2% (improved). Protocol fidelity restored: single_planner=true, single_synthesizer=true. Task 004 builder consumed 429K tokens (39% of total) and ended blocked.
+
+**Noticed**: Date-string-mismatch struck task 004 (tests) instead of task 003 (study routes). Builder 004 transcript shows familiar spiral: "SQLite stores dates as strings but the code expects date objects" → "This is a bug in main.py" → blocked. The workspace warning pattern that protected task 003 in v29 didn't extend to task 004. Builders 002 and 003 both noted empty test file and skipped verification - test creation was deferred to task 004, which then hit the date bug while writing tests that exercised study routes. Token breakdown: 001=104K, 002=135K, 003=171K, 004=524K (router+builder).
+
+**Surprised**: Date-string-mismatch migrated from implementation phase (task 003 in v28) to test phase (task 004 in v35). The workspace warning protected task 003 builder (130K, clean), but the bug surfaced when task 004 builder wrote tests that called study routes. Workspace warnings work per-task, but bugs can manifest in downstream tasks. Also: entropy hit 5.4 (highest ever), confirming hypothesis that single_planner=true correlates with higher entropy.
+
+**Unclear**: Why didn't Builder 004 receive a warning about date-string-mismatch? The pattern now appears in test writing, not just route implementation. Does the warning need to propagate to ALL tasks that might touch date-sensitive code, or should main.py be fixed upstream? Builder 004 correctly diagnosed "This is a bug in main.py" but couldn't fix it (outside Delta).
+
+**Updated**: N/A (analysis for next run intervention)
+
+---
+
 ## 2026-01-09: anki-v34
 
 **Observed**: 671K tokens (+6.8% from v33 - first regression after stable run). ST=42.8, HT=3.4, IGR=0.93. 3/3 builder tasks complete, 0 fallbacks. Cache efficiency 76.9% (essentially flat). Protocol fidelity: single_planner=false, single_synthesizer=false (same "deviant" pattern as v32).

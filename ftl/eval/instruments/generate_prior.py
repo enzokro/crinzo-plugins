@@ -96,13 +96,10 @@ def generate_prior_knowledge(data: dict) -> str:
 
         for fm in failures:
             name = fm.get("name", "unnamed")
-            occurrences = fm.get("occurrences", 0)
-            resolutions = fm.get("resolutions", 0)
+            impact_tokens = fm.get("impact_tokens", fm.get("occurrences", 0) * 50000)
+            impact_k = impact_tokens // 1000
 
-            # Estimate impact (50K tokens per occurrence is rough average)
-            impact = occurrences * 50
-
-            lines.append(f"**{name}** (impact: ~{impact}K tokens when hit)")
+            lines.append(f"**{name}** (impact: ~{impact_k}K tokens when hit)")
 
             if "description" in fm:
                 lines.append(f"- Issue: {fm['description']}")
@@ -111,8 +108,12 @@ def generate_prior_knowledge(data: dict) -> str:
             if "symptom" in fm:
                 lines.append(f"- Symptom: {fm['symptom']}")
 
+            # Prevention is MORE important than mitigation (root fix vs workaround)
+            if "prevention" in fm:
+                lines.append(f"- **PREVENTION**: {fm['prevention']}")
+
             if "mitigation" in fm:
-                lines.append(f"- Mitigation: {fm['mitigation']}")
+                lines.append(f"- Mitigation (if prevention missed): {fm['mitigation']}")
 
             # Warn builders about this
             if "warn_for" in fm:
