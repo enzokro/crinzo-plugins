@@ -4,20 +4,36 @@ Standardized flashcard app for FTL campaign evaluation. This README defines the 
 
 ---
 
-## REQUIRED TASK BREAKDOWN
+## REQUIRED TASK BREAKDOWN (TDD)
+
+**Test-Driven Development**: Each task writes tests FIRST, then implements to make them pass.
 
 **The planner MUST create exactly these 4 tasks. Do NOT merge, split, reorder, or add tasks.**
 
 | Task | Slug | Description | Verify |
 |------|------|-------------|--------|
-| 001 | data-model | Card dataclass + SQLite table via fastlite | `python3 -c "from main import Card; print(Card)"` |
-| 002 | routes-crud | CRUD routes: /, /cards, /cards/new, /cards/{id}/delete | `uv run pytest test_app.py -k card` |
-| 003 | routes-study | Study routes: /study, /study/{id}/reveal, /study/{id}/rate + SM-2 | `uv run pytest test_app.py -k study` |
-| 004 | tests | **BUILD** test_app.py with 6 test functions | `uv run pytest test_app.py -v` |
+| 001 | data-model | TDD: Test Card import → Implement Card dataclass + fastlite table | `uv run pytest test_app.py -k test_card_model -v` |
+| 002 | routes-crud | TDD: Write CRUD tests (create, list, delete) → Implement routes | `uv run pytest test_app.py -k card -v` |
+| 003 | routes-study | TDD: Write study tests (due, reveal, rate) → Implement routes + SM-2 | `uv run pytest test_app.py -k study -v` |
+| 004 | integration | Verify all 6 tests pass, fix any failures | `uv run pytest test_app.py -v` |
 
 **Dependencies:** 001 → 002 → 003 → 004 (sequential)
 
-**IMPORTANT for task 004**: This is a BUILD task, not a VERIFY task. The test file starts empty. Builder must WRITE the 6 test functions, then verify they pass.
+---
+
+## TDD Protocol
+
+Each builder task (001-003) follows this cycle:
+
+```
+1. RED:   Write test(s) that define expected behavior
+2. GREEN: Implement minimal code to pass tests
+3. VERIFY: Run tests, confirm pass
+```
+
+**Task 001** bootstraps test_app.py with pytest fixtures and the first test.
+**Tasks 002-003** ADD tests to test_app.py, then implement.
+**Task 004** runs full suite - if anything fails, fix it.
 
 ---
 
@@ -39,6 +55,8 @@ Card:
 ```
 
 **CRITICAL for fastlite with date fields**: Use `db.create(Card, pk="id", transform=True)` to enable automatic date conversion. Without `transform=True`, dates are stored as strings and comparisons fail.
+
+**Date comparisons in queries**: Even with `transform=True`, compare dates using `date.today().isoformat()` in Python code.
 
 ### 2. Routes
 
@@ -63,33 +81,39 @@ Rating updates interval:
 
 After rating: `next_review = today + interval days`
 
-### 4. Test Coverage
+### 4. Test Coverage (6 tests total)
 
-`test_app.py` must verify:
-- [ ] Card creation via POST
-- [ ] Card listing shows all cards
-- [ ] Card deletion removes card
-- [ ] Study shows only due cards
-- [ ] Rating updates interval correctly
-- [ ] next_review advances after rating
+Tests are written incrementally via TDD:
+
+**Task 001** (1 test):
+- `test_card_model` - Card dataclass can be imported and has required fields
+
+**Task 002** (3 tests):
+- `test_card_creation` - POST /cards/new creates card
+- `test_card_listing` - GET /cards shows all cards
+- `test_card_deletion` - POST /cards/{id}/delete removes card
+
+**Task 003** (2 tests):
+- `test_study_shows_due` - GET /study shows only due cards
+- `test_rating_updates_interval` - POST /study/{id}/rate applies SM-2 correctly
 
 ## Verification Commands
 
 ```bash
-# Tests pass
+# Full test suite
 uv run pytest test_app.py -v
 
-# App starts without error
-uv run python main.py
-# → Serves on http://localhost:5001
+# Per-task verification
+uv run pytest test_app.py -k test_card_model -v  # Task 001
+uv run pytest test_app.py -k card -v              # Task 002
+uv run pytest test_app.py -k study -v             # Task 003
 ```
 
 ## Success Criteria
 
-1. All routes respond correctly
-2. All tests pass
-3. Cards advance through spaced repetition
-4. No runtime errors
+1. All 6 tests pass
+2. Each task followed TDD (test written before implementation)
+3. No runtime errors
 
 ## Non-Goals (Out of Scope)
 
