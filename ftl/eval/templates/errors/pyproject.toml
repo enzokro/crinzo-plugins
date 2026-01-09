@@ -1,9 +1,0 @@
-[project]
-name = "config-parser"
-version = "0.1.0"
-description = "Config parser with strict validation for FTL campaign testing"
-requires-python = ">=3.12"
-dependencies = ["pydantic>=2.0", "tomli>=2.0"]
-
-[dependency-groups]
-dev = ["pytest>=9.0.2"]

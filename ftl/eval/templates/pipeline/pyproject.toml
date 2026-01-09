@@ -1,9 +1,0 @@
-[project]
-name = "data-pipeline"
-version = "0.1.0"
-description = "CSV data pipeline for FTL campaign testing"
-requires-python = ">=3.12"
-dependencies = ["pydantic>=2.0"]
-
-[dependency-groups]
-dev = ["pytest>=9.0.2"]
