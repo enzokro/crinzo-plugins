@@ -74,6 +74,27 @@ ACTION_PATTERNS = [
     r"executing",
 ]
 
+# Memory influence patterns - detect when agents reference prior knowledge
+MEMORY_INFLUENCE_PATTERNS = [
+    # Pattern name references
+    r"post-redirect-get",
+    r"layered-build",
+    r"fastlite-dataclass-sync",
+    r"algorithm-state-in-model",
+    r"date-string-mismatch",
+    r"sqlite-date-safety",
+    # Failure mode references
+    r"warning.*date",
+    r"pattern.*warning",
+    r"prior.*knowledge",
+    r"prior.*pattern",
+    r"from previous campaign",
+    # Explicit influence signals
+    r"pattern match",
+    r"applying pattern",
+    r"using.*pattern",
+]
+
 
 def classify_thinking(text: str) -> str:
     """Classify a thinking trace as explore, action, or neutral."""
@@ -91,6 +112,19 @@ def classify_thinking(text: str) -> str:
     return "neutral"
 
 
+def detect_memory_influence(text: str) -> list:
+    """Detect memory/pattern references in text. Returns list of matched patterns."""
+    if not text:
+        return []
+
+    text_lower = text.lower()
+    matches = []
+    for pattern in MEMORY_INFLUENCE_PATTERNS:
+        if re.search(pattern, text_lower):
+            matches.append(pattern)
+    return matches
+
+
 def compute_agent_cognition(agent: dict) -> dict:
     """Compute cognitive metrics from reasoning traces."""
     traces = agent.get("reasoning_trace", [])
@@ -103,6 +137,8 @@ def compute_agent_cognition(agent: dict) -> dict:
             "action_explore_ratio": None,
             "first_action_position": -1,
             "trace_pattern": "",
+            "memory_references": 0,
+            "memory_patterns": [],
         }
 
     classifications = [classify_thinking(t.get("thinking", "")) for t in traces]
@@ -131,6 +167,16 @@ def compute_agent_cognition(agent: dict) -> dict:
         for c in classifications
     )
 
+    # Memory influence detection
+    all_memory_matches = []
+    for trace in traces:
+        thinking = trace.get("thinking", "")
+        matches = detect_memory_influence(thinking)
+        all_memory_matches.extend(matches)
+
+    # Deduplicate patterns
+    unique_patterns = list(set(all_memory_matches))
+
     return {
         "trace_count": len(traces),
         "explore_count": explore_count,
@@ -138,6 +184,8 @@ def compute_agent_cognition(agent: dict) -> dict:
         "action_explore_ratio": round(ratio, 2) if ratio is not None and ratio < 100 else ratio,
         "first_action_position": first_action,
         "trace_pattern": pattern,
+        "memory_references": len(all_memory_matches),
+        "memory_patterns": unique_patterns,
     }
 
 
@@ -469,9 +517,30 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
     # Compute per-agent epiplexity and cognitive metrics
     agents = metrics.get("agents", [])
     per_agent = []
+
+    # Aggregate memory influence tracking
+    total_memory_refs = 0
+    total_traces = 0
+    all_memory_patterns = []
+    action_first_count = 0
+    builder_count = 0
+
     for agent in sorted(agents, key=lambda a: a.get("spawn_order", 99)):
         agent_epi = compute_agent_epiplexity(agent)
         agent_cog = compute_agent_cognition(agent)
+
+        # Aggregate memory influence
+        total_memory_refs += agent_cog.get("memory_references", 0)
+        total_traces += agent_cog.get("trace_count", 0)
+        all_memory_patterns.extend(agent_cog.get("memory_patterns", []))
+
+        # Track action-first rate for builders
+        if agent["type"] == "builder":
+            builder_count += 1
+            trace_pattern = agent_cog.get("trace_pattern", "")
+            if trace_pattern and trace_pattern[0] == "A":
+                action_first_count += 1
+
         per_agent.append({
             "step": agent.get("spawn_order"),
             "type": agent["type"],
@@ -480,6 +549,11 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
             "epiplexity": agent_epi,
             "cognition": agent_cog,
         })
+
+    # Compute aggregate metrics
+    memory_influence_rate = total_memory_refs / total_traces if total_traces > 0 else 0
+    action_first_rate = action_first_count / builder_count if builder_count > 0 else 0
+    unique_patterns_used = list(set(all_memory_patterns))
 
     result = {
         "run_id": metrics.get("run_id", evidence_dir.name),
@@ -495,6 +569,15 @@ def compute_info_theory(evidence_dir: Path, verbose: bool = False) -> dict:
 
         # Per-agent granular metrics
         "per_agent": per_agent,
+
+        # Orchestration quality metrics (from meta-pattern analysis)
+        "orchestration": {
+            "memory_influence_rate": round(memory_influence_rate, 3),
+            "memory_patterns_used": unique_patterns_used,
+            "action_first_rate": round(action_first_rate, 3),
+            "builder_count": builder_count,
+            "average_trace_length": round(total_traces / len(agents), 2) if agents else 0,
+        },
 
         # Summary for quick reference
         "summary": {

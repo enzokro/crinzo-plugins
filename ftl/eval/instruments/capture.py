@@ -19,9 +19,20 @@ from collections import defaultdict
 from datetime import datetime
 
 
-def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: list = None) -> str:
-    """Classify agent by first user message, model, and first file reads."""
+def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: list = None, tool_count: int = 0, tools: dict = None) -> str:
+    """Classify agent by first user message, model, first file reads, and tool usage.
+
+    Types:
+    - planner: Reads spec/README, outputs task breakdown
+    - router: Reads context files, creates workspace
+    - builder: Reads workspace, writes code, runs verify
+    - synthesizer: Reads completed workspaces, extracts patterns
+    - direct: Single tool call, verification task (no workspace)
+    - learner: Single task pattern extraction
+    - warmup: Setup/initialization
+    """
     first_reads = first_reads or []
+    tools = tools or {}
 
     if not first_user_msg:
         return "unknown"
@@ -32,6 +43,13 @@ def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: lis
     if msg.startswith("objective:"):
         return "planner"
 
+    # Direct execution detection: Single Bash tool call for verification
+    # This catches verification tasks that skip workspace creation
+    if tool_count == 1 and tools.get("Bash", 0) == 1:
+        # Check if this looks like a verification task
+        if "verify" in msg or "test" in msg or "pass" in msg[:500]:
+            return "direct"
+
     # Synthesizer detection: campaign complete context or meta-pattern extraction
     if msg.startswith("synthesize") or "campaign completed" in msg:
         return "synthesizer"
@@ -39,6 +57,12 @@ def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: lis
         return "synthesizer"
     if "extract cross-task" in msg or "meta-patterns" in msg[:500]:
         return "synthesizer"
+
+    # Planner detection: Reads project files and outputs PROCEED or task breakdown
+    # First "synthesizer" in v32 was actually a planner
+    if any(r in ["README.md", "spec.md", "pyproject.toml"] for r in first_reads[:4]):
+        if "confidence:" in msg or "proceed" in msg[:500] or "### tasks" in msg:
+            return "planner"
 
     # Builder detection FIRST: workspace file with _active in prompt prefix
     # Must come before router check because builder prompts contain Campaign:/Task: context
@@ -215,7 +239,13 @@ def parse_agent(filepath: Path) -> dict:
             if entry.get("type") == "error":
                 result["errors"].append(entry.get("message", "unknown error"))
 
-    result["type"] = classify_agent(first_user or "", model, read_calls)
+    result["type"] = classify_agent(
+        first_user or "",
+        model,
+        read_calls,
+        tool_count=result["tool_calls"],
+        tools=result["tools"]
+    )
     result["tokens"]["total"] = sum(result["tokens"].values())
     result["first_reads"] = read_calls[:10]
     result["tools"] = dict(result["tools"])

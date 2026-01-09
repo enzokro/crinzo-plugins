@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v32
+
+**Observed**: 632K tokens (-16.2% from v31). ST=42.8, HT=3.4, IGR=0.93. 3/4 tasks marked complete in metrics (task 004 used "unknown" agent type). 0 fallbacks. Cache efficiency 72.9%. Protocol fidelity deviated: single_planner=false (synthesizer did planning), single_synthesizer=false (2 synthesizers spawned).
+
+**Noticed**: Builder 003 (routes-study) continued improving: 148K tokens (vs v31's 162K = -8.6%). Workspace warning pattern still effective. Task 004 was ultra-efficient: only 18K tokens with 1 tool call (just ran pytest verify). The run used fewer agents (9 vs 10) and fewer API calls (78 vs 91). Token efficiency improved across all tasks: 001=115K (vs 102K +13%), 002=150K (vs 140K +7%), 003=189K (vs 201K -6%), 004=18K (vs 105K -83%). The dramatic 004 improvement suggests verification-only tasks can be streamlined.
+
+**Surprised**: ST dropped (42.8 vs 46.0) while tokens dropped -16.2%. Usually higher ST correlates with efficiency. This suggests ST may measure structure independent of efficiency gains. Also surprised that protocol deviations (no dedicated planner) didn't cause regression - the double-synthesizer approach actually worked.
+
+**Unclear**: Why did ST drop? Is the epiplexity metric sensitive to agent composition (fewer agents = lower ST)? Why did entropy hit 3.4 again (same as v30)? Two data points at HT=3.4 vs v31's HT=4.4 suggests bimodal behavior rather than continuous noise.
+
+**Updated**: N/A
+
+---
+
 ## 2026-01-09: anki-v31
 
 **Observed**: 755K tokens (+8.5% from v30 - first regression after 2 stable runs). ST=46.0, HT=4.4, IGR=0.91. All 4 tasks complete, 0 fallbacks. Cache efficiency 74.8%. Protocol fidelity perfect (single_planner, single_synthesizer, router_cache_rate=1.0).

@@ -20,7 +20,25 @@ Campaign = prompt starts with `Campaign:` prefix.
 
 ## Campaign Flow
 
-Campaign tasks are pre-scoped. Planner already learned. You transcribe.
+Campaign tasks are pre-scoped. Planner already learned.
+
+### Step 1: Classify Task Type
+
+Before workspace creation, determine pipeline:
+
+| Type | Signal | Action |
+|------|--------|--------|
+| BUILD | "Create", "Implement", "Add", "Fix" | Full pipeline → create workspace |
+| VERIFY | "Verify all", "tests pass", final task | Direct → run verify command only |
+
+**VERIFY detection**:
+- Task description contains "Verify" + "pass"
+- Task is final in sequence (e.g., 004)
+- No Delta files to modify, only Verify command
+
+If VERIFY: Output `Route: direct` and run the verify command. Skip workspace.
+
+### Step 2: BUILD Pipeline (default)
 
 ```
 1. Read .ftl/cache/session_context.md
@@ -94,6 +112,27 @@ Verify: [command]
 
 ## Output
 
+For BUILD tasks:
+```
+Route: full
+Type: BUILD
+Workspace: [path]
+Path: [transformation]
+Delta: [scope]
+Verify: [command]
+Ready for Build: Yes
+```
+
+For VERIFY tasks:
+```
+Route: direct
+Type: VERIFY
+Workspace: N/A (verification task)
+Path: [test file] → [pytest] → [verification output]
+Verify: [command]
+```
+
+For ad-hoc tasks:
 ```
 Route: full | direct | clarify
 Workspace: [path if full]

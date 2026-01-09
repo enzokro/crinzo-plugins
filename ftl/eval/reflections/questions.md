@@ -6,6 +6,16 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ## Active
 
+### Is ST (epiplexity) correlated with efficiency or repeatability?
+
+v32 showed ST=42.8 with 632K tokens (efficient). v31 showed ST=46.0 with 755K tokens (less efficient). This is inverse to the expected relationship. ST may measure structural consistency (how repeatable the execution pattern is) rather than efficiency (how few tokens it uses). Need to track ST vs tokens across more runs to see if this inverse correlation holds.
+
+Hypothesis: ST measures conformance to learnable patterns, not absolute token cost. A highly structured but verbose execution scores high on ST.
+
+### Is entropy (HT) bimodal rather than continuous?
+
+v30: HT=3.4, v31: HT=4.4, v32: HT=3.4. Two runs at 3.4, one at 4.4. Previously interpreted the v30→v31 change as "noise in 4.0-4.5 range." But v32 returning to 3.4 suggests there may be two stable states: ~3.4 (low entropy) and ~4.4 (high entropy). What causes the system to land in one state vs the other?
+
 ### Why does planner still explore with complete specs?
 
 v24 planner said "PROCEED" first but still did 5 tool calls (3 reads, 2 bash). The spec was complete. Is this confirmation behavior? Or protocol ambiguity?
@@ -32,7 +42,7 @@ The epiplexity metric is new (v23). Is it measuring what we think?
 
 ### Why did entropy drop significantly in v30?
 
-**Resolved in anki-v31**. It was measurement noise. v31's HT=4.4 bounced back to v29 levels (HT=4.3). The v30 drop to HT=3.4 was not a genuine reduction in execution variance - entropy fluctuates in the 4.0-4.5 range for stable campaigns. Protocol fidelity restoration was coincidental, not causal. The variance component is inherently noisy at this scale.
+**Partially resolved, needs update**. v31's HT=4.4 suggested the v30 drop to HT=3.4 was noise. However, v32 returned to HT=3.4 again. The pattern is now v30=3.4, v31=4.4, v32=3.4 - potentially bimodal rather than noisy. See active question "Is entropy (HT) bimodal rather than continuous?" for updated hypothesis.
 
 ### Will cross-run learning compound?
 

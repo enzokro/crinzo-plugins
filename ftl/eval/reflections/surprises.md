@@ -4,6 +4,24 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: ST dropped while tokens improved significantly
+
+**Expected**: Higher ST (structural information) correlates with token efficiency. v31's ST=46.0 with 755K tokens should mean lower ST = higher tokens.
+**Observed**: v32 achieved ST=42.8 (-7%) with 632K tokens (-16.2%). Inverse correlation.
+**Gap**: ST may measure structural consistency/repeatability rather than absolute efficiency. A run can be less "structured" (in the epiplexity sense) while being more efficient. Agent composition affects ST: v32 had 9 agents vs v31's 10, and different agent type distribution (2 synthesizers, 3 builders vs 1 synthesizer, 4 builders). The metric may be sensitive to agent count, not just execution quality.
+**Updated**: N/A (observation only, needs more data)
+
+---
+
+## 2026-01-09: Protocol deviations didn't cause regression
+
+**Expected**: single_planner=false and single_synthesizer=false indicate protocol violations that typically cause inefficiency
+**Observed**: v32's deviated protocol achieved -16.2% token reduction. The synthesizer handling planning duties and having two synthesizers actually worked better.
+**Gap**: Protocol fidelity may be overfitted to a specific orchestration pattern. Alternative patterns (synthesizer-as-planner, multiple synthesizers) can be valid. The "correct" protocol isn't always the most efficient protocol.
+**Updated**: N/A (needs investigation)
+
+---
+
 ## 2026-01-08: Workspace warnings DO prevent runtime spirals
 
 **Expected**: Based on v28 analysis, believed runtime interventions needed to be code-level (comments, test fixtures) - workspace warnings seemed insufficient since builders would already be deep in implementation by the time issues surfaced

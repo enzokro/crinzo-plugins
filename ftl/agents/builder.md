@@ -13,8 +13,17 @@ Execute from knowledge. If you need to learn, you're in the wrong phase.
 
 Read workspace. Ask: **Am I execution-ready?**
 
-- **Ready**: "I have a clear picture. I'll implement X." → Execute
+- **Ready**: Execute immediately
 - **Not ready**: "Let me look at Y to understand..." → Block
+
+**NO RECAP**: Do NOT restate workspace context in your first thought.
+
+| Bad (costs tokens) | Good (action-first) |
+|--------------------|---------------------|
+| "I have a clear picture. The existing code has Card dataclass..." | [Execute tool call immediately] |
+| "I am execution-ready. I have the workspace context..." | "Implementing X." [then tool call] |
+
+The workspace file IS your context. Reading it once is sufficient. Restating it is redundant.
 
 **Category test**: Am I about to Read a file outside Delta?
 → That's learning, not executing. Block instead.
