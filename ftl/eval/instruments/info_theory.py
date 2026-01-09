@@ -63,6 +63,16 @@ EXPLORE_PATTERNS = [
 ]
 
 ACTION_PATTERNS = [
+    # Intent statements that start with present participle (NO RECAP compliant)
+    r"^implementing\b",
+    r"^creating\b",
+    r"^adding\b",
+    r"^building\b",
+    r"^writing\b",
+    r"^updating\b",
+    r"^fixing\b",
+    r"^running\b",
+    # Existing patterns
     r"i('ll| will) (implement|write|create|add|build|make)",
     r"now i have.*(clear|complete|full)",
     r"the (task|path|goal) is",

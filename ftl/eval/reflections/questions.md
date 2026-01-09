@@ -6,6 +6,17 @@ Genuine uncertainties. Not hypotheses to test—things to notice.
 
 ## Active
 
+### Why does identical protocol composition yield opposite outcomes?
+
+v32 and v34 both had single_planner=false, single_synthesizer=false (synthesizer-as-planner pattern). Yet v32 achieved -16.2% improvement while v34 regressed +6.8% - a 23 percentage point swing. If protocol composition isn't deterministic, what is? Candidates:
+
+1. **LLM sampling variance** - model temperature causes inherent outcome variance
+2. **Cache state** - v32 may have benefited from warm caches that v34 lacked
+3. **Orchestrator prompt drift** - subtle changes in how orchestrator invokes agents
+4. **Task content coupling** - protocol patterns interact with task specifics non-linearly
+
+This is important because it affects how to interpret protocol fidelity metrics. If protocol composition has high variance outcomes, optimizing for specific patterns may be futile.
+
 ### Is ST (epiplexity) correlated with efficiency or repeatability?
 
 v32 showed ST=42.8 with 632K tokens (efficient). v31 showed ST=46.0 with 755K tokens (less efficient). This is inverse to the expected relationship. ST may measure structural consistency (how repeatable the execution pattern is) rather than efficiency (how few tokens it uses). Need to track ST vs tokens across more runs to see if this inverse correlation holds.
@@ -14,7 +25,9 @@ Hypothesis: ST measures conformance to learnable patterns, not absolute token co
 
 ### What does entropy (HT) actually measure?
 
-v30=3.4, v31=4.4, v32=3.4, v33=4.7. The bimodal hypothesis (two stable states at 3.4 and 4.4) is now refuted - v33's 4.7 is outside both bands. Entropy appears to be neither noise nor bimodal, but genuinely variable. More puzzling: v33 had BETTER protocol fidelity than v32 but HIGHER entropy. Clean protocol → more entropy? Need to understand what HT captures. Current hypothesis: HT measures behavioral variance across agents, not execution quality. Protocol fidelity may actually increase variance by enforcing distinct roles.
+v30=3.4, v31=4.4, v32=3.4, v33=4.7, v34=3.4. Now have five data points showing three returns to 3.4 and two excursions (4.4, 4.7). Pattern: runs with single_planner=false tend toward 3.4 (v30, v32, v34 all hit 3.4), while runs with single_planner=true show higher entropy (v31=4.4, v33=4.7). Tentative hypothesis: **dedicated planner increases entropy** because it introduces an additional decision-maker whose choices compound variance. When synthesizer-as-planner runs, there's one less agent making independent decisions.
+
+This would explain: v33 (proper protocol, single_planner=true) → HT=4.7, v34 (deviant protocol, single_planner=false) → HT=3.4. Need to verify in v35.
 
 ### Why does planner still explore with complete specs?
 

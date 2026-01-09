@@ -43,6 +43,16 @@ def classify_agent(first_user_msg: str, model: str = "unknown", first_reads: lis
     if msg.startswith("objective:"):
         return "planner"
 
+    # Planner detection: "## Prior Knowledge" header followed by "Objective:" somewhere in message
+    # This catches planners that receive prior knowledge injection before the objective
+    if msg.startswith("## prior knowledge") and "objective:" in msg:
+        return "planner"
+
+    # Planner detection: Contains task breakdown table (| Task | Slug | ... |)
+    # This is a strong signal regardless of message prefix
+    if "| task |" in msg and "| slug |" in msg:
+        return "planner"
+
     # Direct execution detection: Single Bash tool call for verification
     # This catches verification tasks that skip workspace creation
     if tool_count == 1 and tools.get("Bash", 0) == 1:

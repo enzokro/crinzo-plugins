@@ -4,6 +4,20 @@ Chronological observations. What was noticed; what surprised; what remains uncle
 
 ---
 
+## 2026-01-09: anki-v34
+
+**Observed**: 671K tokens (+6.8% from v33 - first regression after stable run). ST=42.8, HT=3.4, IGR=0.93. 3/3 builder tasks complete, 0 fallbacks. Cache efficiency 76.9% (essentially flat). Protocol fidelity: single_planner=false, single_synthesizer=false (same "deviant" pattern as v32).
+
+**Noticed**: Token regression across ALL task flows: 001=100K (v33=87K, +15%), 002=141K (v33=133K, +6%), 003=248K (v33=198K, +25%), 004=59K (v33=45K, +31%). The same synthesizer-as-planner pattern that worked in v32 (-16.2%) caused regression in v34 (+6.8%). Entropy dropped sharply from 4.7 to 3.4 - returning to the "low entropy" band after v33's anomalous spike. Two synthesizers spawned: one at start (24K tokens, planning role), one at end (98K tokens, pattern extraction).
+
+**Surprised**: Protocol deviation inconsistency. v32's synthesizer-as-planner achieved -16.2% improvement. v34's identical pattern achieved +6.8% regression. The protocol pattern is not deterministic of outcome - other factors dominate. Entropy drop (4.7→3.4) occurred despite protocol deviation, inverting the v33 observation that "proper protocol = more entropy."
+
+**Unclear**: Why did the same protocol deviation work in v32 but regress in v34? Candidates: (1) random variance in LLM outputs, (2) subtle prompt differences in orchestrator, (3) warm cache effects in v32 that v34 lacked. The 25% regression in task 003 (routes-study) is particularly puzzling since workspace warnings are still active.
+
+**Updated**: N/A
+
+---
+
 ## 2026-01-09: anki-v33
 
 **Observed**: 628K tokens (-0.7% from v32 - essentially flat). ST=42.9, HT=4.7, IGR=0.9. 4/4 tasks complete, 0 fallbacks. Cache efficiency 77.2% (up from 72.9%). Protocol fidelity improved: single_planner=true, single_synthesizer=true (v32 had both false).

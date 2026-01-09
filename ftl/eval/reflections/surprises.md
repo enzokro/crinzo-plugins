@@ -4,6 +4,15 @@ Gaps between prediction and reality. These reveal where mental models are wrong.
 
 ---
 
+## 2026-01-09: Same protocol deviation, opposite outcome
+
+**Expected**: Based on v32's success (-16.2% with synthesizer-as-planner, no dedicated planner), v34's identical protocol deviation should perform similarly or better.
+**Observed**: v34 used exact same pattern (synthesizer-as-planner, 2 synthesizers, single_planner=false) but regressed +6.8%. Every task flow was worse: 001 +15%, 002 +6%, 003 +25%, 004 +31%.
+**Gap**: Protocol patterns are not deterministic predictors of efficiency. v32 and v34 had identical protocol fidelity metrics (single_planner=false, single_synthesizer=false) but 23 percentage points of difference in outcome (-16.2% vs +6.8%). Either: (1) protocol composition is less important than other factors (prompt content, cache state, LLM sampling variance), or (2) the "synthesizer-as-planner" pattern has high variance outcomes. The mental model "protocol deviation = specific efficiency impact" is wrong.
+**Updated**: questions.md (new question on protocol variance)
+
+---
+
 ## 2026-01-09: Entropy spike refutes bimodal hypothesis
 
 **Expected**: Based on v30=3.4, v31=4.4, v32=3.4, entropy appeared bimodal with two stable states. v33 should land at ~3.4 or ~4.4.
