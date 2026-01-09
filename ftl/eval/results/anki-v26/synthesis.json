@@ -1,0 +1,57 @@
+{
+  "meta_patterns": [
+    {
+      "name": "fastlite-dataclass-persistence",
+      "components": ["#pattern/dataclass-fields", "#pattern/db-create-pk"],
+      "description": "Python dataclass defines schema; db.create(Class, pk='id') creates SQLite table",
+      "occurrences": 2,
+      "signal": "positive"
+    },
+    {
+      "name": "post-redirect-get-303",
+      "components": ["#pattern/post-route", "#pattern/redirect-303"],
+      "description": "POST routes use RedirectResponse(status_code=303) to prevent form resubmission",
+      "occurrences": 3,
+      "signal": "positive"
+    },
+    {
+      "name": "fasthtml-app-structure",
+      "components": ["#pattern/fast-app", "#pattern/rt-decorator"],
+      "description": "fast_app() returns (app, rt); rt decorator defines routes with type hints",
+      "occurrences": 2,
+      "signal": "positive"
+    },
+    {
+      "name": "behavior-driven-tests",
+      "components": ["#pattern/test-client", "#pattern/test-per-behavior"],
+      "description": "Tests organized by user behavior (create, list, delete, study) not by route",
+      "occurrences": 2,
+      "signal": "positive"
+    }
+  ],
+  "evolution": [
+    {
+      "from": "raw-sqlite-queries",
+      "to": "fastlite-orm",
+      "reason": "Dataclass defines schema; ORM handles CRUD operations"
+    }
+  ],
+  "conditions": {
+    "fastlite-works-when": [
+      "Dataclass fields match SQLite column types",
+      "pk='id' specified for auto-increment primary key"
+    ],
+    "date-handling-needs": [
+      "parse_date() helper for SQLite string/date conversion",
+      "date objects compared with <= for due cards query"
+    ]
+  },
+  "bridges": [
+    {
+      "pattern": "#pattern/redirect-303",
+      "domains": ["crud-routes", "study-routes"],
+      "note": "Same PRG pattern applies to both card creation and rating submission"
+    }
+  ],
+  "updated": "2026-01-08T00:00:00Z"
+}

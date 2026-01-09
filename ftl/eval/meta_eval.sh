@@ -67,7 +67,7 @@ fi
 echo ""
 echo "━━━ Phase 2: Capture Evidence ━━━"
 
-python3 "$EVAL_DIR/instruments/capture.py" "$RESULTS_DIR" --output "$EVIDENCE_DIR"
+python3 "$EVAL_DIR/instruments/capture.py" "$RESULTS_DIR" --output "$EVIDENCE_DIR" --info-theory
 
 # ============================================
 # Phase 3: Loop Stability Signals
@@ -318,12 +318,25 @@ COMPARE_EOF
 fi
 
 # ============================================
-# Phase 8: Suggested Learnings
+# Phase 8: Autonomous Reflection
 # ============================================
 echo ""
-echo "━━━ Phase 8: Suggested Learnings ━━━"
+echo "━━━ Phase 8: Autonomous Reflection ━━━"
 
-python3 - "$EVIDENCE_DIR" << 'LEARNINGS_EOF'
+# Invoke meta-reflector agent to analyze run and update reflections
+REFLECT_SCRIPT="$EVAL_DIR/scripts/reflect.sh"
+if [ -x "$REFLECT_SCRIPT" ]; then
+    "$REFLECT_SCRIPT" "$TEMPLATE" "$VERSION" || {
+        echo "Warning: Reflection failed (non-critical)"
+        echo "You can manually run: ./scripts/reflect.sh $TEMPLATE $VERSION"
+    }
+else
+    echo "Warning: reflect.sh not found or not executable"
+    echo "Falling back to suggested learnings (manual copy required)"
+    echo ""
+
+    # Fallback: print suggestions like before
+    python3 - "$EVIDENCE_DIR" << 'LEARNINGS_EOF'
 import json
 import sys
 
@@ -345,14 +358,12 @@ if pf["no_learners"]:
 if pf["router_cache_effective"] == 0:
     print("## Question: Why isn't cache warming?")
     print("All routers report 'no cache available'. Is this expected for first-run?")
-    print("Or is cache population broken in router prompts?")
     print()
 
 if ls["fallback_used"] > 0:
     agents_fb = d["loop_signals"]["agents_with_fallback"]
     print(f"## Issue: {ls['fallback_used']} agent(s) used fallback")
     print(f"Agents: {agents_fb}")
-    print("Investigate: What environmental limitation was hit?")
     print()
 
 builders = [a for a in d["agents"] if a["type"] == "builder"]
@@ -361,13 +372,12 @@ if len(builders) > 1:
     variance = max(tokens) / min(tokens) if min(tokens) > 0 else 0
     if variance > 5:
         print(f"## Question: Why {variance:.1f}x token variance across builders?")
-        print("Same model, same campaign. What drove the difference?")
-        print("Examine: task complexity? exploration depth? error recovery?")
         print()
 
 print("---")
 print("Copy relevant learnings to: reflections/understandings.md")
 LEARNINGS_EOF
+fi
 
 # ============================================
 # Summary

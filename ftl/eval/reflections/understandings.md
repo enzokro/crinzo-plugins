@@ -67,3 +67,99 @@ Beliefs with explicit uncertainty. Updated via reflection.
 **Would update if**: Found agents whose prompt doesn't contain task assignment but file patterns are reliable.
 
 ---
+
+## L005: Single decision point > accumulated rules
+
+**Belief**: Protocols with one clear decision point outperform protocols with accumulated conditional rules. "Ask one question, then branch" beats "check this list of conditions."
+
+**Confidence**: 9/10
+
+**Evidence**: v22 had 4+ overlapping sections per protocol, agents executed contradictory paths (+6.5% regression). v23 refactored to single decision point per agent (-35% improvement).
+
+**Mechanism**: Multiple rules require holding all conditions in mind simultaneously. Single decision creates clear cognitive fork - the agent commits to one path.
+
+**Generalizes to**: Any multi-step AI workflow. Prefer "if X then A else B" over "consider X, Y, Z, then decide."
+
+**Would update if**: Found scenarios where accumulated rules outperformed single decision.
+
+---
+
+## L006: First thought reveals cognitive state
+
+**Belief**: An agent's first reasoning statement predicts efficiency. "I have a clear picture" → efficient. "Let me look at X to understand" → expensive.
+
+**Confidence**: 8/10
+
+**Evidence**: v21-v24 builders. Efficient runs (53K) start with "I have a clear picture. I'll implement X." Expensive runs (211K+) start with "Let me look at Y to understand."
+
+**Mechanism**: The first thought reflects whether the agent has sufficient context. Exploration-first language signals missing information that will cost tokens to acquire.
+
+**Generalizes to**: Any agent monitoring. First-thought classification could predict token cost before execution completes.
+
+**Would update if**: Found efficient runs that started with exploration language.
+
+---
+
+## L007: Verification coherence prevents cascading failures
+
+**Belief**: Each task's Verify command must be satisfiable using ONLY that task's Delta. Incoherent verification causes builders to debug upstream issues.
+
+**Confidence**: 9/10
+
+**Evidence**: v21 builder 003 hit 313K tokens. Planner specified `-k study` filter but tests were named `test_rating_*`. Builder spent 6+ tool calls renaming tests - a planner error.
+
+**Mechanism**: Builders trust workspace. Incoherent verification creates impossible success conditions. Builder enters debugging spiral trying to fix non-local issues.
+
+**Generalizes to**: Any task decomposition system. Verification must be locally satisfiable.
+
+**Would update if**: Found builders that efficiently handled verification requiring cross-task changes.
+
+---
+
+## L008: Accumulated patches create contradictions
+
+**Belief**: Incremental protocol patches eventually contradict each other. Full refactors outperform patch accumulation.
+
+**Confidence**: 8/10
+
+**Evidence**: v13→v21 accumulated "Pre-Cached Context", "Core Discipline", "Specification Complete Test", "Section 1 bash commands" in planner. v22 agents executed both "Skip Section 1" AND Section 1 (+6.5% regression).
+
+**Mechanism**: Each patch addresses a symptom without considering prior patches. Contradictions emerge when patches target the same behavior from different angles.
+
+**Generalizes to**: Any evolving instruction set. Periodic consolidation prevents contradiction accumulation.
+
+**Would update if**: Found long-running patch series that maintained coherence.
+
+---
+
+## L009: Knowledge flows forward in sequential routing
+
+**Belief**: Sequential task routing (one task at a time) enables knowledge propagation. Parallel routing loses cross-task learning.
+
+**Confidence**: 7/10
+
+**Evidence**: v24 Task 003 (151K) vs v23 Task 003 (224K). Both hit date-string-mismatch, but v24 had context from completed earlier tasks. Sequential routing reduced debugging by 32%.
+
+**Mechanism**: Completed workspaces contain Delivered sections and Thinking Traces. Sequential routing lets later tasks inherit this knowledge.
+
+**Generalizes to**: Multi-agent orchestration. Consider knowledge dependencies, not just task dependencies.
+
+**Would update if**: Found parallel routing that achieved similar knowledge propagation.
+
+---
+
+## L010: Cross-run learning requires explicit memory
+
+**Belief**: Without persistent memory, each run is de novo. Patterns discovered in run N are lost to run N+1 unless explicitly persisted and seeded.
+
+**Confidence**: 9/10
+
+**Evidence**: v23 discovered date-string-mismatch through painful debugging (70K+ tokens). v24 avoided it, but not because it "learned" - sequential routing happened to propagate context. v25 would hit it again without memory seeding.
+
+**Mechanism**: LLM context is ephemeral. Cross-run learning requires: (1) extraction at run end, (2) persistence to storage, (3) seeding at run start.
+
+**Generalizes to**: Any iterative AI system. Learning requires memory architecture, not just execution.
+
+**Would update if**: Found implicit learning mechanisms that persisted without explicit memory.
+
+---

@@ -211,7 +211,8 @@ EOF
 At campaign start, create `.ftl/cache/session_context.md`:
 
 ```bash
-cat > .ftl/cache/session_context.md << 'EOF'
+# Start session context
+cat > .ftl/cache/session_context.md << 'CONTEXT_EOF'
 # Session Context
 *Created: $(date)*
 
@@ -227,7 +228,15 @@ $(grep -E '"test"|"typecheck"' package.json 2>/dev/null | head -3 || echo "none 
 
 Planner has analyzed this codebase. Key findings are embedded in campaign tasks.
 Do not re-analyze. Trust the task specifications.
-EOF
+CONTEXT_EOF
+
+# Inject prior knowledge if seeded (cross-run learning)
+if [ -f ".ftl/memory/prior_knowledge.md" ]; then
+  echo "" >> .ftl/cache/session_context.md
+  cat .ftl/memory/prior_knowledge.md >> .ftl/cache/session_context.md
+  echo "" >> .ftl/cache/session_context.md
+  echo "**Memory seeded**: Consume patterns and failure mode warnings above." >> .ftl/cache/session_context.md
+fi
 ```
 
 ### For builder/learner:
@@ -304,11 +313,22 @@ If campaign exists, skip to Step 5 (task execution).
 
 **DO NOT skip this step. DO NOT manually create campaigns.**
 
+Before spawning planner, check for prior knowledge:
+```bash
+# Include prior knowledge if seeded (cross-run learning)
+PRIOR=""
+if [ -f ".ftl/memory/prior_knowledge.md" ]; then
+  PRIOR="## Prior Knowledge (from previous campaigns)\n\n$(cat .ftl/memory/prior_knowledge.md)\n\n---\n\n"
+fi
+```
+
 ```
 Task(ftl:planner) with prompt:
+  $PRIOR
   Objective: $OBJECTIVE_FROM_ARGUMENTS
 
   Return markdown with ### Tasks section.
+  If prior knowledge exists, reference relevant patterns and warn about known failure modes.
 ```
 
 Planner returns: PROCEED | CONFIRM | CLARIFY

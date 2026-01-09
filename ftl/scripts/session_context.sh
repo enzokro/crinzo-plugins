@@ -54,5 +54,14 @@ Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 **For cognition state**: See \`.ftl/cache/cognition_state.md\` (updated after each agent).
 EOF
 
+# Inject prior knowledge if seeded (cross-run learning)
+if [ -f ".ftl/memory/prior_knowledge.md" ]; then
+  echo "" >> .ftl/cache/session_context.md
+  cat .ftl/memory/prior_knowledge.md >> .ftl/cache/session_context.md
+  echo "" >> .ftl/cache/session_context.md
+  echo "**Memory seeded**: Consume patterns and failure mode warnings above." >> .ftl/cache/session_context.md
+  echo "Prior knowledge injected from .ftl/memory/prior_knowledge.md"
+fi
+
 echo "Session context cached to .ftl/cache/session_context.md"
 exit 0
