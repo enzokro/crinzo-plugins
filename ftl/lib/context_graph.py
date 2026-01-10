@@ -165,12 +165,17 @@ def _migrate_to_v3(memory: dict) -> dict:
                 "signal": net,
             }
 
-    # Default escalation triggers
+    # Default escalation triggers (tightened based on V8-V10 data)
     escalation_triggers = {
         "exploration-saturation": {
-            "signal": "3 consecutive exploration cycles without resolution",
+            "signal": "2 consecutive verification failures without matching known failure modes",
             "interpretation": "Pattern-environment mismatch, not debugging",
             "action": "Block with discovery needed message"
+        },
+        "tool-budget-exceeded": {
+            "signal": "5 total tool calls without successful verification",
+            "interpretation": "If not solved in 5 tools, exploring not debugging",
+            "action": "Block immediately"
         },
         "repeated-same-error": {
             "signal": "Same error type appears 2+ times after attempted fix",
@@ -233,9 +238,14 @@ def load_memory(base: Path = Path(".")) -> dict:
         "checkpoints": {},
         "escalation_triggers": {
             "exploration-saturation": {
-                "signal": "3 consecutive exploration cycles without resolution",
+                "signal": "2 consecutive verification failures without matching known failure modes",
                 "interpretation": "Pattern-environment mismatch, not debugging",
                 "action": "Block with discovery needed message"
+            },
+            "tool-budget-exceeded": {
+                "signal": "5 total tool calls without successful verification",
+                "interpretation": "If not solved in 5 tools, exploring not debugging",
+                "action": "Block immediately"
             },
             "repeated-same-error": {
                 "signal": "Same error type appears 2+ times after attempted fix",
@@ -458,9 +468,14 @@ def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path("
     checkpoints = existing.get("checkpoints", {})
     escalation_triggers = existing.get("escalation_triggers", {
         "exploration-saturation": {
-            "signal": "3 consecutive exploration cycles without resolution",
+            "signal": "2 consecutive verification failures without matching known failure modes",
             "interpretation": "Pattern-environment mismatch, not debugging",
             "action": "Block with discovery needed message"
+        },
+        "tool-budget-exceeded": {
+            "signal": "5 total tool calls without successful verification",
+            "interpretation": "If not solved in 5 tools, exploring not debugging",
+            "action": "Block immediately"
         },
         "repeated-same-error": {
             "signal": "Same error type appears 2+ times after attempted fix",

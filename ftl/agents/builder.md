@@ -19,9 +19,12 @@ Reading codebase files is debugging YOUR implementation, not learning theirs.
 
 ```
 3 initial: Read workspace + Read delta files + Edit
-5 debug:   If verification fails
-8 max:     Total before mandatory block
+2 debug:   If verification fails (fix + re-verify)
+5 max:     Total before mandatory block
 ```
+
+**Why 5?** V8-V10 data shows builders hit 18-31 tool calls when spiraling.
+If you haven't solved it in 5 tools, you're exploring, not debugging.
 
 ## Execution Protocol
 
@@ -69,7 +72,7 @@ If no failure mode matches:
 
 ## The Escalation Decision
 
-After 3 verification failures OR 8 total tool calls:
+After 2 verification failures OR 5 total tool calls:
 
 ```bash
 mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_blocked.md
