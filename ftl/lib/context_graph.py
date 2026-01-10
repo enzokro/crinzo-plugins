@@ -514,40 +514,97 @@ def query_for_planner(memory: dict) -> str:
 def warnings_for_delta(memory: dict, delta_files: list) -> str:
     """Extract CRITICAL warnings relevant to delta files.
 
-    Returns warnings for patterns with signal >= 5 that are
+    Returns warnings for patterns with |net| >= 3 that are
     relevant to the files being modified.
+
+    Checks three sources:
+    1. Pattern's warn_for field (for seeded patterns)
+    2. edges.file_impact (for seeded edges)
+    3. decisions.delta_files (for patterns discovered during runs)
     """
     if not delta_files:
         return "No applicable pattern warnings (no delta files specified)"
 
     warnings = []
+    delta_lower = [df.lower() for df in delta_files]
 
     for tag, data in memory.get("patterns", {}).items():
         net = data.get("net", 0)
-        if net >= 5:  # CRITICAL threshold
-            # Check if pattern applies to these files
+        if abs(net) < 3:  # Only patterns with significant signal
+            continue
+
+        matched = False
+
+        # Source 1: Pattern's own warn_for field (from accumulator seed)
+        warn_for = data.get("warn_for", [])
+        for trigger in warn_for:
+            trigger_lower = trigger.lower()
+            for df in delta_lower:
+                if trigger_lower in df or df in trigger_lower:
+                    matched = True
+                    break
+            if matched:
+                break
+
+        # Source 2: Check via decisions if not matched yet
+        if not matched:
             for dec_id in data.get("decisions", []):
                 dec = memory.get("decisions", {}).get(dec_id, {})
                 dec_files = dec.get("delta_files", [])
 
-                # Check for overlap between delta_files and decision's delta_files
-                for df in delta_files:
-                    df_lower = df.lower()
+                for df in delta_lower:
                     for dec_file in dec_files:
-                        if df_lower in dec_file.lower() or dec_file.lower() in df_lower:
-                            warnings.append(f"CRITICAL: {tag} (+{net})")
+                        if df in dec_file.lower() or dec_file.lower() in df:
+                            matched = True
                             break
-                    else:
-                        continue
+                    if matched:
+                        break
+                if matched:
                     break
-                else:
-                    continue
-                break
+
+        if matched:
+            sign = "+" if net > 0 else ""
+            desc = data.get("description", "")
+            prevention = data.get("prevention", "")
+            if prevention:
+                warnings.append(f"CRITICAL: {tag} ({sign}{net})\n  Prevention: {prevention}")
+            elif desc:
+                warnings.append(f"CRITICAL: {tag} ({sign}{net})\n  {desc}")
+            else:
+                warnings.append(f"CRITICAL: {tag} ({sign}{net})")
+
+    # Source 3: Check file_impact edges
+    edges = memory.get("edges", {})
+    file_impact = edges.get("file_impact", {})
+    for trigger, pattern_tags in file_impact.items():
+        trigger_lower = trigger.lower()
+        for df in delta_lower:
+            if trigger_lower in df or df in trigger_lower:
+                for tag in pattern_tags:
+                    if tag in memory.get("patterns", {}):
+                        data = memory["patterns"][tag]
+                        net = data.get("net", 0)
+                        if abs(net) >= 3 and tag not in [w.split("(")[0].replace("CRITICAL: ", "").strip() for w in warnings]:
+                            sign = "+" if net > 0 else ""
+                            prevention = data.get("prevention", "")
+                            if prevention:
+                                warnings.append(f"CRITICAL: {tag} ({sign}{net})\n  Prevention: {prevention}")
+                            else:
+                                warnings.append(f"CRITICAL: {tag} ({sign}{net})")
 
     if not warnings:
         return "No applicable pattern warnings"
 
-    return "\n".join(sorted(set(warnings), key=lambda x: -int(x.split("+")[1].rstrip(")"))))
+    # Sort by absolute signal value (most critical first)
+    def sort_key(w):
+        try:
+            # Extract number from "(+7)" or "(-3)"
+            num_str = w.split("(")[1].split(")")[0]
+            return -abs(int(num_str.replace("+", "")))
+        except:
+            return 0
+
+    return "\n".join(sorted(set(warnings), key=sort_key))
 
 
 # --- Signals ---
