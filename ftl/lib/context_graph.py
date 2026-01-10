@@ -22,9 +22,9 @@ from concepts import expand_query
 
 LATTICE_DIR = ".ftl"
 MEMORY_FILE = "memory.json"
-MEMORY_VERSION = 2
+MEMORY_VERSION = 3  # v3: Experiences are primary, patterns derived
 
-# V1 files (for migration only)
+# Legacy files (for migration only)
 INDEX_FILE = "index.json"
 EDGES_FILE = "edges.json"
 SIGNALS_FILE = "signals.json"
@@ -125,31 +125,124 @@ def _cleanup_v1_files(base: Path = Path(".")):
             path.unlink()
 
 
+def _migrate_to_v3(memory: dict) -> dict:
+    """Migrate v2 memory to v3 (experience-centric).
+
+    v3 changes:
+    - experiences: Primary structure (symptom → diagnosis → prevention → recovery)
+    - checkpoints: Pre-flight checks derived from experiences
+    - escalation_triggers: When to stop trying
+    - patterns: Kept but secondary, derived from experiences
+    """
+    # Seed experiences from known failure modes
+    experiences = {}
+    checkpoints = {}
+
+    # Convert high-signal patterns to experiences
+    patterns = memory.get("patterns", {})
+    for tag, data in patterns.items():
+        net = data.get("net", 0)
+        if net >= 3:  # Only significant patterns
+            # Create experience from pattern
+            exp_id = f"exp-{len(experiences) + 1:03d}"
+            name = tag.split("/")[-1] if "/" in tag else tag
+
+            experiences[exp_id] = {
+                "name": name,
+                "symptom": data.get("description", f"Issue related to {name}"),
+                "diagnosis": data.get("description", ""),
+                "prevention": {
+                    "pre_flight": data.get("prevention", ""),
+                    "checkpoint": data.get("success_conditions", ""),
+                },
+                "recovery": {
+                    "symptom_match": "",
+                    "action": data.get("prevention", ""),
+                },
+                "cost_when_missed": "",
+                "source": f"migrated from {tag}",
+                "derived_pattern": name,
+                "signal": net,
+            }
+
+    # Default escalation triggers
+    escalation_triggers = {
+        "exploration-saturation": {
+            "signal": "3 consecutive exploration cycles without resolution",
+            "interpretation": "Pattern-environment mismatch, not debugging",
+            "action": "Block with discovery needed message"
+        },
+        "repeated-same-error": {
+            "signal": "Same error type appears 2+ times after attempted fix",
+            "interpretation": "Fix attempt not addressing root cause",
+            "action": "Block, require different approach"
+        }
+    }
+
+    # Create v3 structure
+    return {
+        "version": MEMORY_VERSION,
+        "mined": memory.get("mined"),
+        "campaign": memory.get("campaign", ""),
+        "experiences": experiences,
+        "checkpoints": checkpoints,
+        "escalation_triggers": escalation_triggers,
+        "decisions": memory.get("decisions", {}),
+        "patterns": patterns,  # Kept for backward compatibility
+        "edges": memory.get("edges", {}),
+        "meta_patterns": memory.get("meta_patterns", {}),
+    }
+
+
 def load_memory(base: Path = Path(".")) -> dict:
-    """Load unified memory, migrating from v1 if needed."""
+    """Load unified memory, migrating from older versions if needed."""
     lattice = base / LATTICE_DIR
     memory_path = lattice / MEMORY_FILE
 
-    # Check for v2 format
+    # Check for current version
     if memory_path.exists():
         memory = json.loads(memory_path.read_text())
         if memory.get("version") == MEMORY_VERSION:
             return memory
 
-    # Check for v1 files and migrate
+        # Migrate v2 to v3
+        if memory.get("version") == 2:
+            print("  Migrating v2 memory to v3 (experience-centric)...", file=sys.stderr)
+            memory = _migrate_to_v3(memory)
+            save_memory(memory, base)
+            print("  Migration complete.", file=sys.stderr)
+            return memory
+
+    # Check for v1 files and migrate through v2 to v3
     index_path = lattice / INDEX_FILE
     if index_path.exists():
-        print("  Migrating v1 memory to v2...", file=sys.stderr)
+        print("  Migrating v1 memory to v3...", file=sys.stderr)
         memory = _migrate_to_v2(base)
+        memory = _migrate_to_v3(memory)
         save_memory(memory, base)
         _cleanup_v1_files(base)
         print("  Migration complete.", file=sys.stderr)
         return memory
 
-    # Empty memory
+    # Empty v3 memory
     return {
         "version": MEMORY_VERSION,
         "mined": None,
+        "campaign": "",
+        "experiences": {},
+        "checkpoints": {},
+        "escalation_triggers": {
+            "exploration-saturation": {
+                "signal": "3 consecutive exploration cycles without resolution",
+                "interpretation": "Pattern-environment mismatch, not debugging",
+                "action": "Block with discovery needed message"
+            },
+            "repeated-same-error": {
+                "signal": "Same error type appears 2+ times after attempted fix",
+                "interpretation": "Fix attempt not addressing root cause",
+                "action": "Block, require different approach"
+            }
+        },
         "decisions": {},
         "patterns": {},
         "edges": {"lineage": {}, "pattern_use": {}, "file_impact": {}}
@@ -359,10 +452,31 @@ def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path("
     # Detect meta-patterns (pattern clusters that co-occur)
     meta_patterns = detect_meta_patterns(dict(patterns), decisions)
 
-    # Create unified memory
+    # Preserve existing v3 fields or initialize
+    existing = load_memory(base)
+    experiences = existing.get("experiences", {})
+    checkpoints = existing.get("checkpoints", {})
+    escalation_triggers = existing.get("escalation_triggers", {
+        "exploration-saturation": {
+            "signal": "3 consecutive exploration cycles without resolution",
+            "interpretation": "Pattern-environment mismatch, not debugging",
+            "action": "Block with discovery needed message"
+        },
+        "repeated-same-error": {
+            "signal": "Same error type appears 2+ times after attempted fix",
+            "interpretation": "Fix attempt not addressing root cause",
+            "action": "Block, require different approach"
+        }
+    })
+
+    # Create unified memory (v3)
     memory = {
         "version": MEMORY_VERSION,
         "mined": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "campaign": existing.get("campaign", ""),
+        "experiences": experiences,
+        "checkpoints": checkpoints,
+        "escalation_triggers": escalation_triggers,
         "decisions": decisions,
         "patterns": dict(patterns),
         "edges": edges,
@@ -625,6 +739,180 @@ def add_signal(pattern: str, signal: str, base: Path = Path(".")):
     save_memory(memory, base)
 
     return patterns[pattern]
+
+
+# --- Experiences (v3) ---
+
+def add_experience(experience: dict, base: Path = Path(".")) -> str:
+    """Add a new experience to memory.
+
+    Experience structure:
+    {
+        "name": "fastlite-api-mismatch",
+        "symptom": "AttributeError: db has no attribute 'insert'",
+        "diagnosis": "FastLite uses db.t.tablename.insert(), not db.insert()",
+        "prevention": {
+            "pre_flight": "Check FastLite documentation pattern",
+            "checkpoint": "All db operations use db.t.{table}.{method}() format"
+        },
+        "recovery": {
+            "symptom_match": "AttributeError.*db.*insert",
+            "action": "Change db.insert(X) to db.t.tablename.insert(X)"
+        },
+        "cost_when_missed": "1004K tokens",
+        "source": "anki-v8 task 003"
+    }
+    """
+    memory = load_memory(base)
+    experiences = memory.get("experiences", {})
+
+    # Generate next experience ID
+    exp_nums = [int(k.split("-")[1]) for k in experiences.keys() if k.startswith("exp-")]
+    next_num = max(exp_nums) + 1 if exp_nums else 1
+    exp_id = f"exp-{next_num:03d}"
+
+    # Add timestamp
+    experience["created"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    experiences[exp_id] = experience
+    memory["experiences"] = experiences
+    save_memory(memory, base)
+
+    return exp_id
+
+
+def add_checkpoint(name: str, checkpoint: dict, base: Path = Path(".")) -> str:
+    """Add a pre-flight checkpoint to memory.
+
+    Checkpoint structure:
+    {
+        "applies_when": "delta includes date fields",
+        "check": "All date.today() calls use .isoformat()",
+        "command": "grep -E 'date\\.today\\(\\)' --include='*.py' | grep -v isoformat",
+        "expected": "No output",
+        "if_fails": "Add .isoformat() to date comparisons",
+        "from_experience": "exp-002"  # optional
+    }
+    """
+    memory = load_memory(base)
+    checkpoints = memory.get("checkpoints", {})
+
+    checkpoints[name] = checkpoint
+    memory["checkpoints"] = checkpoints
+    save_memory(memory, base)
+
+    return name
+
+
+def get_experiences_for_delta(memory: dict, delta_files: list) -> list:
+    """Get relevant experiences for delta files.
+
+    Returns experiences whose prevention or recovery might apply.
+    """
+    if not delta_files:
+        return []
+
+    experiences = memory.get("experiences", {})
+    delta_lower = " ".join(delta_files).lower()
+
+    relevant = []
+    for exp_id, exp in experiences.items():
+        # Check if experience is relevant based on source or name
+        source = exp.get("source", "").lower()
+        name = exp.get("name", "").lower()
+
+        # Simple relevance: experience name or source mentions similar files/concepts
+        if any(df.lower() in source or df.lower() in name for df in delta_files):
+            relevant.append({"id": exp_id, **exp})
+            continue
+
+        # Check if prevention mentions relevant files
+        prevention = exp.get("prevention", {})
+        if isinstance(prevention, dict):
+            pre_flight = prevention.get("pre_flight", "").lower()
+            checkpoint = prevention.get("checkpoint", "").lower()
+            if any(df.lower() in pre_flight or df.lower() in checkpoint for df in delta_files):
+                relevant.append({"id": exp_id, **exp})
+
+    return relevant
+
+
+def get_checkpoints_for_delta(memory: dict, delta_files: list) -> list:
+    """Get applicable checkpoints for delta files.
+
+    Returns checkpoints whose applies_when matches the delta.
+    """
+    if not delta_files:
+        return []
+
+    checkpoints = memory.get("checkpoints", {})
+    delta_str = " ".join(delta_files).lower()
+
+    applicable = []
+    for name, checkpoint in checkpoints.items():
+        applies_when = checkpoint.get("applies_when", "").lower()
+
+        # Simple matching: check if applies_when keywords are in delta
+        keywords = ["date", "database", "fastlite", "route", "test", "api"]
+        for kw in keywords:
+            if kw in applies_when and kw in delta_str:
+                applicable.append({"name": name, **checkpoint})
+                break
+
+        # Or if applies_when mentions a delta file type
+        if ".py" in applies_when and any(f.endswith(".py") for f in delta_files):
+            if name not in [c["name"] for c in applicable]:
+                applicable.append({"name": name, **checkpoint})
+
+    return applicable
+
+
+def format_experiences_for_builder(memory: dict, delta_files: list) -> str:
+    """Format experiences and checkpoints for builder consumption.
+
+    Returns markdown with pre-flight checks and known failure modes.
+    """
+    lines = []
+
+    # Get relevant experiences
+    experiences = get_experiences_for_delta(memory, delta_files)
+    checkpoints = get_checkpoints_for_delta(memory, delta_files)
+
+    # Pre-flight checks
+    if checkpoints:
+        lines.append("## Pre-flight Checks")
+        lines.append("Before running Verify, confirm:")
+        for cp in checkpoints:
+            lines.append(f"- [ ] {cp.get('check', cp['name'])}")
+            if cp.get("command"):
+                lines.append(f"      Command: `{cp['command']}`")
+        lines.append("")
+
+    # Known failure modes from experiences
+    if experiences:
+        lines.append("## Known Failure Modes")
+        lines.append("| Symptom | Diagnosis | Action |")
+        lines.append("|---------|-----------|--------|")
+        for exp in experiences:
+            symptom = exp.get("symptom", "")[:40]
+            diagnosis = exp.get("diagnosis", "")[:30]
+            recovery = exp.get("recovery", {})
+            action = recovery.get("action", "")[:30] if isinstance(recovery, dict) else ""
+            lines.append(f"| {symptom} | {diagnosis} | {action} |")
+        lines.append("")
+
+    # Escalation triggers
+    triggers = memory.get("escalation_triggers", {})
+    if triggers:
+        lines.append("## Escalation Protocol")
+        for name, trigger in triggers.items():
+            lines.append(f"- **{name}**: {trigger.get('signal', '')}")
+            lines.append(f"  Action: {trigger.get('action', '')}")
+
+    if not lines:
+        return "No applicable experiences or checkpoints."
+
+    return "\n".join(lines)
 
 
 # --- Queries ---
@@ -1022,6 +1310,18 @@ def main():
     signal_p.add_argument('sign', choices=['+', '-'], help='Signal type')
     signal_p.add_argument('pattern', help='Pattern to signal')
 
+    # Experiences (v3)
+    exp_p = sub.add_parser('experiences', aliases=['e'], help='List experiences for delta files')
+    exp_p.add_argument('--delta', help='Comma-separated list of delta files')
+
+    # Checkpoints (v3)
+    check_p = sub.add_parser('checkpoints', aliases=['c'], help='List checkpoints for delta files')
+    check_p.add_argument('--delta', help='Comma-separated list of delta files')
+
+    # Builder context (v3) - combined experiences + checkpoints + escalation
+    builder_p = sub.add_parser('builder-context', aliases=['bc'], help='Get full builder context for delta')
+    builder_p.add_argument('--delta', required=True, help='Comma-separated list of delta files')
+
     args = parser.parse_args()
 
     if not args.cmd:
@@ -1115,6 +1415,49 @@ def main():
     elif args.cmd in ('signal', 's'):
         result = add_signal(args.pattern, args.sign, args.base)
         print(f"Signal added: {args.pattern} -> net {result['net']}")
+
+    elif args.cmd in ('experiences', 'e'):
+        memory = load_memory(args.base)
+        if args.delta:
+            delta_files = [f.strip() for f in args.delta.split(",") if f.strip()]
+            experiences = get_experiences_for_delta(memory, delta_files)
+        else:
+            experiences = [{"id": k, **v} for k, v in memory.get("experiences", {}).items()]
+
+        if not experiences:
+            print("No experiences found.")
+        else:
+            print(f"Experiences ({len(experiences)}):\n")
+            for exp in experiences:
+                print(f"  [{exp.get('id', '?')}] {exp.get('name', 'unnamed')}")
+                print(f"    Symptom: {exp.get('symptom', '')[:60]}")
+                if exp.get('recovery', {}).get('action'):
+                    print(f"    Action: {exp['recovery']['action'][:60]}")
+                print()
+
+    elif args.cmd in ('checkpoints', 'c'):
+        memory = load_memory(args.base)
+        if args.delta:
+            delta_files = [f.strip() for f in args.delta.split(",") if f.strip()]
+            checkpoints = get_checkpoints_for_delta(memory, delta_files)
+        else:
+            checkpoints = [{"name": k, **v} for k, v in memory.get("checkpoints", {}).items()]
+
+        if not checkpoints:
+            print("No checkpoints found.")
+        else:
+            print(f"Checkpoints ({len(checkpoints)}):\n")
+            for cp in checkpoints:
+                print(f"  [{cp['name']}]")
+                print(f"    Check: {cp.get('check', '')[:60]}")
+                if cp.get('command'):
+                    print(f"    Command: {cp['command'][:60]}")
+                print()
+
+    elif args.cmd in ('builder-context', 'bc'):
+        memory = load_memory(args.base)
+        delta_files = [f.strip() for f in args.delta.split(",") if f.strip()]
+        print(format_experiences_for_builder(memory, delta_files))
 
 
 if __name__ == '__main__':

@@ -9,9 +9,9 @@ model: opus
 
 How will we prove success? → Shape work to be provable.
 
-## Prior Knowledge
+## Prior Knowledge (v3: Experience-Centric)
 
-Before planning, check for accumulated patterns:
+Before planning, check for accumulated experiences and checkpoints:
 
 ```bash
 # Load prior knowledge from unified memory
@@ -22,9 +22,10 @@ fi
 ```
 
 If prior knowledge exists:
+- **Apply experiences** - embed checkpoints in tasks that could hit known failures
 - **Reference patterns** when they match task structure (note: "Pattern match: layered-build")
-- **Heed warnings** about failure modes (include in Done-when)
-- **Trust signal scores** - higher signal = more validated
+- **Include pre-flight checks** from checkpoints in task descriptions
+- **Trust signal scores** - higher signal = more validated experience
 
 ## Memory Reasoning (Learning Mode)
 
@@ -147,7 +148,7 @@ Incoherent verification → builder hits unexpected state → 10x token cost.
 
 **Filter rule**: `-k <filter>` requires ALL tests contain filter substring.
 
-### Task Format
+### Task Format (v3: With Checkpoints)
 
 ```
 N. **slug**: description
@@ -156,7 +157,15 @@ N. **slug**: description
    Depends: [dependencies]
    Done when: [observable outcome]
    Verify: [command]
-   Derived from: [pattern/learning/failure mode that informed this task]
+
+   Pre-flight checks:
+   - [ ] [checkpoint from experiences]
+   - [ ] [checkpoint from experiences]
+
+   Known failure risks:
+   - [experience-name]: [symptom] → [action]
+
+   Derived from: [experience/pattern/learning that informed this task]
 ```
 
 **Task Types**:
@@ -164,20 +173,25 @@ N. **slug**: description
 - **BUILD**: Implement to pass existing tests (Delta = implementation files)
 - **VERIFY**: Run integration check (no Delta, only Verify command)
 
-### Task-Pattern Binding (Explicit)
+### Task-Experience Binding (Primary)
 
-For each task, explicitly state which patterns apply:
+For each BUILD task, explicitly state applicable experiences:
 
 ```
 Task N: [slug]
+  Experiences:
+  - [exp-name]: [symptom to watch for]
+    Pre-flight: [check command]
+    If fails: [recovery action]
+
   Patterns: [list of applicable patterns]
-  - [Pattern A]: [how it applies to THIS task specifically]
-  - [Pattern B]: [how it applies to THIS task specifically]
-  Anti-patterns: [what NOT to do in this task]
-  Failure mode risk: [which failure modes could occur here]
+
+  Failure risk: [HIGH | MEDIUM | LOW]
+  Escalation: After 3 verification failures, block
 ```
 
-This makes pattern application **conscious and inspectable**. Router inherits bindings, Builder receives explicit guidance.
+Experiences are PRIMARY. They tell builders WHEN to stop trying, not just WHAT to do.
+Router inherits bindings, Builder receives explicit checkpoints and failure modes.
 
 ## Output
 
@@ -190,9 +204,9 @@ Rationale: [one sentence]
 
 ### Downstream Impact
 - Framework complexity: [simple | moderate | complex]
-- Router context: [sufficient | needs enrichment]
+- Experience coverage: [complete | partial | none]
 - Builder complexity: [low | medium | high]
-- Pattern gaps: [none | list gaps]
+- Checkpoint gaps: [none | list gaps]
 - Estimated campaign tokens: [XK-YK range]
 
 ### Tasks
@@ -203,8 +217,14 @@ Rationale: [one sentence]
    Depends: [deps]
    Done when: [outcome]
    Verify: [command]
-   Patterns: [applicable patterns for this task]
-   Failure risks: [failure modes to prevent]
+
+   Pre-flight:
+   - [ ] [checkpoint]
+
+   Failure risks:
+   - [experience]: [symptom] → [action]
+
+   Escalation: After 3 failures, block
 
 ### Concerns
 [if any]

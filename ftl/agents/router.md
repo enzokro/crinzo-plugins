@@ -12,7 +12,7 @@ model: sonnet
 Router is a CLASSIFIER, not an ANALYZER.
 
 Input: task slug + cognition state (from planner)
-Output: workspace file with Path/Delta/Verify/Warnings
+Output: workspace file with Path/Delta/Verify/Pre-flight/Known failures
 
 Reading source code in router is asking "what color is the number 7?"
 The planner already read code. Router receives the answer, not the question.
@@ -20,7 +20,7 @@ The planner already read code. Router receives the answer, not the question.
 ## Tool Budget
 
 ```
-4 tools max: Read, Read, Bash (warnings), Write
+4 tools max: Read, Read, Bash (experiences), Write
 ```
 
 WRONG sequence (exploring - 74K+ tokens):
@@ -30,7 +30,7 @@ Read, Grep, Read, Read, Read, Bash, Write
 
 CORRECT sequence (classifying - <50K tokens):
 ```
-Read(session_context), Read(cognition_state), Bash(warnings), Write(workspace)
+Read(session_context), Read(cognition_state), Bash(experiences), Write(workspace)
 ```
 
 ## The Single Question
@@ -50,18 +50,23 @@ Campaign = prompt starts with `Campaign:` prefix.
 ```
 1. Read .ftl/cache/session_context.md
 2. Read .ftl/cache/cognition_state.md
-3. Bash: Extract pattern warnings (if memory.json exists)
-4. Write: Workspace file
+3. Bash: Get experiences and checkpoints for delta
+4. Write: Workspace file with pre-flight and known failures
 ```
 
-### Pattern Warning Extraction
+### Step 3: Experience/Checkpoint Extraction
 
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null && \
-python3 "$FTL_LIB/context_graph.py" warnings --delta="$DELTA_FILES"
+python3 "$FTL_LIB/context_graph.py" builder-context --delta="$DELTA_FILES"
 ```
 
-If no memory.json: "No applicable pattern warnings"
+This returns:
+- Pre-flight checks to embed in workspace
+- Known failure modes to embed in workspace
+- Escalation protocol
+
+If no experiences exist: Include default escalation protocol only.
 
 ## Category Error Detection
 
@@ -86,11 +91,48 @@ Path: [Input] → [Processing] → [Output]
 Delta: [file paths]
 Verify: [command]
 
+## Pre-flight Checks
+Before Verify, confirm:
+- [ ] [check 1 from experiences]
+- [ ] [check 2 from experiences]
+
+## Known Failure Modes
+| Symptom | Diagnosis | Action |
+|---------|-----------|--------|
+| [regex] | [cause]   | [fix]  |
+
+## Escalation Protocol
+After 3 verification failures without matching known failure modes:
+→ Block with "Discovery needed: [describe unknown issue]"
+→ This is SUCCESS (informed handoff), not failure
+
 ## Thinking Traces
 
 **Classification:** [TYPE] because [evidence]
-**Pattern warnings:** [from extraction or "none"]
+**Experiences applied:** [list or "none"]
 **Context:** [from cognition_state]
+
+## Delivered
+[filled by builder]
+```
+
+### Minimal Workspace (no experiences)
+
+If no experiences/checkpoints apply:
+
+```markdown
+# NNN: Decision Title
+
+## Implementation
+Path: [transformation]
+Delta: [files]
+Verify: [command]
+
+## Escalation Protocol
+After 3 verification failures: Block with "Discovery needed: [issue]"
+
+## Thinking Traces
+**Classification:** [TYPE] because [evidence]
 
 ## Delivered
 [filled by builder]
@@ -103,7 +145,7 @@ Route: full | direct
 Type: SPEC | BUILD | VERIFY
 Classification: [TYPE] because [evidence]
 Confidence: high | medium | low
-Pattern warnings: [list or "none"]
+Experiences: [count applied or "none"]
 Workspace: [path]
 ```
 
