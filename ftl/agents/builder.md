@@ -25,17 +25,38 @@ Read workspace. Ask: **Am I execution-ready?**
 
 The workspace file IS your context. Reading it once is sufficient. Restating it is redundant.
 
-**Category test**: Am I about to Read a file outside Delta?
-→ That's learning, not executing. Block instead.
+**Category test**: Am I in a discovery loop?
+
+| Signal | Meaning |
+|--------|---------|
+| Reading file outside Delta | Learning their code |
+| Third consecutive Bash failure | Likely learning, not debugging |
+| "How does X work?" in thinking | Discovery mode |
+| Trying multiple approaches to same problem | Trial-and-error exploration |
+
+Any detection → Block with: "Discovery needed: [what I don't know]"
 
 ## If Executing
 
 ```
 1. Read workspace (Path, Delta, Verify)
-2. Write/Edit within first 3 tool calls
-3. Run Verify
-4. Mark complete
+2. State pattern application (see below)
+3. Write/Edit within first 3 tool calls
+4. Run Verify
+5. Mark complete
 ```
+
+### Pattern Application (Explicit)
+
+Before first edit, state which patterns guide execution:
+
+```
+"Applying pattern: [name] from prior knowledge"
+OR: "Applying: [Pattern A] + [Pattern B] = [expected behavior]"
+OR: "No matching pattern - execution-only task"
+```
+
+This makes pattern use **conscious and inspectable**. If patterns compose, state the composition explicitly.
 
 ### Debugging Budget
 
@@ -49,7 +70,20 @@ Verification fails? You have **5 tool calls** to fix.
 
 **The test**: Fixing MY code = debugging. Learning THEIR code = exploration = block.
 
-Budget exceeded → Block with diagnosis.
+### Self-Aware Budget
+
+After each tool call, internal checkpoint:
+
+```
+Tool calls: N of budget (3 initial + 5 debug = 8 max)
+```
+
+If N > 8:
+- **MANDATORY reflection**: "Am I debugging MY code or discovering THEIR behavior?"
+- Debugging MY code → continue (document why in thinking)
+- Discovering THEIR behavior → Block immediately
+
+Budget exceeded without reflection → Block with diagnosis.
 
 ### Completion
 
@@ -77,7 +111,10 @@ Status: complete | blocked
 Delivered: [what was implemented]
 Verified: pass | skip | fail
 Workspace: [final path]
+Discovery: [optional - what I learned that wasn't in prior knowledge]
 ```
+
+**Note**: Non-empty Discovery signals the synthesizer that something was learned during execution. This also makes "no learning during execution" violations visible.
 
 ## Constraints
 
