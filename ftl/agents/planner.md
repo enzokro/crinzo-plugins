@@ -37,10 +37,13 @@ Pattern: [name] (signal: [N])
 - Components: [list]
 - Implication: [how this shapes task structure]
 
-### Failure Mode Warnings
-Failure: [name] (impact: [tokens])
-- Warn for: [task types]
+### Failure Mode Warnings (with Cost Context)
+Failure: [name]
+- Impact: [tokens] (~X% of typical campaign)
+- Symptom: [how builder will know they hit it]
 - Prevention: [what to include in task description]
+- Mitigation: [if prevention missed, how to recover]
+- Cost comparison: "[Pattern] saves [X] tokens vs debugging"
 
 ### Structural Learnings
 Learning: L016 - Verify must precede Builder
@@ -66,16 +69,35 @@ Given [patterns] + [learnings]:
 
 ## The Decision
 
-Read objective. Ask: **Is spec complete?**
+Read objective. Ask: **Is spec complete AND context sufficient?**
 
-Complete = task list + verification commands + data models + routes.
+- **Complete** = task list + verification commands + data models + routes
+- **Sufficient** = patterns cover framework complexity + no known failure modes unaddressed
 
-- **Complete** → Output PROCEED. Zero exploration.
-- **Incomplete** → Explore, then output.
+| Spec State | Context State | Action |
+|------------|---------------|--------|
+| Complete | Sufficient | PROCEED (zero exploration) |
+| Complete | Uncertain | Verify (targeted exploration) |
+| Incomplete | Any | Explore (full discovery) |
 
 **Category test**: Am I about to run a discovery command?
 → Is my input missing task list, verification, or schemas?
 → No? Then that exploration is redundant. Output directly.
+
+### Downstream Impact Assessment
+
+Before PROCEED, checkpoint:
+
+```
+"Downstream impact assessment:
+- Framework complexity: [simple | moderate | complex]
+- Pattern coverage: [complete | partial | none]
+- Known failure modes addressed: [yes | partial | no]
+- Expected builder complexity: [low | medium | high]"
+```
+
+If framework complexity > simple AND pattern coverage < complete:
+→ Consider targeted exploration before PROCEED
 
 ## If Exploring
 
@@ -90,6 +112,22 @@ cat pyproject.toml 2>/dev/null
 source ~/.config/ftl/paths.sh 2>/dev/null
 python3 "$FTL_LIB/context_graph.py" query "$OBJECTIVE" 2>/dev/null
 ```
+
+## Framework Assessment
+
+Before task design, assess framework complexity:
+
+| Framework | Complexity | Reason |
+|-----------|------------|--------|
+| FastHTML + fastlite | High | Non-standard APIs, date handling quirks |
+| Standard library (CSV, JSON) | Low | Predictable behavior, well-documented |
+| pytest fixtures | Medium | Scoping rules, isolation patterns |
+| External APIs | High | Network behavior, error handling |
+
+If complexity > Low:
+- Allocate exploration budget for framework patterns
+- Include framework-specific anti-patterns in task descriptions
+- Warn builders of non-obvious behaviors
 
 ## Task Design
 
@@ -125,6 +163,21 @@ N. **slug**: description
 - **BUILD**: Implement to pass existing tests (Delta = implementation files)
 - **VERIFY**: Run integration check (no Delta, only Verify command)
 
+### Task-Pattern Binding (Explicit)
+
+For each task, explicitly state which patterns apply:
+
+```
+Task N: [slug]
+  Patterns: [list of applicable patterns]
+  - [Pattern A]: [how it applies to THIS task specifically]
+  - [Pattern B]: [how it applies to THIS task specifically]
+  Anti-patterns: [what NOT to do in this task]
+  Failure mode risk: [which failure modes could occur here]
+```
+
+This makes pattern application **conscious and inspectable**. Router inherits bindings, Builder receives explicit guidance.
+
 ## Output
 
 ```
@@ -134,13 +187,23 @@ N. **slug**: description
 
 Rationale: [one sentence]
 
+### Downstream Impact
+- Framework complexity: [simple | moderate | complex]
+- Router context: [sufficient | needs enrichment]
+- Builder complexity: [low | medium | high]
+- Pattern gaps: [none | list gaps]
+- Estimated campaign tokens: [XK-YK range]
+
 ### Tasks
 
 1. **slug**: description
+   Type: SPEC | BUILD | VERIFY
    Delta: [files]
    Depends: [deps]
    Done when: [outcome]
    Verify: [command]
+   Patterns: [applicable patterns for this task]
+   Failure risks: [failure modes to prevent]
 
 ### Concerns
 [if any]
@@ -148,6 +211,34 @@ Rationale: [one sentence]
 
 | Signal | Meaning |
 |--------|---------|
-| **PROCEED** | Clear path, all provable |
-| **CONFIRM** | Sound, some uncertainty |
-| **CLARIFY** | Can't verify |
+| **PROCEED** | Clear path, all provable, context sufficient |
+| **CONFIRM** | Sound, some uncertainty, may need enrichment |
+| **CLARIFY** | Can't verify, context gaps identified |
+
+## Synthesizer Feedback Request
+
+After campaign completion, synthesizer should report:
+
+```
+## Feedback for Planner
+
+### Pattern Effectiveness
+- Helped: [patterns that prevented issues]
+- Didn't help: [patterns that were ignored or misapplied]
+- Missing: [patterns that would have prevented issues]
+
+### Task Coherence
+- Verification failures: [any ordering problems]
+- Context gaps: [where builders lacked information]
+
+### Builder Pain Points
+- Token hotspots: [which tasks burned tokens]
+- Discovery spirals: [where learning happened during execution]
+
+### Suggested Updates
+- Signal increases: [patterns to strengthen]
+- New patterns: [patterns to add to prior_knowledge.md]
+- Anti-patterns: [behaviors to warn against]
+```
+
+This closes the feedback loop. Synthesizer findings inform next campaign's prior_knowledge.

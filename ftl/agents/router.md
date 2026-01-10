@@ -52,17 +52,66 @@ If SPEC: Create workspace with Delta = test file only. Builder writes tests, not
 If BUILD: Create workspace. Builder implements to pass pre-existing tests.
 If VERIFY: Output `Route: direct` and run the verify command. Skip workspace.
 
+### Classification Reasoning (Explicit)
+
+Before workspace creation, state classification reasoning:
+
+```
+"Classifying as [TYPE] because: [specific evidence from task description]"
+```
+
+| Classification | Evidence Required |
+|----------------|-------------------|
+| SPEC | Task says "write test" OR delta is test file only OR task number is 000 |
+| BUILD | Task says "implement" AND tests exist from prior SPEC |
+| VERIFY | Task says "verify" with no delta, final in sequence |
+
+This makes classification **conscious and inspectable**. If wrong, synthesizer can trace reasoning.
+
 ### Step 2: BUILD Pipeline (default)
 
 ```
 1. Read .ftl/cache/session_context.md
 2. Read .ftl/cache/cognition_state.md
-3. Bash: mkdir -p .ftl/workspace
-4. Write: workspace file
+3. Context checkpoint (see below)
+4. Extract pattern warnings (see below)
+5. Bash: mkdir -p .ftl/workspace
+6. Write: workspace file with warnings
 ```
 
 Your prompt contains: Delta, Depends, Done when, Verify.
-That IS the workspace content. Transcribe it.
+That IS the workspace content. Transcribe it WITH pattern warnings.
+
+### Context Sufficiency Checkpoint
+
+After reading context, checkpoint:
+
+```
+"Context checkpoint:
+- Session provides: [summarize available context]
+- This task requires: [what builder will need]
+- Pattern coverage: [which patterns apply]
+- Gap: [anything missing] → If gap, note in Thinking Traces"
+```
+
+If context is insufficient (missing patterns for task type), note the gap explicitly. Builder needs to know what's missing.
+
+### Pattern Warning Extraction
+
+Before workspace creation, extract applicable warnings:
+
+If `.ftl/memory/prior.json` exists:
+- Scan for patterns matching task delta files
+- Scan for patterns matching task type (SPEC/BUILD)
+- Include all CRITICAL warnings (signal > +5)
+
+State in output:
+```
+"Pattern warnings extracted: [list with signals]"
+OR: "No applicable pattern warnings for [task type]"
+```
+
+Include extracted warnings in workspace Thinking Traces.
 
 **Category test**: Am I about to Read source files or query memory?
 → Planner already did this. Create the workspace.
@@ -109,10 +158,18 @@ Delta: [file paths]
 Verify: [command]
 
 ## Thinking Traces
-[context for builder]
 
-**Pattern warnings** (from .ftl/memory/prior.json if seeded):
-[include relevant failure mode warnings from prior campaigns]
+**Context Inheritance Chain:**
+- From planner: [what planner learned]
+- From prior tasks: [relevant completions]
+- For this task: [specific guidance]
+
+**Pattern warnings** (from .ftl/memory/prior.json):
+- [pattern-name] (+signal): [prevention guidance]
+OR: "No applicable pattern warnings"
+
+**Classification reasoning:**
+[TYPE] because [evidence from task description]
 
 ## Delivered
 [filled by builder]
@@ -130,6 +187,10 @@ For SPEC tasks:
 ```
 Route: full
 Type: SPEC
+Classification: SPEC because [evidence]
+Confidence: high | medium | low
+Pattern coverage: [complete | partial | none]
+Pattern warnings: [extracted list or "none"]
 Workspace: [path]
 Path: [requirements] → [test design] → [test file]
 Delta: [test files only]
@@ -142,6 +203,10 @@ For BUILD tasks:
 ```
 Route: full
 Type: BUILD
+Classification: BUILD because [evidence]
+Confidence: high | medium | low
+Pattern coverage: [complete | partial | none]
+Pattern warnings: [extracted list or "none"]
 Workspace: [path]
 Path: [transformation]
 Delta: [implementation files]
@@ -154,6 +219,8 @@ For VERIFY tasks:
 ```
 Route: direct
 Type: VERIFY
+Classification: VERIFY because [evidence]
+Confidence: high
 Workspace: N/A (verification task)
 Path: [test file] → [pytest] → [verification output]
 Verify: [command]
@@ -162,6 +229,9 @@ Verify: [command]
 For ad-hoc tasks:
 ```
 Route: full | direct | clarify
+Classification: [TYPE] because [evidence]
+Confidence: high | medium | low
+Pattern coverage: [complete | partial | none]
 Workspace: [path if full]
 Path: [transformation]
 Delta: [scope]
