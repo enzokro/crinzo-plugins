@@ -100,15 +100,19 @@ If context is insufficient (missing patterns for task type), note the gap explic
 
 Before workspace creation, extract applicable warnings:
 
-If `.ftl/memory/prior.json` exists:
-- Scan for patterns matching task delta files
-- Scan for patterns matching task type (SPEC/BUILD)
-- Include all CRITICAL warnings (signal > +5)
+If `.ftl/memory.json` exists:
+
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null && \
+python3 "$FTL_LIB/context_graph.py" warnings --delta="$DELTA_FILES"
+```
+
+This returns CRITICAL warnings (signal >= +5) relevant to delta files.
 
 State in output:
 ```
-"Pattern warnings extracted: [list with signals]"
-OR: "No applicable pattern warnings for [task type]"
+"Pattern warnings: [output from warnings command]"
+OR: "No applicable pattern warnings"
 ```
 
 Include extracted warnings in workspace Thinking Traces.

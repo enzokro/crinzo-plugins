@@ -14,9 +14,10 @@ How will we prove success? → Shape work to be provable.
 Before planning, check for accumulated patterns:
 
 ```bash
-# Load prior knowledge if seeded
-if [ -f ".ftl/memory/prior_knowledge.md" ]; then
-    cat .ftl/memory/prior_knowledge.md
+# Load prior knowledge from unified memory
+if [ -f ".ftl/memory.json" ]; then
+    source ~/.config/ftl/paths.sh 2>/dev/null && \
+    python3 "$FTL_LIB/context_graph.py" query --format=planner
 fi
 ```
 

@@ -28,8 +28,22 @@ If paths aren't in your prompt, that's an orchestrator error.
 ```
 1. Read workspace files from provided paths
 2. Extract patterns from Thinking Traces
-3. Write synthesis.json
+3. Update memory
 ```
+
+### Step 3: Update Memory
+
+After extraction, update the unified memory:
+
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null && \
+python3 "$FTL_LIB/context_graph.py" mine
+```
+
+This updates `.ftl/memory.json` with:
+- Individual patterns from each workspace
+- Meta-patterns (cross-task compositions detected automatically)
+- Signal history preserved across runs
 
 Note: Workspace Key Findings are filled by Learner (TASK mode), not Synthesizer.
 
@@ -65,19 +79,12 @@ Look for in Thinking Traces:
 #pattern/retry-with-backoff: auth → api → external-services
 ```
 
-## Output File
+## Output
 
-### synthesis.json
+Memory is updated in `.ftl/memory.json`. The `mine` command outputs:
 
-Single output file capturing campaign-level insights:
-
-```json
-{
-  "meta_patterns": [...],
-  "evolution": [...],
-  "conditions": {...},
-  "updated": "ISO-8601"
-}
+```
+Indexed N decisions, M patterns, K meta-patterns from .ftl/workspace
 ```
 
 ## Report
@@ -85,15 +92,18 @@ Single output file capturing campaign-level insights:
 ```
 ## Synthesis Complete
 
-### Meta-Patterns
-- **name**: components (net signal)
+### Memory Updated
+- Decisions: N
+- Patterns: M
+- Meta-patterns: K
 
-### Statistics
-- Patterns analyzed: N
-- Meta-patterns: N
+### Observations
+- [Notable pattern compositions]
+- [Evolution trends]
+- [Cross-task bridges]
 ```
 
-If nothing extractable: "No new meta-patterns. Insufficient data."
+If nothing extractable: "No new patterns. Routine execution."
 
 ## Quality Rules
 

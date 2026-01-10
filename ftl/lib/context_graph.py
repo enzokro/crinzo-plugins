@@ -356,13 +356,17 @@ def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path("
     # Build edges
     edges = build_edges(decisions)
 
+    # Detect meta-patterns (pattern clusters that co-occur)
+    meta_patterns = detect_meta_patterns(dict(patterns), decisions)
+
     # Create unified memory
     memory = {
         "version": MEMORY_VERSION,
         "mined": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "decisions": decisions,
         "patterns": dict(patterns),
-        "edges": edges
+        "edges": edges,
+        "meta_patterns": meta_patterns
     }
     save_memory(memory, base)
 
@@ -421,6 +425,129 @@ def build_edges(decisions: dict) -> dict:
                 edges["file_impact"][pattern].append(seq)
 
     return edges
+
+
+def detect_meta_patterns(patterns: dict, decisions: dict) -> dict:
+    """Detect pattern clusters that co-occur in 2+ decisions.
+
+    Meta-patterns are compositions of simpler patterns that appear together.
+    Their combined signal indicates reliability of the composition.
+    """
+    from collections import Counter
+
+    # Build co-occurrence matrix
+    co_occur = Counter()
+    for dec_id, dec in decisions.items():
+        tags = dec.get("tags", [])
+        # Only consider pattern tags (not constraints, decisions, etc.)
+        pattern_tags = [t for t in tags if t.startswith("#pattern/")]
+        for i, t1 in enumerate(pattern_tags):
+            for t2 in pattern_tags[i+1:]:
+                # Normalize order for consistent keys
+                pair = tuple(sorted([t1, t2]))
+                co_occur[pair] += 1
+
+    # Extract meta-patterns where co-occurrence >= 2
+    meta_patterns = {}
+    for (t1, t2), count in co_occur.items():
+        if count >= 2:
+            # Create readable name from pattern slugs
+            slug1 = t1.split("/")[-1]
+            slug2 = t2.split("/")[-1]
+            name = f"{slug1}+{slug2}"
+
+            # Combined signal is sum of component signals
+            net1 = patterns.get(t1, {}).get("net", 0)
+            net2 = patterns.get(t2, {}).get("net", 0)
+            net = net1 + net2
+
+            # Only include if combined signal is positive
+            if net > 0:
+                meta_patterns[name] = {
+                    "components": [t1, t2],
+                    "co_occurrences": count,
+                    "net": net
+                }
+
+    return meta_patterns
+
+
+# --- Planner/Router Query Functions ---
+
+def query_for_planner(memory: dict) -> str:
+    """Format patterns for planner consumption.
+
+    Returns markdown-formatted prior knowledge sorted by signal strength.
+    """
+    lines = ["## Prior Knowledge (from memory.json)", ""]
+
+    # Patterns by signal strength (descending)
+    patterns = sorted(
+        memory.get("patterns", {}).items(),
+        key=lambda x: x[1].get("net", 0),
+        reverse=True
+    )
+
+    positive_patterns = [(tag, data) for tag, data in patterns if data.get("net", 0) > 0]
+    if positive_patterns:
+        lines.append("### Patterns")
+        for tag, data in positive_patterns:
+            net = data.get("net", 0)
+            lines.append(f"- {tag} (+{net})")
+
+    # Meta-patterns
+    meta = memory.get("meta_patterns", {})
+    if meta:
+        lines.append("")
+        lines.append("### Meta-Patterns")
+        sorted_meta = sorted(meta.items(), key=lambda x: x[1].get("net", 0), reverse=True)
+        for name, data in sorted_meta:
+            components = " + ".join(data.get("components", []))
+            lines.append(f"- {name}: {components} (net: +{data.get('net', 0)})")
+
+    if len(lines) == 2:  # Only header, no content
+        return "## Prior Knowledge\nNo patterns accumulated yet."
+
+    return "\n".join(lines)
+
+
+def warnings_for_delta(memory: dict, delta_files: list) -> str:
+    """Extract CRITICAL warnings relevant to delta files.
+
+    Returns warnings for patterns with signal >= 5 that are
+    relevant to the files being modified.
+    """
+    if not delta_files:
+        return "No applicable pattern warnings (no delta files specified)"
+
+    warnings = []
+
+    for tag, data in memory.get("patterns", {}).items():
+        net = data.get("net", 0)
+        if net >= 5:  # CRITICAL threshold
+            # Check if pattern applies to these files
+            for dec_id in data.get("decisions", []):
+                dec = memory.get("decisions", {}).get(dec_id, {})
+                dec_files = dec.get("delta_files", [])
+
+                # Check for overlap between delta_files and decision's delta_files
+                for df in delta_files:
+                    df_lower = df.lower()
+                    for dec_file in dec_files:
+                        if df_lower in dec_file.lower() or dec_file.lower() in df_lower:
+                            warnings.append(f"CRITICAL: {tag} (+{net})")
+                            break
+                    else:
+                        continue
+                    break
+                else:
+                    continue
+                break
+
+    if not warnings:
+        return "No applicable pattern warnings"
+
+    return "\n".join(sorted(set(warnings), key=lambda x: -int(x.split("+")[1].rstrip(")"))))
 
 
 # --- Signals ---
@@ -806,8 +933,12 @@ def main():
     # Query
     query_p = sub.add_parser('query', aliases=['q'], help='Query decisions')
     query_p.add_argument('topic', nargs='?', help='Topic to filter by')
-    query_p.add_argument('--format', choices=['human', 'inject'], default='human',
-                         help='Output format: human (default) or inject (for workspace precedent)')
+    query_p.add_argument('--format', choices=['human', 'inject', 'planner'], default='human',
+                         help='Output format: human (default), inject (for workspace precedent), or planner (for planner prior knowledge)')
+
+    # Warnings (for router)
+    warn_p = sub.add_parser('warnings', aliases=['w'], help='Get pattern warnings for delta files')
+    warn_p.add_argument('--delta', required=True, help='Comma-separated list of delta files')
 
     # Decision
     dec_p = sub.add_parser('decision', aliases=['d'], help='Show full decision record')
@@ -844,24 +975,34 @@ def main():
         index = mine_workspace(args.workspace, args.base)
         n_decisions = len(index.get("decisions", {}))
         n_patterns = len(index.get("patterns", {}))
-        print(f"Indexed {n_decisions} decisions, {n_patterns} patterns from {args.workspace}")
+        n_meta = len(index.get("meta_patterns", {}))
+        print(f"Indexed {n_decisions} decisions, {n_patterns} patterns, {n_meta} meta-patterns from {args.workspace}")
         for seq in sorted(index.get("decisions", {}).keys()):
             d = index["decisions"][seq]
             print(f"  [{seq}] {d['slug']} ({d['status']})")
 
     elif args.cmd in ('query', 'q'):
-        results = query_decisions(args.topic, args.base)
         memory = load_memory(args.base)
 
-        if args.format == 'inject':
+        if args.format == 'planner':
+            # Output prior knowledge for planner consumption
+            print(query_for_planner(memory))
+        elif args.format == 'inject':
             # Output ready-to-paste Precedent section for workspace
+            results = query_decisions(args.topic, args.base)
             print(format_for_injection(results, signals=memory.get("patterns", {})))
         else:
+            results = query_decisions(args.topic, args.base)
             if args.topic:
                 print(f"Decisions for '{args.topic}':\n")
             else:
                 print("All decisions (ranked):\n")
             print(format_decisions(results, signals=memory.get("patterns", {})))
+
+    elif args.cmd in ('warnings', 'w'):
+        memory = load_memory(args.base)
+        delta_files = [f.strip() for f in args.delta.split(",") if f.strip()]
+        print(warnings_for_delta(memory, delta_files))
 
     elif args.cmd in ('decision', 'd'):
         d = get_decision(args.seq, args.base)
