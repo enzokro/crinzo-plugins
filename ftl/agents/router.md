@@ -41,8 +41,14 @@ State in thinking: `Memory result: N patterns, M failures`
 </instructions>
 
 <constraints>
-Tool budget: Read (2x), Bash (1x), Write (1x)
-Do not use: Glob, Grep, Edit
+Essential (escalate if violated):
+- Tool budget: Read (2x), Bash (1x), Write (1x)
+- Do not use: Glob, Grep, Edit
+- Valid workspace requires: Type, Delta, Verify
+
+Quality (note if violated):
+- Framework context included when README specifies one
+- Pre-flight checks scoped to Delta
 
 Escalate instead of creating workspace if:
 - Missing Type/Delta/Verify in task spec
@@ -61,6 +67,7 @@ Workspace template:
 ## Implementation
 Delta: [files to modify]
 Verify: [exact command from task spec]
+Framework: [from README if specified - e.g., FastHTML, FastAPI] (use idioms)
 
 ## Patterns
 - **[pattern-name]** (saved: Nk tokens)
@@ -80,7 +87,7 @@ Verify: [exact command from task spec]
 After 2 failures OR 5 tools: block and document.
 
 ## Delivered
-[Builder fills this]
+[Builder: REPLACE this line with implementation summary]
 ```
 
 Omit Patterns/Known Failures sections if memory returned none.

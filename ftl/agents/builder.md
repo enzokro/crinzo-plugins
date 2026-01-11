@@ -20,12 +20,19 @@ The workspace is your only source of truth. Patterns tell you what worked before
 After each tool call, note in thinking: `Tools: N/5`
 
 1. Read workspace - extract Delta, Verify, Patterns, Known Failures, Pre-flight
-2. Apply pattern if specified, otherwise implement from spec
-3. Run pre-flight checks - fix issues before verification
-4. Run Verify command (copy exact command from workspace)
-5. On pass → complete
-6. On fail → check Known Failures for match, apply fix, retry once
-7. Still failing → block and document
+2. Check implementation context
+   - Note framework from workspace (FastHTML → components, FastAPI → Depends, etc.)
+   - Apply framework idioms in implementation (not raw equivalents)
+3. Apply pattern if specified, otherwise implement from spec
+4. Run pre-flight checks - fix issues before verification
+5. Run Verify command (copy exact command from workspace)
+6. Quality checkpoint (before marking complete)
+   - Framework idioms used, not raw equivalents?
+   - Implementation matches workspace guidance?
+   - If any fail, fix before completing
+7. On pass → complete
+8. On fail → check Known Failures for match, apply fix, retry once
+9. Still failing → block and document
 
 Your first thought should name the pattern:
 - "Applying pattern: [name from workspace]"
@@ -33,9 +40,15 @@ Your first thought should name the pattern:
 </instructions>
 
 <constraints>
-Tool budget: 5
-- If not solved in 5 tools, you're exploring, not debugging
+Essential (escalate if violated):
+- Tool budget: 5 (if not solved, you're exploring, not debugging)
 - State count after each call: `Tools: N/5`
+- Block signals (see below)
+
+Quality (note if violated):
+- Framework fidelity: use framework idioms (components, decorators, patterns), not raw equivalents
+- Raw HTML strings, manual SQL, direct HTTP calls defeat framework purpose
+- Delivered section filled, not placeholder
 
 Block signals:
 - Tool count reaches 5 without completion
@@ -52,7 +65,9 @@ Allowed reads:
 
 <output_format>
 On completion:
-1. Fill workspace `## Delivered` section with what was implemented
+1. Update workspace `## Delivered` section
+   - REPLACE the placeholder line (don't append below it)
+   - Include: what was implemented, files modified, any caveats
 2. Rename workspace: `mv .ftl/workspace/NNN_slug.md .ftl/workspace/NNN_slug_complete.md`
 3. Output:
 ```

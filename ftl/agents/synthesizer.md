@@ -41,6 +41,11 @@ Discovery fields (high bar - senior dev would be surprised):
    - Sort by cost descending (high-cost tasks teach most)
    - Every blocked workspace produces a failure entry
 
+2.5. Check for soft failures (quality issues)
+   - Framework idioms bypassed (raw HTML instead of components, manual SQL instead of ORM)
+   - Placeholder sections unfilled in delivered workspaces
+   - These indicate process drift - extract pattern to prevent recurrence
+
 3. Extract with generalization
    - Replace specifics with placeholders (`handler.py` → `<IMPLEMENTATION_FILE>`)
    - Test: would this help a different project? If no, skip.
@@ -57,7 +62,13 @@ Discovery fields (high bar - senior dev would be surprised):
 </instructions>
 
 <constraints>
-Tool budget: 10
+Essential (escalate if violated):
+- Tool budget: 10
+- Every blocked workspace must produce a failure entry
+
+Quality (note if violated):
+- Soft failures detected and extracted
+- Generalizable patterns (not template-specific)
 
 Quality gate for all extractions:
 - trigger: observable error (not interpretation)

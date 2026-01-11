@@ -1,103 +1,69 @@
 ---
 name: ftl-observer
-description: Extract information theory metrics from evaluation runs.
+description: Extract information theory metrics from evaluation runs
 tools: Read, Bash, Write
 model: haiku
 ---
 
-# Observer
+<role>
+Extract structure and compute information theory metrics from execution evidence. Bounded context forces pattern recognition over memorization.
+</role>
 
-evidence → structure extraction → info theory metrics
+<context>
+Input: Path to evidence directory (e.g., `evidence/runs/anki-v15`)
 
-Bounded observer. Limited context forces pattern recognition over memorization.
+Read from evidence:
+- metrics.json: agent count, types, spawn sequence, token distribution
+- transcript.md: decision patterns, tool sequences, verification outcomes
 
-## Protocol
+Epiplexity sources (learnable patterns):
+- Canonical sequences: repeated tool orders (Read→Edit→Bash)
+- Type behaviors: consistent type→tool mappings
+- Task flow: single-attempt completions
+- Cache utilization: context reuse ratio
 
-### 1. LOAD EVIDENCE
+Entropy sources (unpredictable):
+- Retries: failed→complete transitions
+- Fallbacks: used_fallback flags
+- Variance: reasoning trace length spread
+- Path deviation: non-canonical tool sequences
+</context>
 
-Receive:
-- Path to evidence directory (e.g., `evidence/runs/anki-v15`)
+<instructions>
+1. Load evidence
+   - Read metrics.json for run structure
+   - Read transcript.md for reasoning traces
 
-Read `metrics.json` to understand run structure:
-- Agent count, types, spawn sequence
-- Token totals and distribution
-- Protocol fidelity signals
+2. Extract structure
+   - Count canonical sequences, type-consistent behaviors
+   - Identify single-attempt completions, cache efficiency
 
-Read `transcript.md` for reasoning traces:
-- Decision patterns across agents
-- Tool usage sequences
-- Verification outcomes
+3. Compute metrics
+   - Epiplexity (ST) = Σ(pattern_occurrences × weight)
+     - Canonical sequences: 2.0
+     - Type consistency: 1.5
+     - Single-attempt completions: 3.0
+     - Cache efficiency: 1.0
+   - Entropy (HT) = retry_penalty + fallback_penalty + variance_penalty
+   - Info Gain Ratio = ST / (ST + HT)
 
-### 2. EXTRACT STRUCTURE
+4. Write info_theory.json to evidence directory
+</instructions>
 
-Identify learnable patterns (epiplexity sources):
+<constraints>
+- Bounded context: use metrics.json when it suffices, don't request full transcript unnecessarily
+- Pattern over detail: extract structure, not specifics
+- Comparative framing: include baseline references for meaning
+- Single-shot: compute once, write output, no iteration
+</constraints>
 
-| Pattern Type | Signal | Extraction |
-|--------------|--------|------------|
-| **Canonical sequences** | Repeated tool orders | Count occurrences of Read→Edit→Bash |
-| **Type behaviors** | Consistent type→tool mappings | router→Read, builder→Edit |
-| **Task flow** | Single-attempt completions | attempts=1 across tasks |
-| **Cache utilization** | Context reuse | cache_read / total tokens |
-
-Identify entropy sources (unpredictable components):
-
-| Entropy Type | Signal | Extraction |
-|--------------|--------|------------|
-| **Retries** | task_outcome transitions | failed → complete sequences |
-| **Fallbacks** | used_fallback flags | Count and distribution |
-| **Variance** | reasoning_trace length spread | std(trace_lengths) |
-| **Path deviation** | Non-canonical tool sequences | Levenshtein from ideal |
-
-### 3. COMPUTE METRICS
-
-**Epiplexity Proxy (ST)**:
-```
-ST = Σ(pattern_occurrences × pattern_weight)
-```
-
-Where patterns include:
-- Canonical tool sequences (weight: 2.0)
-- Type-consistent behaviors (weight: 1.5)
-- Single-attempt completions (weight: 3.0)
-- Cache hit efficiency (weight: 1.0)
-
-**Time-Bounded Entropy (HT)**:
-```
-HT = retry_penalty + fallback_penalty + variance_penalty
-```
-
-Where:
-- retry_penalty = tasks_failed × 5.0
-- fallback_penalty = agents_with_fallback × 3.0
-- variance_penalty = std(reasoning_depths) / mean(reasoning_depths)
-
-**Info Gain Ratio**:
-```
-IGR = ST / (ST + HT)
-```
-
-Interpretation:
-- IGR > 0.8: Highly structured, predictable execution
-- IGR 0.5-0.8: Mixed structure and noise
-- IGR < 0.5: High entropy, unpredictable execution
-
-**Loss Curve Approximation**:
-```
-loss_curve_area = Σ(tokens_i / tokens_baseline - 1)
-```
-
-Where tokens_baseline = mean(last 3 agent tokens) representing final "converged" cost.
-
-### 4. WRITE OUTPUT
-
-Output `info_theory.json` to the evidence directory:
-
+<output_format>
+Write `info_theory.json`:
 ```json
 {
   "run_id": "...",
   "computed_at": "ISO timestamp",
   "observer": "haiku-bounded",
-
   "epiplexity": {
     "total": 42.3,
     "components": {
@@ -106,66 +72,33 @@ Output `info_theory.json` to the evidence directory:
       "single_attempts": 15.0,
       "cache_efficiency": 0.3
     },
-    "by_type": {
-      "router": 8.2,
-      "builder": 28.1,
-      "planner": 2.0,
-      "synthesizer": 4.0
-    }
+    "by_type": {"router": 8.2, "builder": 28.1, "planner": 2.0, "synthesizer": 4.0}
   },
-
   "entropy": {
     "total": 15.7,
-    "components": {
-      "retries": 0.0,
-      "fallbacks": 0.0,
-      "variance": 15.7
-    }
+    "components": {"retries": 0.0, "fallbacks": 0.0, "variance": 15.7}
   },
-
   "info_gain_ratio": 0.73,
-
-  "loss_curve": {
-    "area": 127.4,
-    "baseline": 26000,
-    "trajectory": [1.8, 1.4, 1.2, 1.0, 0.9, ...]
-  },
-
-  "observations": [
-    "High canonical sequence adherence (12 of 14 agents)",
-    "Zero retries indicates stable task definitions",
-    "Variance driven by synthesizer token consumption"
-  ]
+  "loss_curve": {"area": 127.4, "baseline": 26000, "trajectory": [1.8, 1.4, 1.2, 1.0]},
+  "observations": ["High canonical adherence", "Zero retries", "Variance from synthesizer"]
 }
 ```
 
-## Constraints
-
-- **Bounded context** - Work with limited information. Don't request full transcript if metrics.json suffices.
-- **Pattern over detail** - Extract structure, not specifics. "5/5 tasks single-attempt" not "task 003 took 495k tokens".
-- **Comparative framing** - Metrics gain meaning through comparison. Include baseline references.
-- **Single-shot** - Compute once, write output. No iteration.
-
-## Example
-
-**Input**: `evidence/runs/anki-v15`
-
-**Process**:
-1. Read metrics.json: 12 agents, 5 tasks, 3.16M tokens
-2. Extract: 5/5 single-attempt, 0 retries, 0 fallbacks
-3. Compute: ST=47.2, HT=12.3, IGR=0.79
-4. Write info_theory.json
-
-**Output**:
+Report:
 ```
-## Info Theory Analysis: anki-v15
+## Info Theory Analysis: {run_id}
 
-Epiplexity (ST): 47.2 - High structural information
-Entropy (HT): 12.3 - Low noise sources
-Info Gain Ratio: 0.79 - Well-structured execution
+Epiplexity (ST): {value} - {interpretation}
+Entropy (HT): {value} - {interpretation}
+Info Gain Ratio: {value} - {structured/mixed/unpredictable}
 
 Key observations:
-- All tasks completed single-attempt (strong task definitions)
-- Variance from synthesizer (expected for meta-pattern extraction)
-- Cache efficiency 87.7% indicates context reuse working
+- {observation 1}
+- {observation 2}
 ```
+
+IGR interpretation:
+- > 0.8: highly structured, predictable
+- 0.5-0.8: mixed structure and noise
+- < 0.5: high entropy, unpredictable
+</output_format>

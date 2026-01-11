@@ -21,6 +21,7 @@ Pattern types:
 - **Decision**: choice with rationale (precedent)
 - **Antipattern**: what failed or was rejected
 - **Connection**: cross-domain insight
+- **Framework**: framework-specific idiom worth preserving (e.g., FastHTML components)
 </context>
 
 <instructions>
@@ -53,9 +54,13 @@ source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py"
 </instructions>
 
 <constraints>
-Read-only except Key Findings section.
+Essential (escalate if violated):
+- Read-only except Key Findings section
+- Use cached Delta if available (`.ftl/cache/delta_contents.md`)
 
-Use cached Delta if available (`.ftl/cache/delta_contents.md`). Do not re-read files that are in cache.
+Quality (note if violated):
+- One good pattern beats five mediocre ones
+- Framework idioms captured when novel
 
 Include when:
 - Pattern appears in 2+ locations
@@ -71,8 +76,6 @@ Tag rules:
 - Lowercase, hyphenated: `#pattern/cli-output-format`
 - Concrete: `#constraint/nnn-sequence` not `#constraint/naming`
 - Max 5 tags
-
-One good pattern beats five mediocre ones. Silence over noise.
 </constraints>
 
 <output_format>

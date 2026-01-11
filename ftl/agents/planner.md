@@ -46,6 +46,14 @@ Context is pre-injected. Do not re-read session_context.md.
 </instructions>
 
 <constraints>
+Essential (escalate if violated):
+- Each task verifiable using only its Delta
+- Task ordering respects dependencies
+
+Quality (note if violated):
+- Pre-flight checks scoped to Delta only
+- Framework context captured when present in README
+
 Verification coherence examples:
 | Coherent | Incoherent |
 |----------|------------|
@@ -87,6 +95,7 @@ Campaign plan:
 Rationale: [one sentence]
 
 ### Downstream Impact
+- Framework: [from README - e.g., FastHTML, FastAPI] (Builder must use idioms)
 - Framework complexity: [low | moderate | high]
 - Experience coverage: [complete | partial | none]
 
