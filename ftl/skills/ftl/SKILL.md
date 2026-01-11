@@ -357,6 +357,8 @@ Include warnings in task descriptions for known failure modes.
 
 If `.ftl/memory/prior_knowledge.md` does NOT exist, skip the Prior Knowledge section (de novo run).
 
+**Memory empty on first task is expected.** Router receiving 0 patterns / 0 failures on task 001 is normal — use default escalation protocol.
+
 Task(ftl:planner) returns: PROCEED | CONFIRM | CLARIFY
 
 **After CLARIFY**: Re-invoke THIS flow from Step 2. Do NOT continue as Claude Code.
@@ -390,10 +392,14 @@ For each task in sequence, spawn exactly these agents:
 Task(ftl:router) with prompt:
   Campaign: $OBJECTIVE
   Task: $SEQ $SLUG
+  Type: SPEC | BUILD | VERIFY
+  Delta: [files from planner]
+  Done-when: [outcome from planner]
 
   [description]
 ```
 The `Campaign:` prefix forces router to create workspace.
+Including Type/Delta/Done-when prevents router from re-deriving classification.
 
 **2. Builder** — implement within workspace:
 
@@ -418,6 +424,9 @@ Delta cache: post-edit file contents from prior tasks.
 Workspace file remains the specification. Builder reads it for Path, Delta, Verify.
 Cache injection prevents re-exploration; ~500k-1M tokens saved per task.
 
+**Pre-flight is mandatory.** Builder runs workspace pre-flight checks BEFORE Verify.
+Cost ratio: pre-flight fix ~500 tokens, verify debug ~50K tokens (100:1).
+
 **3. Update cache** — after builder completes:
 
 Use the full cognition_state.md format from "REQUIRED: Update Cache After Each Agent" section above.
@@ -438,6 +447,11 @@ update-task enforces workspace gate.
 python3 "$FTL_LIB/campaign.py" complete
 # Then Task(ftl:synthesizer)
 ```
+
+**Synthesizer scope restriction:**
+Synthesizer reads ONLY workspace files (not implementation files).
+Extracts failures/discoveries from `## Known Failures` and `## Delivered` sections.
+Does NOT run tests, read source code, or explore the codebase.
 
 **Critical**:
 - Create campaign: `campaign.py campaign`, NOT `campaign.py create`

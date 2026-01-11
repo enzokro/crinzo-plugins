@@ -114,6 +114,29 @@ For each high-cost task, look for:
 
 **Every blocked workspace MUST produce a failure entry.** No exceptions.
 
+### Zero-Failure Detection
+
+If 0 failures extracted, check:
+
+- [ ] All tasks passed first try → Valid (clean campaign)
+- [ ] Any task had 2+ attempts → FAILED (should extract)
+- [ ] Builder tried multiple approaches → FAILED (should extract)
+- [ ] Any task >2x median time → FAILED (hidden debugging)
+
+All GREEN → Zero failures valid
+Any RED → Re-extract with observation
+
+### Cost for Blocked Tasks
+
+Normal failure (debugged and fixed):
+- cost = total tokens (failed + successful)
+- IS extractable
+
+Blocked (escalated after 3 failures):
+- cost = total tokens (all attempts)
+- IS extractable (needs design change)
+- Escalation is SUCCESS for synthesizer
+
 ### Step 3: Extract the Delta
 
 For each failure found:
@@ -135,6 +158,38 @@ Only after failures are extracted, look for:
 - A workaround for a known limitation
 
 **The bar is high:** Would this surprise a senior engineer? If not, skip it.
+
+### Discovery Non-Obviousness Proof
+
+Before adding discovery, provide evidence:
+
+1. **Negative:** Builder tried 2+ approaches first
+2. **Comparative:** Prior campaigns don't mention this
+3. **Surprise:** Contradicts README pattern
+4. **Scope:** Only applies to specific version/framework
+
+Discovery must pass >= 2 of 4 types
+
+### Root Cause Analysis
+
+For each failure, identify:
+
+**Symptom:** What appeared in logs
+`ImportError: cannot import 'Validator'`
+
+**Root cause:** Why it happened
+Builder implemented A before B (dependency order)
+
+**Fix:** What resolved it
+Added stub: `class Validator: pass`
+
+**Prevention:** Catch before runtime
+`python3 -c "hasattr(module, 'Validator')"`
+
+**Design lesson:** For planner
+Incremental builds need stubs-first discipline
+
+Extraction must include ROOT CAUSE, not just symptom.
 
 ### Step 5: Apply the Generalization Gate
 

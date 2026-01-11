@@ -69,6 +69,25 @@ Given [patterns] + [learnings]:
 
 **If no memory**: Fall back to README-as-spec (Capability Mode).
 
+### Memory-Driven Reordering
+
+If memory contains costly failure (>20K tokens):
+1. Identify which task would trigger it
+2. Reorder tasks to prevent OR add pre-flight
+3. Document: "Reordered due to [failure-name]"
+
+Example: If failure "import-before-stub" exists, ensure stub tasks precede import-dependent tasks.
+
+### Memory Sufficiency Check
+
+Distinguish these states:
+- **No memory file:** First campaign, proceed with README-as-spec
+- **Empty memory (0 items):** Clean prior campaigns OR synthesis failed
+- **Memory with items:** Apply patterns, embed failures
+
+If empty memory + blocked workspaces in prior runs → Synthesis may have failed.
+Flag for review: "Memory empty despite prior campaigns"
+
 ## The Decision
 
 Read objective. Ask: **Is spec complete AND context sufficient?**
@@ -147,6 +166,53 @@ Incoherent verification → builder hits unexpected state → 10x token cost.
 **Self-check**: Can Verify pass with ONLY this Delta?
 
 **Filter rule**: `-k <filter>` requires ALL tests contain filter substring.
+
+### Task Ordering Coherence
+
+Before PROCEED, verify:
+1. SPEC task has no dependencies
+2. BUILD task k depends on k-1
+3. Each BUILD uses mutually-exclusive test filter
+4. VERIFY depends on final BUILD
+5. No gaps in sequence
+
+If gaps or invalid dependencies → CLARIFY
+
+### Delta ↔ Done When Coherence
+
+Check each task:
+1. Delta includes test_*.py → Done When names test functions
+2. Verify uses -k filter → Done When matches filter
+3. Done When says "no exceptions" → Delta excludes tests
+
+Misalignment → CLARIFY
+
+### Failure Mode Classification
+
+Classify each failure risk:
+
+**PREVENTABLE** (pre-flight can catch):
+- enum KeyError → use dict.get()
+- Add pre-flight check to task
+
+**DETECTABLE** (test will catch):
+- Silent failures → test must have assertions
+- Add "If Verify fails" strategy
+
+**SILENT** (needs design change):
+- None propagation → validate each stage
+- Add escalation protocol
+
+### Pre-flight Specification
+
+Each pre-flight check must be:
+- **Executable:** Runnable as bash command
+- **Deterministic:** Same input = same output
+- **Scoped:** Only checks this task's Delta
+
+Example:
+- Good: `python -m py_compile src/handler.py`
+- Bad: `pytest` (not scoped, runs all tests)
 
 ### Task Format (v3: With Checkpoints)
 
