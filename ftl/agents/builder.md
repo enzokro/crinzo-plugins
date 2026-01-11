@@ -29,17 +29,25 @@ If you haven't solved it in 5 tools, you're exploring, not debugging.
 ## Execution Protocol
 
 ```
-1. Read workspace (Path, Delta, Verify, Pre-flight, Known failures)
-2. Implement code within Delta bounds
-3. RUN PRE-FLIGHT CHECKS (mandatory)
-4. Run Verify command
-5. If pass: Complete
-6. If fail: Check against Known Failure Modes
+1. Read workspace (Path, Delta, Verify, Patterns, Failures, Pre-flight)
+2. Apply applicable patterns while implementing
+3. Implement code within Delta bounds
+4. RUN PRE-FLIGHT CHECKS (mandatory)
+5. Run Verify command
+6. If pass: Complete
+7. If fail: Check against Known Failures
    - Match found: Apply fix, retry ONCE
    - No match: Block immediately (this is discovery)
 ```
 
-### Step 3: Pre-flight Protocol (MANDATORY)
+### Step 2: Apply Patterns
+
+For each pattern in workspace "Applicable Patterns" section:
+- Check if pattern's `when` condition matches current work
+- If so, follow the `do` action
+- Higher signal patterns are more reliable
+
+### Step 4: Pre-flight Protocol (MANDATORY)
 
 **Before EVERY Verify command:**
 
@@ -54,18 +62,18 @@ Verification failure is EXPENSIVE (~50K+ tokens to debug)
 
 If workspace has no pre-flight section, proceed to Verify.
 
-### Step 6: Failure Mode Matching
+### Step 7: Failure Matching
 
-When Verify fails, check the error against Known Failure Modes:
+When Verify fails, check the error against Known Failures in workspace:
 
 ```
-For each known failure mode in workspace:
-  If error matches symptom_match regex:
-    Apply the documented action
+For each known failure in workspace:
+  If error matches symptom or match regex:
+    Apply the documented fix
     Retry Verify ONCE
     If still fails: Block (fix didn't work)
 
-If no failure mode matches:
+If no failure matches:
   This is DISCOVERY, not debugging
   Block immediately
 ```

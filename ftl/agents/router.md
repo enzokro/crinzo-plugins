@@ -54,19 +54,30 @@ Campaign = prompt starts with `Campaign:` prefix.
 4. Write: Workspace file with pre-flight and known failures
 ```
 
-### Step 3: Experience/Checkpoint Extraction
+### Step 3: Memory Injection
+
+Get applicable patterns and failures from memory:
 
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null && \
-python3 "$FTL_LIB/context_graph.py" builder-context --delta="$DELTA_FILES"
+python3 "$FTL_LIB/memory.py" inject .ftl/memory.json "$TASK_TAGS"
+```
+
+Or via Python:
+
+```python
+from memory import load_memory, get_context_for_task, format_for_injection
+memory = load_memory(Path('.ftl/memory.json'))
+context = get_context_for_task(memory, tags=['integration', 'date'])
+injection = format_for_injection(context)
 ```
 
 This returns:
-- Pre-flight checks to embed in workspace
-- Known failure modes to embed in workspace
-- Escalation protocol
+- Applicable patterns (when/do) sorted by signal
+- Known failures (symptom/fix) with pre-flight checks
+- Pre-flight check commands from failures
 
-If no experiences exist: Include default escalation protocol only.
+If memory is empty or no tags match: Include default escalation protocol only.
 
 ## Category Error Detection
 
@@ -91,34 +102,40 @@ Path: [Input] → [Processing] → [Output]
 Delta: [file paths]
 Verify: [command]
 
-## Pre-flight Checks
-Before Verify, confirm:
-- [ ] [check 1 from experiences]
-- [ ] [check 2 from experiences]
+## Applicable Patterns
 
-## Known Failure Modes
-| Symptom | Diagnosis | Action |
-|---------|-----------|--------|
-| [regex] | [cause]   | [fix]  |
+- **[pattern-name]** (signal: N)
+  When: [trigger condition]
+  Do: [action]
+
+## Known Failures
+
+- **[failure-name]**
+  Symptom: [what you see]
+  Fix: [what to do]
+
+## Pre-flight Checks
+Before Verify, run:
+- [ ] `[prevent command from failures]`
 
 ## Escalation Protocol
-After 3 verification failures without matching known failure modes:
+After 3 verification failures without matching known failures:
 → Block with "Discovery needed: [describe unknown issue]"
 → This is SUCCESS (informed handoff), not failure
 
 ## Thinking Traces
 
 **Classification:** [TYPE] because [evidence]
-**Experiences applied:** [list or "none"]
+**Patterns applied:** [list or "none"]
 **Context:** [from cognition_state]
 
 ## Delivered
 [filled by builder]
 ```
 
-### Minimal Workspace (no experiences)
+### Minimal Workspace (no memory)
 
-If no experiences/checkpoints apply:
+If memory is empty or no patterns/failures match:
 
 ```markdown
 # NNN: Decision Title

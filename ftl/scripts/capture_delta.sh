@@ -32,6 +32,26 @@ ACTIVE=$(ls "$WORKSPACE_DIR/"*_active*.md 2>/dev/null | xargs -I{} basename {} 2
 RECENT=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
 [ -z "$RECENT" ] && RECENT="none"
 
+# Extract recent learnings from the most recently completed workspace
+# This enables within-run knowledge transfer: task 002 sees what task 001 learned
+RECENT_LEARNINGS=""
+RECENT_COMPLETE=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -1)
+if [ -n "$RECENT_COMPLETE" ] && [ -f "$RECENT_COMPLETE" ]; then
+  # Extract the ## Delivered section (what was accomplished)
+  DELIVERED=$(sed -n '/^## Delivered/,/^## /p' "$RECENT_COMPLETE" 2>/dev/null | head -20 | sed '1d;$d' | sed 's/^/  /')
+  if [ -n "$DELIVERED" ]; then
+    TASK_NAME=$(basename "$RECENT_COMPLETE" | sed 's/_complete.md//' | sed 's/^[0-9]*_//')
+    RECENT_LEARNINGS=$(cat << LEARNING
+## Recent Learnings
+
+From $(basename "$RECENT_COMPLETE"):
+$DELIVERED
+
+LEARNING
+)
+  fi
+fi
+
 # Campaign context
 CAMPAIGN_OBJ=""
 if [ -f "$PROJECT_DIR/.ftl/campaign.json" ]; then
@@ -71,6 +91,7 @@ Active: $ACTIVE
 Recent: $RECENT
 ${CAMPAIGN_OBJ:+Campaign: $CAMPAIGN_OBJ}
 
+${RECENT_LEARNINGS}
 ## If You're About to Explore
 
 STOP. Ask yourself:

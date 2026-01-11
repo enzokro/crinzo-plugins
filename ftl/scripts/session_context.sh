@@ -4,7 +4,7 @@
 # It creates .ftl/cache/session_context.md with:
 # - Git state (branch, recent commits)
 # - Project verification tools
-# - Prior knowledge from .ftl/memory/prior_knowledge.md (if seeded)
+# - Prior knowledge from .ftl/memory.json (v2.0 format)
 #
 # This is a workaround because:
 # - SKILL.md bash code blocks are not executed by Claude
@@ -71,13 +71,61 @@ Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 **For cognition state**: See \`.ftl/cache/cognition_state.md\` (updated after each agent).
 EOF
 
-# Inject prior knowledge if seeded (cross-run learning)
-if [ -f ".ftl/memory/prior_knowledge.md" ]; then
-  echo "" >> .ftl/cache/session_context.md
-  cat .ftl/memory/prior_knowledge.md >> .ftl/cache/session_context.md
-  echo "" >> .ftl/cache/session_context.md
-  echo "**Memory seeded**: Consume patterns and failure mode warnings above." >> .ftl/cache/session_context.md
-  echo "Prior knowledge injected from .ftl/memory/prior_knowledge.md"
+# Inject prior knowledge from memory.json v2.0 (cross-run learning)
+MEMORY_FILE=".ftl/memory.json"
+if [ -f "$MEMORY_FILE" ]; then
+  # Check if memory has any patterns or failures
+  PATTERN_COUNT=$(jq '.patterns | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
+  FAILURE_COUNT=$(jq '.failures | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
+
+  if [ "$PATTERN_COUNT" -gt 0 ] || [ "$FAILURE_COUNT" -gt 0 ]; then
+    echo "" >> .ftl/cache/session_context.md
+    echo "## Prior Knowledge (from previous campaigns)" >> .ftl/cache/session_context.md
+    echo "" >> .ftl/cache/session_context.md
+
+    # Load FTL lib path and use memory.py to format injection
+    source ~/.config/ftl/paths.sh 2>/dev/null
+
+    if [ -n "$FTL_LIB" ] && [ -f "$FTL_LIB/memory.py" ]; then
+      # Use memory.py for proper formatting
+      python3 -c "
+import sys
+sys.path.insert(0, '$FTL_LIB')
+from memory import load_memory, get_context_for_task, format_for_injection
+from pathlib import Path
+memory = load_memory(Path('$MEMORY_FILE'))
+context = get_context_for_task(memory)
+print(format_for_injection(context))
+" >> .ftl/cache/session_context.md
+    else
+      # Fallback: inline formatting if memory.py not available
+      echo "### Applicable Patterns" >> .ftl/cache/session_context.md
+      echo "" >> .ftl/cache/session_context.md
+      jq -r '.patterns[] | "- **\(.name)** (signal: \(.signal // 1))\n  When: \(.when)\n  Do: \(.do)\n"' "$MEMORY_FILE" 2>/dev/null >> .ftl/cache/session_context.md
+
+      echo "### Known Failures" >> .ftl/cache/session_context.md
+      echo "" >> .ftl/cache/session_context.md
+      jq -r '.failures[] | "- **\(.name)**\n  Symptom: \(.symptom)\n  Fix: \(.fix)\n"' "$MEMORY_FILE" 2>/dev/null >> .ftl/cache/session_context.md
+
+      # Pre-flight checks from failures with prevent field
+      PREFLIGHT=$(jq -r '.failures[] | select(.prevent) | "- [ ] `\(.prevent)`"' "$MEMORY_FILE" 2>/dev/null)
+      if [ -n "$PREFLIGHT" ]; then
+        echo "### Pre-flight Checks" >> .ftl/cache/session_context.md
+        echo "" >> .ftl/cache/session_context.md
+        echo "Before verify, run:" >> .ftl/cache/session_context.md
+        echo "$PREFLIGHT" >> .ftl/cache/session_context.md
+        echo "" >> .ftl/cache/session_context.md
+      fi
+    fi
+
+    echo "" >> .ftl/cache/session_context.md
+    echo "**Memory seeded**: $PATTERN_COUNT patterns, $FAILURE_COUNT failures available." >> .ftl/cache/session_context.md
+    echo "Prior knowledge injected from $MEMORY_FILE ($PATTERN_COUNT patterns, $FAILURE_COUNT failures)"
+  else
+    echo "Memory file exists but empty (de novo run)"
+  fi
+else
+  echo "No memory file found (de novo run)"
 fi
 
 echo "Session context cached to .ftl/cache/session_context.md"

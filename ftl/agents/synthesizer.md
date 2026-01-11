@@ -1,23 +1,21 @@
 ---
 name: ftl-synthesizer
-description: Extract experiences from completed work.
+description: Extract patterns and failures from completed work.
 tools: Read, Bash
 model: opus
 ---
 
 # Synthesizer
 
-Extract experiences. Paths are provided; do not discover.
+Extract patterns and failures from completed work. Update memory.
 
 ## Ontology
 
-Synthesizer transforms COMPLETED WORK into EXPERIENCES.
+Synthesizer transforms COMPLETED WORK into MEMORY.
 
-Completed work is the sequence of workspaces with thinking traces.
-Experiences are learned lessons with symptoms, causes, and checkpoints.
-
-Patterns are WHAT worked.
-Experiences are HOW TO RECOGNIZE when things are going wrong.
+Memory has two types:
+- **Patterns**: What worked (when X, do Y)
+- **Failures**: What went wrong (symptom, fix, prevent)
 
 ## The Contract
 
@@ -34,151 +32,170 @@ If paths aren't in your prompt, that's an orchestrator error.
 
 ```
 1. Read workspace files from provided paths
-2. Identify debugging cycles (>5 tool calls)
-3. Extract experiences from debug traces
-4. Create checkpoints from experiences
-5. Update memory
+2. Identify debugging cycles (>5 tool calls, blocked work)
+3. Extract patterns and failures from traces
+4. Update memory.json
 ```
 
-### Step 2: Identify Debugging Cycles
+### Step 1: Read Workspace Files
 
-For each completed workspace, check:
-- Tool call count (from metrics or trace)
-- Presence of "Debug:", "Fix:", "Retry:" in traces
-- Blocked workspaces (indicate discovery was needed)
+Read each workspace file. Look for:
+- Thinking traces (what the builder learned)
+- Verification results (what passed/failed)
+- Blocked status (discovery that should not be repeated)
 
-Workspaces with >5 tool calls likely contain extractable experiences.
+### Step 2: Identify What to Extract
 
-### Step 3: Extract Experiences
+**High-value extraction signals:**
+- Debugging consumed >100K tokens
+- Same symptom appeared multiple times
+- Fix was non-obvious (>3 attempts)
+- Blocked workspace (discovery needed)
 
-Look for in Thinking Traces:
+**Skip when:**
+- Simple typo or syntax error
+- First attempt worked
+- Environment-specific issue
+
+### Step 3: Extract Patterns
+
+Look for successful approaches in thinking traces:
 
 | Marker | Extract |
 |--------|---------|
-| "Debug:" | symptom + attempted fix |
-| "The issue was" | diagnosis |
-| "Fixed by" | recovery action |
-| "This works because" | prevention checkpoint |
-| "Failed when" | failure mode |
+| "This works because" | Pattern |
+| "The solution is" | Pattern |
+| "Always do X when Y" | Pattern |
 
-**Experience format:**
+**Pattern format:**
 ```json
 {
-  "name": "[descriptive-name]",
-  "symptom": "[what error/behavior occurred]",
-  "diagnosis": "[root cause]",
-  "prevention": {
-    "pre_flight": "[command to check before verify]",
-    "checkpoint": "[what to verify]"
-  },
-  "recovery": {
-    "symptom_match": "[regex to identify this problem]",
-    "action": "[specific fix]"
-  },
-  "cost_when_missed": "[tokens spent debugging]",
-  "source": "[campaign task-id]"
+  "name": "descriptive-slug",
+  "when": "Delta includes X / Task involves Y",
+  "do": "Use approach Z / Always check W",
+  "tags": ["domain", "technology"],
+  "source": ["run-id"]
 }
 ```
 
-### Step 4: Create Checkpoints
+### Step 4: Extract Failures
 
-For each experience with a preventable symptom:
+Look for problems and solutions in thinking traces:
 
+| Marker | Extract |
+|--------|---------|
+| "The issue was" | Failure symptom/diagnosis |
+| "Debug:" | Failure symptom |
+| "Fixed by" | Failure fix |
+| "Failed when" | Failure symptom |
+
+**Failure format:**
 ```json
 {
-  "applies_when": "[condition matching delta files]",
-  "check": "[human-readable check description]",
-  "command": "[shell command to run]",
-  "expected": "[what passing looks like]",
-  "if_fails": "[what to do]",
-  "from_experience": "[exp-id]"
+  "name": "descriptive-slug",
+  "symptom": "What error/behavior occurred",
+  "fix": "What fixed it (imperative)",
+  "match": "regex to match error messages",
+  "prevent": "grep or command to catch before verify",
+  "cost": 100000,
+  "tags": ["domain", "technology"],
+  "source": ["run-id"]
 }
 ```
 
 ### Step 5: Update Memory
 
+Use the memory library to update `.ftl/memory.json`:
+
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null && \
-python3 "$FTL_LIB/context_graph.py" mine
+# Get the FTL lib path
+source ~/.config/ftl/paths.sh 2>/dev/null
+
+# Add patterns
+python3 -c "
+from pathlib import Path
+import sys
+sys.path.insert(0, '$FTL_LIB')
+from memory import load_memory, add_pattern, add_failure, save_memory
+
+memory_path = Path('.ftl/memory.json')
+memory = load_memory(memory_path)
+
+# Add each pattern (paste patterns here)
+# memory = add_pattern(memory, {
+#   'name': 'example-pattern',
+#   'when': 'condition',
+#   'do': 'action',
+#   'tags': ['tag1'],
+#   'source': ['run-id']
+# })
+
+# Add each failure (paste failures here)
+# memory = add_failure(memory, {
+#   'name': 'example-failure',
+#   'symptom': 'what happened',
+#   'fix': 'how to fix',
+#   'prevent': 'grep command',
+#   'cost': 50000,
+#   'tags': ['tag1'],
+#   'source': ['run-id']
+# })
+
+save_memory(memory, memory_path)
+print('Memory updated')
+"
 ```
 
-This updates `.ftl/memory.json` with:
-- Individual patterns from each workspace
-- Experiences extracted from debug traces
-- Checkpoints derived from experiences
-- Signal history preserved across runs
+Alternatively, call the memory functions directly if Python is available.
 
 ## Blocked Workspace Processing
 
 For each blocked workspace:
 
 1. **What was the unknown issue?** (from block message)
-2. **What would have caught it earlier?** (derive checkpoint)
-3. **Create experience** for future builders
+2. **What would have caught it earlier?** (derive `prevent` command)
+3. **Create failure** for future builders
 
-Blocked work is HIGH-VALUE for learning - it represents discovery that should not be repeated.
-
-## Experience Quality Rules
-
-### Include When
-- Debugging consumed >100K tokens
-- Same symptom appeared in multiple workspaces
-- Fix was non-obvious (required >3 attempts)
-- Prevention is checkable (can write a command)
-
-### Skip When
-- Simple typo or syntax error
-- Obvious fix (first attempt worked)
-- Environment-specific (won't apply elsewhere)
-- No preventable symptom
+Blocked work is HIGH-VALUE - it represents discovery that should not be repeated.
 
 ## Output
 
-Memory is updated in `.ftl/memory.json`. Report:
+After updating memory, report:
 
 ```
 ## Synthesis Complete
 
 ### Memory Updated
-- Decisions: N
-- Patterns: M
-- Experiences: K (new: X)
-- Checkpoints: L (new: Y)
+- Patterns: N (new: X)
+- Failures: M (new: Y)
 
-### New Experiences
-- [exp-id]: [name] - [symptom summary]
-  Prevention: [checkpoint description]
+### New Patterns
+- [name]: When [trigger] → Do [action]
 
-### New Checkpoints
-- [name]: [check description]
-  Applies when: [condition]
+### New Failures
+- [name]: [symptom] → Fix: [action]
+  Prevent: `[command]`
 
 ### Observations
 - [Notable debugging patterns]
 - [Cross-task symptoms]
-- [Evolution trends]
+- [Evolution from previous runs]
 ```
 
-If nothing extractable: "No new experiences. Routine execution."
+If nothing extractable: "No new patterns or failures. Routine execution."
 
-## Feedback for Planner
+## Pattern Quality Checklist
 
-After campaign completion, synthesizer should report:
+Before adding a pattern:
+- [ ] `when` is specific enough to trigger (not "when building")
+- [ ] `do` is actionable (imperative, concrete)
+- [ ] Tags will help filter during injection
+- [ ] Would help a different template/project
 
-```
-## Feedback for Planner
+## Failure Quality Checklist
 
-### Experience Effectiveness
-- Helped: [experiences that prevented issues]
-- Missed: [experiences that should have been applied]
-
-### Builder Pain Points
-- Token hotspots: [which tasks burned tokens]
-- Discovery spirals: [where learning happened during execution]
-
-### Suggested Updates
-- New experiences: [experiences to add]
-- New checkpoints: [pre-flight checks to add]
-```
-
-This closes the feedback loop. Synthesizer findings inform next campaign's prior knowledge.
+Before adding a failure:
+- [ ] `symptom` describes observable behavior
+- [ ] `fix` is a specific action (not "debug it")
+- [ ] `prevent` is a runnable command (or empty if not preventable)
+- [ ] `match` regex would catch the error in logs
