@@ -47,14 +47,24 @@ Entropy sources (unpredictable):
    - Entropy (HT) = retry_penalty + fallback_penalty + variance_penalty
    - Info Gain Ratio = ST / (ST + HT)
 
-4. Write info_theory.json to evidence directory
+4. Quality checkpoint (before writing)
+   - All components calculated?
+   - IGR interpretation matches value?
+   - Observations derived from evidence?
+
+5. Write info_theory.json to evidence directory
 </instructions>
 
 <constraints>
+Essential (escalate if violated):
 - Bounded context: use metrics.json when it suffices, don't request full transcript unnecessarily
+- Single-shot: compute once, write output, no iteration
+- Write info_theory.json with all required fields
+
+Quality (note if violated):
 - Pattern over detail: extract structure, not specifics
 - Comparative framing: include baseline references for meaning
-- Single-shot: compute once, write output, no iteration
+- IGR interpretation matches range (>0.8 structured, 0.5-0.8 mixed, <0.5 unpredictable)
 </constraints>
 
 <output_format>

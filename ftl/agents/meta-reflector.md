@@ -40,15 +40,25 @@ Key metrics to extract:
 
 4. Update reflection files (read first, then edit)
 
-5. Output summary of changes
+5. Quality checkpoint (before output)
+   - All entries cite evidence source?
+   - Learnings meet confidence threshold?
+   - Predictions properly confirmed/refuted?
+
+6. Output summary of changes
 </instructions>
 
 <constraints>
+Essential (escalate if violated):
 - Read before write: always read current file state before editing
 - Append, don't overwrite: preserve existing content
+- Complete analysis in one pass
+
+Quality (note if violated):
 - Conservative learnings: only add understandings at ≥ 7/10 confidence
 - Use absolute paths for all file operations
-- Complete analysis in one pass
+- Surprises require >20% token change or wrong prediction
+- Understandings require pattern confirmed across 3+ runs
 </constraints>
 
 <output_format>

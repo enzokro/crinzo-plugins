@@ -79,6 +79,38 @@ Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh
 
 ---
 
+## Framework Context Flow
+
+Framework information propagates through the pipeline:
+
+```
+README.md → Planner → Router → Builder
+   ↓           ↓         ↓        ↓
+Framework  Downstream  Workspace  Framework
+specified  Impact      template   fidelity
+           signal      includes   enforced
+                       Framework:
+```
+
+**Planner outputs:**
+```markdown
+### Downstream Impact
+- Framework: [name] (Builder must use idioms)
+- Framework complexity: [low | moderate | high]
+```
+
+**Router workspace includes:**
+```markdown
+## Implementation
+Framework: [from README - e.g., FastHTML, FastAPI] (use idioms)
+```
+
+**Builder enforces:**
+- Use framework idioms (components, decorators, patterns)
+- Raw HTML strings, manual SQL, direct HTTP calls defeat framework purpose
+
+---
+
 ## Mode: TASK
 
 ```
@@ -216,23 +248,60 @@ All commands require: `source ~/.config/ftl/paths.sh`
 
 ---
 
-## Constraints
+## Design Principles
 
-| Constraint | Meaning |
-|------------|---------|
+| Principle | Meaning |
+|-----------|---------|
 | Present over future | Current request only |
 | Concrete over abstract | Specific solution, not framework |
 | Explicit over clever | Clarity over sophistication |
 | Edit over create | Modify existing first |
+| Framework fidelity | Use idioms, not raw equivalents |
+| Quality beyond tests | Tests pass ≠ architecturally correct |
 
 No new abstractions. No files outside Delta.
 
 ---
 
+## Constraint Tiering
+
+All agents use tiered constraints:
+
+| Tier | Meaning | Action |
+|------|---------|--------|
+| **Essential** | Critical invariant | Escalate if violated |
+| **Quality** | Important but recoverable | Note in output |
+
+This replaces MUST/NEVER/CRITICAL with clear priority levels.
+
+**Example (Builder):**
+- Essential: Tool budget (5 max), block signals
+- Quality: Framework fidelity, Delivered section filled
+
+---
+
+## Quality Checkpoints
+
+Every agent runs a quality checkpoint before completing:
+
+| Agent | Checks |
+|-------|--------|
+| Builder | Framework idioms used? Delivered section filled? |
+| Router | Delta specific? Verify executable? Framework context? |
+| Planner | All tasks verifiable? Dependencies ordered? |
+| Synthesizer | Soft failures detected? Generalizable patterns? |
+| Learner | Confidence threshold met? Evidence cited? |
+
+Quality checkpoint catches issues before they propagate.
+
+---
+
 ## 5 Agents
 
-- **router**: Classify tasks, create workspaces, inject memory patterns
-- **builder**: Transform workspace spec into code (5 tools max)
-- **planner**: Decompose objectives into verifiable tasks
-- **learner**: Extract patterns from single workspace (TASK mode)
-- **synthesizer**: Extract meta-patterns from all workspaces (CAMPAIGN mode)
+| Agent | Role | Key Constraint |
+|-------|------|----------------|
+| **router** | Classify tasks, create workspaces, inject memory | Pass framework context to builder |
+| **builder** | Transform workspace spec into code | 5 tools max, framework fidelity |
+| **planner** | Decompose objectives into verifiable tasks | Verification coherence |
+| **learner** | Extract patterns from single workspace (TASK) | Read-only except Key Findings |
+| **synthesizer** | Extract meta-patterns from all workspaces (CAMPAIGN) | Detect soft failures |

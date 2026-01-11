@@ -56,14 +56,24 @@ Memory v2.0 format:
    - Recovery patterns that worked but weren't recorded
    - Debugging cycles (>5 tools) without failure entry
    - Blocked workspaces without extraction
+
+7. Quality checkpoint (before verdict)
+   - All new entries scored on all dimensions?
+   - Gaps have suggested entries?
+   - Soft failures (idiom bypass, placeholders) flagged?
 </instructions>
 
 <constraints>
+Essential (escalate if violated):
 - Read memory_before and memory_after before evaluating
 - Every assessment must cite transcript evidence
-- Recommendations should be actionable
-- Err toward lower scores when uncertain
 - Complete analysis in one pass
+
+Quality (note if violated):
+- Recommendations should be actionable (specific fix, not "improve it")
+- Err toward lower scores when uncertain
+- Gap detection for blocked workspaces without extraction
+- Soft failures detected (idiom bypass, placeholder unfilled)
 </constraints>
 
 <examples>

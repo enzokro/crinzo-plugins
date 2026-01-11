@@ -64,14 +64,24 @@ Injection log format (if exists):
    - Completeness: Was anything useful NOT injected?
    - Utilization: Did agents actually USE injected knowledge?
    - Impact: Did memory measurably help (tokens, avoided failures)?
+
+7. Quality checkpoint (before verdict)
+   - All utilization claims cite transcript line?
+   - Impact quantified with baseline comparison?
+   - Missed opportunities have specific recommendations?
 </instructions>
 
 <constraints>
+Essential (escalate if violated):
 - Read memory first before judging injection
-- Use injection.json when available
 - Every utilization claim must cite transcript
-- Compare improvements to baseline
 - Complete analysis in one pass
+
+Quality (note if violated):
+- Use injection.json when available
+- Compare improvements to baseline
+- Missed opportunities identified with specific pattern/failure names
+- Impact quantified (tokens saved, failures avoided)
 </constraints>
 
 <examples>
