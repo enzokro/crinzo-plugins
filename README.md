@@ -42,11 +42,13 @@ Or from inside of Claude Code:
 ## Development Loop
 
 ```
-/ftl <task> → router → builder → learner → workspace/
-      ↓                                         ↓
-/ftl campaign → planner → tasks → synthesizer → memory
-      ↓                                         ↓
-      └─────────── queries precedent ───────────┘
+TASK MODE:
+/ftl <task> → router → builder → learner → graph.json
+
+CAMPAIGN MODE:
+/ftl campaign <obj> → planner → [router → builder]* → synthesizer → memory.json
+                                      ↑                                  ↓
+                                      └────── queries precedent ─────────┘
 ```
 
 **Tasks** produce workspace files capturing decisions, reasoning, and patterns. **Memory** indexes these into a queryable knowledge graph. **Campaigns** coordinate multi-task objectives, querying memory for precedent before planning.
@@ -57,12 +59,13 @@ Each completed task makes the system smarter. Patterns emerge over time to influ
 
 | Agent           | Role                                                                 |
 | --------------- | -------------------------------------------------------------------- |
-| **Router**      | Route + explore + anchor. Creates workspace for full tasks.          |
-| **Builder**     | TDD implementation within Delta. Test-first, edit-over-create.       |
-| **Reflector**   | Failure diagnosis. Returns RETRY with strategy or ESCALATE to human. |
-| **Learner**     | Extract patterns to Key Findings + index to memory.                  |
-| **Planner**     | Verification-first campaign decomposition.                           |
-| **Synthesizer** | Cross-campaign meta-pattern extraction.                              |
+| **Router**      | Classify tasks, create workspaces, inject memory patterns.           |
+| **Builder**     | Transform workspace spec into code. 5-tool budget, TDD.              |
+| **Planner**     | Decompose objectives into verifiable tasks (campaigns only).         |
+| **Learner**     | Extract patterns from single workspace (TASK mode).                  |
+| **Synthesizer** | Extract failures/discoveries from all workspaces (CAMPAIGN mode).    |
+
+**Note:** Learner and Synthesizer are mutually exclusive — Learner runs in TASK mode, Synthesizer runs in CAMPAIGN mode.
 
 ## Commands
 
@@ -133,9 +136,16 @@ Naming: `NNN_task-slug_status[_from-NNN].md`
 
 ## Memory
 
-There is a single source of truth: `.ftl/memory.json`
+Two complementary memory systems:
 
-This memory stores decisions, patterns, signals, and development lineage. Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The graph learns which approaches work in your codebase.
+| File | Purpose | Updated By |
+|------|---------|------------|
+| `.ftl/memory.json` | Failures and discoveries (cross-campaign learning) | Synthesizer |
+| `.ftl/graph.json` | Decisions, patterns, lineage (decision graph) | Learner |
+
+**Failures** capture what went wrong and how to fix it — observable errors with executable fixes. **Discoveries** capture non-obvious insights that save significant tokens. **Decisions** track choices made with rationale, building precedent for future tasks.
+
+Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The system learns which approaches work in your codebase.
 
 ## Examples
 
