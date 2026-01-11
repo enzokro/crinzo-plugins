@@ -57,15 +57,32 @@ Each completed task makes the system smarter. Patterns emerge over time to influ
 
 ## Agents
 
+The system has nine agents. Five handle the core work of routing, building, and learning. Four evaluate what happened so the system can get smarter.
+
+### Core Agents
+
 | Agent           | Role                                                                 |
 | --------------- | -------------------------------------------------------------------- |
-| **Router**      | Classify tasks, create workspaces, inject memory patterns.           |
-| **Builder**     | Transform workspace spec into code. 5-tool budget, TDD.              |
-| **Planner**     | Decompose objectives into verifiable tasks (campaigns only).         |
-| **Learner**     | Extract patterns from single workspace (TASK mode).                  |
-| **Synthesizer** | Extract failures/discoveries from all workspaces (CAMPAIGN mode).    |
+| **Router**      | Classify tasks, create workspaces, inject memory patterns            |
+| **Builder**     | Transform workspace spec into code (5-tool max, TDD)                 |
+| **Planner**     | Decompose objectives into verifiable tasks (campaigns only)          |
+| **Learner**     | Extract patterns from single workspace (TASK mode)                   |
+| **Synthesizer** | Extract failures/discoveries from all workspaces (CAMPAIGN mode)     |
 
-**Note:** Learner and Synthesizer are mutually exclusive — Learner runs in TASK mode, Synthesizer runs in CAMPAIGN mode.
+### Evaluation Agents
+
+| Agent              | Role                                                              | Registered |
+| ------------------ | ----------------------------------------------------------------- | ---------- |
+| **Observer**       | Compute information theory metrics (epiplexity, entropy, IGR)     | Yes        |
+| **Meta-Reflector** | Analyze completed runs, maintain reflection journal               | Yes        |
+| **Save Evaluator** | Evaluate quality of extracted patterns and failures               | Harness    |
+| **Load Evaluator** | Evaluate memory injection efficacy and utilization                | Harness    |
+
+*Registered agents can be spawned via Task tool. Harness agents are prompt definitions used by the external evaluation framework.*
+
+**Constraint:** Learner and Synthesizer are mutually exclusive — using Learner in campaign mode is a category error.
+
+**Tool Budgets:** Builder has a hard 5-tool limit. Router gets 2 reads, 1 bash, 1 write. Synthesizer gets 10. These constraints exist because if the agent hasn't solved it within budget, it's exploring, not debugging.
 
 ## Commands
 
@@ -98,54 +115,69 @@ Each completed task makes the system smarter. Patterns emerge over time to influ
 
 ## Workspace Format
 
-Tasks routed to `full` produce workspace files in `workspace/`:
+Tasks produce workspace files in `.ftl/workspace/`. Each workspace is a contract between the planner and builder — what to do, how to verify, and what to watch out for.
 
 ```markdown
-# NNN: [Decision Title]
-
-## Question
-[What decision does this resolve?]
-
-## Precedent
-[Injected from memory — patterns, antipatterns, related decisions]
-
-## Options Considered
-[Alternatives explored and rejected]
-
-## Decision
-[Explicit choice with rationale]
+# NNN: task-slug
 
 ## Implementation
-Path: [Input] → [Processing] → [Output]
-Delta: [files in scope]
-Verify: [test command]
+Delta: files to modify
+Verify: `command that proves success`
 
-## Thinking Traces
-[Exploration, dead ends, discoveries]
+## Patterns
+- **pattern-name** (saved: Xk tokens)
+  When: condition that triggers this pattern
+  Insight: what to do differently
+
+## Known Failures
+- **failure-name** (cost: Xk tokens)
+  Trigger: observable error or regex
+  Fix: specific action to resolve
+
+## Pre-flight
+- [ ] `python -m py_compile file.py`
+- [ ] `pytest --collect-only -q`
+
+## Implementation Requirements
+[Detailed specs, code snippets, constraints]
+
+## Escalation
+After 2 failures OR 5 tools: BLOCK
+"Discovery needed: [describe unknown issue]"
+This is SUCCESS (informed handoff), not failure.
 
 ## Delivered
-[What was implemented]
-
-## Key Findings
-#pattern/name #constraint/name
+[What was actually implemented]
 ```
 
-Naming: `NNN_task-slug_status[_from-NNN].md`
-- Status: `active`, `complete`, `blocked`
-- `_from-NNN` indicates lineage (builds on prior task)
+**Naming:** `NNN_task-slug_status.md`
+- `NNN` — 3-digit sequence (000, 001, 002)
+- `status` — `active`, `complete`, or `blocked`
+
+The workspace is the builder's only source of truth. Patterns and Known Failures are injected from memory. Pre-flight checks run before Verify. If something goes wrong that isn't in Known Failures, the builder blocks — discovery is needed, not more debugging.
 
 ## Memory
 
-Two complementary memory systems:
+Two complementary systems. One captures what went wrong (and how to fix it). The other captures what was decided (and why).
 
-| File | Purpose | Updated By |
-|------|---------|------------|
-| `.ftl/memory.json` | Failures and discoveries (cross-campaign learning) | Synthesizer |
-| `.ftl/graph.json` | Decisions, patterns, lineage (decision graph) | Learner |
+| File                 | Purpose                                           | Updated By   |
+| -------------------- | ------------------------------------------------- | ------------ |
+| `.ftl/memory.json`   | Failures with fixes, discoveries with evidence    | Synthesizer  |
+| `.ftl/graph.json`    | Decisions, patterns, lineage, experiences         | Learner      |
 
-**Failures** capture what went wrong and how to fix it — observable errors with executable fixes. **Discoveries** capture non-obvious insights that save significant tokens. **Decisions** track choices made with rationale, building precedent for future tasks.
+### What Each System Stores
 
-Patterns with positive signals surface higher in future queries. Patterns with negative signals fade. The system learns which approaches work in your codebase.
+**Failures** (memory.json) — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a match regex (to catch in logs), and a prevent command (pre-flight check). This is where "don't repeat mistakes" lives.
+
+**Discoveries** (memory.json) — Non-obvious insights that save significant tokens. High bar: a senior dev would be surprised by this. If it's obvious, it doesn't belong here.
+
+**Decisions** (graph.json) — Choices made with rationale. Each decision tracks options considered, the choice made, files touched, and thinking traces. This is precedent for future tasks.
+
+**Experiences** (graph.json) — Failure modes with symptoms, diagnosis, prevention, and recovery actions. More structured than raw failures, with escalation triggers built in.
+
+### Signal Evolution
+
+Patterns with positive signals (`/ftl:signal +`) surface higher in future queries. Patterns with negative signals fade. Net +5 gets 2x weight. Net -5 gets hidden. The system learns which approaches work in *your* codebase over time.
 
 ## Examples
 
