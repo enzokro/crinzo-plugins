@@ -79,35 +79,114 @@ Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh
 
 ---
 
-## Framework Context Flow
+## Framework Idioms Flow
 
-Framework information propagates through the pipeline:
+Framework idioms are **defined in README**, not hardcoded in agents. This makes FTL framework-agnostic.
 
 ```
-README.md → Planner → Router → Builder
-   ↓           ↓         ↓        ↓
-Framework  Downstream  Workspace  Framework
-specified  Impact      template   fidelity
-           signal      includes   enforced
-                       Framework:
+README.md (defines)    →    Router (extracts)    →    Builder (enforces)
+     ↓                           ↓                         ↓
+## Framework Idioms      Parses section from      Treats as Essential
+Required: [...]          README verbatim          constraints
+Forbidden: [...]
 ```
 
-**Planner outputs:**
+### README Structure (project defines)
+
+```markdown
+## Framework Idioms
+Required:
+- [pattern 1 - e.g., "Use @rt decorator for routes"]
+- [pattern 2 - e.g., "Return component trees, not strings"]
+
+Forbidden:
+- [anti-pattern 1 - e.g., "Raw HTML strings with f-strings"]
+- [anti-pattern 2 - e.g., "Manual string concatenation"]
+```
+
+### Router (extracts)
+
+- Looks for "## Framework Idioms" section in README
+- If found: copies Required/Forbidden lists verbatim to workspace
+- If not found but framework mentioned: infers generic guidance
+- If no framework: omits Framework Idioms section entirely
+
+### Builder (enforces)
+
+- Framework Idioms in workspace are **Essential** constraints
+- Required items MUST be used
+- Forbidden items MUST NOT appear
+- Quality checkpoint verifies idiom compliance
+
+### Planner (signals)
+
 ```markdown
 ### Downstream Impact
 - Framework: [name] (Builder must use idioms)
 - Framework complexity: [low | moderate | high]
 ```
 
-**Router workspace includes:**
-```markdown
-## Implementation
-Framework: [from README - e.g., FastHTML, FastAPI] (use idioms)
+---
+
+## Adaptive Decomposition
+
+Planner assesses complexity before determining task count:
+
+### Complexity Formula
+```
+C = (N × 2) + (F / 50000) + (framework × 3)
+
+N = README specification sections
+F = Prior Knowledge failure costs (tokens)
+framework = none(0), simple(1), moderate(2), high(3)
 ```
 
-**Builder enforces:**
-- Use framework idioms (components, decorators, patterns)
-- Raw HTML strings, manual SQL, direct HTTP calls defeat framework purpose
+### Task Count by Complexity
+
+| Score | Decomposition |
+|-------|---------------|
+| C < 8 | 2 tasks: combined SPEC+BUILD → VERIFY |
+| 8 ≤ C < 15 | 3 tasks: SPEC → BUILD → VERIFY |
+| 15 ≤ C < 25 | 4-5 tasks: SPEC → BUILD_1 → BUILD_2 → VERIFY |
+| C ≥ 25 | 5-7 tasks: full decomposition with checkpoints |
+
+**If README mandates specific task count**, planner notes deviation but follows README.
+
+---
+
+## Enhanced Workspace Structure
+
+Router creates workspaces with embedded context:
+
+### Code Context (if Delta file exists)
+```markdown
+## Code Context
+### {delta_file}
+```python
+{current file contents, first 60 lines}
+```
+Exports: {function_name(), ClassName}
+Imports: {from X import Y}
+
+### Task Lineage
+Parent: {prior task slug} | none
+Prior delivery: {what parent completed}
+```
+
+### Framework Idioms (if framework specified)
+```markdown
+## Framework Idioms
+Framework: FastHTML
+Required:
+- Use @rt decorator for routes
+- Return component trees (Div, Ul, Li), NOT f-strings
+- Use Form/Input/Button for forms
+Forbidden:
+- Raw HTML string construction with f-strings
+- Manual string concatenation for templates
+```
+
+**Framework Idioms are Essential constraints** - Builder MUST use Required items and MUST NOT use Forbidden items.
 
 ---
 
@@ -118,15 +197,38 @@ Framework: [from README - e.g., FastHTML, FastAPI] (use idioms)
    Returns: direct | full | clarify
 
 2a. If direct:
-    Task(ftl:builder) — no workspace
+    Task(ftl:builder) with inline spec — no workspace file
+    - 3 tool budget
+    - No retry on failure
+    - Skip learner (simple change, no pattern extraction)
 
 2b. If full:
     Task(ftl:builder) — workspace created by router
+    - 5 tool budget
+    - Retry once on Known Failure match
+    - Code Context + Framework Idioms in workspace
     Task(ftl:learner) — extract patterns
 
 2c. If clarify:
     Return question to user
 ```
+
+### DIRECT Mode Routing
+
+Router assesses whether task qualifies for DIRECT mode:
+
+| Signal | Mode |
+|--------|------|
+| Single Delta file, no framework, <100 lines | DIRECT |
+| Prior Knowledge shows 0 related failures | DIRECT |
+| Multiple files OR framework involved | FULL |
+| Prior Knowledge shows related failures | FULL |
+| SPEC or VERIFY task type | FULL (always) |
+
+**DIRECT mode**: 3 tools, no workspace, no retry, no learner
+**FULL mode**: 5 tools, workspace with Code Context + Framework Idioms, retry once, learner
+
+**Note**: In CAMPAIGN mode, BUILD tasks may still use DIRECT mode if simple. Synthesizer runs at campaign end regardless of individual task modes.
 
 ### Mode Detection
 
@@ -275,8 +377,8 @@ All agents use tiered constraints:
 This replaces MUST/NEVER/CRITICAL with clear priority levels.
 
 **Example (Builder):**
-- Essential: Tool budget (5 max), block signals
-- Quality: Framework fidelity, Delivered section filled
+- Essential: Tool budget (5 max), Framework Idioms, block signals
+- Quality: Delivered section filled, Code Context exports preserved
 
 ---
 

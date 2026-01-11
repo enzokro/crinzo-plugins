@@ -24,6 +24,23 @@ Context is pre-injected. Do not re-read session_context.md.
 </context>
 
 <instructions>
+0. Assess campaign complexity (ADAPTIVE DECOMPOSITION)
+   - Count README specification sections (N)
+   - Sum Prior Knowledge failure costs: F = Σ cost_k (in tokens)
+   - Evaluate framework: none(0), simple(1), moderate(2), high(3)
+   - Complexity score: C = (N × 2) + (F / 50000) + (framework × 3)
+
+   | Score | Decomposition |
+   |-------|---------------|
+   | C < 8 | 2 tasks: combined SPEC+BUILD → VERIFY |
+   | 8 ≤ C < 15 | 3 tasks: SPEC → BUILD → VERIFY |
+   | 15 ≤ C < 25 | 4-5 tasks: SPEC → BUILD_1 → BUILD_2 → VERIFY |
+   | C ≥ 25 | 5-7 tasks: full decomposition with checkpoints |
+
+   State in thinking: `Complexity: N={sections}, F={failure_cost}k, framework={level} → C={score} → {task_count} tasks`
+
+   If README mandates specific task count, note deviation: `README specifies {N} tasks, complexity suggests {M}`
+
 1. Check verification coherence for each task
    - Can Verify pass with ONLY this Delta?
    - YES for all → PROCEED
@@ -93,6 +110,13 @@ Campaign plan:
 
 ### Confidence: PROCEED | VERIFY | CLARIFY
 Rationale: [one sentence]
+
+### Complexity Assessment
+- Sections: {N}
+- Failure risk: {F}k tokens
+- Framework: {level} ({0-3})
+- Score: C = {value} → {task_count} tasks
+- Rationale: [why this decomposition fits the complexity]
 
 ### Downstream Impact
 - Framework: [from README - e.g., FastHTML, FastAPI] (Builder must use idioms)
