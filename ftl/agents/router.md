@@ -39,7 +39,7 @@ State: `Type: {type}, Mode: {mode} because {reason}`
 2. Get patterns and failures from memory:
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/memory.py" inject .ftl/memory.json "$TYPE,$TAGS"
+python3 "$FTL_LIB/memory.py" -b . inject "$TAGS"
 ```
 State in thinking: `Memory result: N patterns, M failures`
 

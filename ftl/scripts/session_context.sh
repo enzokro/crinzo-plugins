@@ -4,7 +4,7 @@
 # It creates .ftl/cache/session_context.md with:
 # - Git state (branch, recent commits)
 # - Project verification tools
-# - Prior knowledge from .ftl/memory.json (v3.0 format)
+# - Prior knowledge from .ftl/memory.json (v4.0 format)
 #
 # This is a workaround because:
 # - SKILL.md bash code blocks are not executed by Claude
@@ -71,10 +71,10 @@ Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 **For cognition state**: See \`.ftl/cache/cognition_state.md\` (updated after each agent).
 EOF
 
-# Inject prior knowledge from memory.json v3.0 (cross-run learning)
+# Inject prior knowledge from memory.json v4.0 (cross-run learning)
 MEMORY_FILE=".ftl/memory.json"
 if [ -f "$MEMORY_FILE" ]; then
-  # Check if memory has any discoveries or failures (v3.0 uses discoveries, v2.0 used patterns)
+  # Check if memory has any discoveries or failures (v4.0 uses discoveries, v2.0 used patterns)
   DISCOVERY_COUNT=$(jq '.discoveries | length' "$MEMORY_FILE" 2>/dev/null || jq '.patterns | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
   FAILURE_COUNT=$(jq '.failures | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
 
@@ -110,7 +110,7 @@ markdown, injection_log = inject_and_log(
 print(markdown)
 " >> .ftl/cache/session_context.md
     else
-      # Fallback: inline formatting if memory.py not available (v3.0 schema)
+      # Fallback: inline formatting if memory.py not available (v4.0 schema)
       echo "### Known Failures" >> .ftl/cache/session_context.md
       echo "" >> .ftl/cache/session_context.md
       jq -r '.failures[] | "- **\(.name)** (cost: \(.cost // 0)k)\n  Trigger: \(.trigger)\n  Fix: \(.fix)\n"' "$MEMORY_FILE" 2>/dev/null >> .ftl/cache/session_context.md

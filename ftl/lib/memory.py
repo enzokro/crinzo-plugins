@@ -1,122 +1,103 @@
 """
-FTL Memory - SAVE and LOAD interfaces
+FTL Memory - Unified memory system.
 
-This module provides the memory interface for FTL's learning system.
-Memory stores failures and discoveries that transfer between campaigns.
+Version 4.0 - Single source of truth. Clean break.
 
-SAVE: Synthesizer extracts failures/discoveries from workspace → memory
-LOAD: Router/Builder gets relevant context for task ← memory
-
-Memory Format v3.0:
-{
-  "version": "3.0",
-  "updated": "ISO date",
-  "failures": [...],      # PRIMARY: what broke and how to fix/prevent
-  "discoveries": [...]    # SECONDARY: non-obvious approaches that saved tokens
-}
-
-Schema changes from v2.0:
-- "patterns" renamed to "discoveries" (higher bar for inclusion)
-- Failures now use "trigger" instead of "symptom" (observable condition)
-- Discoveries use "trigger", "insight", "evidence", "tokens_saved"
-- All entries require cost/savings attribution
+Memory stores:
+- failures: What broke and how to fix/prevent
+- discoveries: Non-obvious approaches that saved tokens
+- decisions: Workspace index with tags and metadata
+- edges: Relationships (lineage, file_impact)
 """
 
 import json
+import re
+import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import date
 from typing import Optional
+from collections import defaultdict
+
+try:
+    from concepts import expand_query
+except ImportError:
+    def expand_query(term):
+        return [term.lower()]
+
+MEMORY_VERSION = "4.0"
+# Strict pattern: requires .xml extension and specific status values
+FILENAME_PATTERN = re.compile(r'^(\d{3})_(.+?)_(active|complete|blocked)(?:_from-(\d{3}))?\.xml$')
+# Lenient pattern for internal use: matches stem without extension
+FILENAME_PATTERN_STEM = re.compile(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$')
+
+
+def parse_workspace_filename(filename: str) -> Optional[dict]:
+    """Parse workspace filename into components.
+
+    Single source of truth for workspace naming convention.
+    Requires .xml extension and valid status (active|complete|blocked).
+
+    Args:
+        filename: Full filename with .xml extension (NNN_slug_status.xml)
+
+    Returns:
+        dict with seq, slug, status, parent (or None if no match)
+    """
+    match = FILENAME_PATTERN.match(filename)
+    if not match:
+        return None
+    seq, slug, status, parent = match.groups()
+    return {"seq": seq, "slug": slug, "status": status, "parent": parent}
+
+
+def parse_workspace_stem(stem: str) -> Optional[dict]:
+    """Parse workspace filename stem (without extension).
+
+    More lenient - for internal use when dealing with Path.stem values.
+
+    Args:
+        stem: Filename without extension (NNN_slug_status)
+
+    Returns:
+        dict with seq, slug, status, parent (or None if no match)
+    """
+    match = FILENAME_PATTERN_STEM.match(stem)
+    if not match:
+        return None
+    seq, slug, status, parent = match.groups()
+    return {"seq": seq, "slug": slug, "status": status, "parent": parent}
+
+
+def _empty_memory() -> dict:
+    return {
+        "version": MEMORY_VERSION,
+        "updated": date.today().isoformat(),
+        "failures": [],
+        "discoveries": [],
+        "decisions": {},
+        "edges": {"lineage": {}, "file_impact": {}}
+    }
 
 
 def load_memory(path: Path) -> dict:
-    """Load memory file, migrate if needed, return empty structure if missing."""
+    """Load memory file, return empty if missing."""
     if not path.exists():
-        return {"version": "3.0", "updated": date.today().isoformat(), "failures": [], "discoveries": []}
-
-    memory = json.loads(path.read_text())
-
-    # Migrate v2.0 → v3.0
-    if memory.get("version", "2.0") == "2.0":
-        memory = _migrate_v2_to_v3(memory)
-
-    return memory
-
-
-def _migrate_v2_to_v3(memory: dict) -> dict:
-    """Migrate v2.0 memory to v3.0 format."""
-    new_memory = {
-        "version": "3.0",
-        "updated": memory.get("updated", date.today().isoformat()),
-        "failures": [],
-        "discoveries": []
-    }
-
-    # Migrate patterns → discoveries (only high-signal ones)
-    for p in memory.get("patterns", []):
-        if p.get("signal", 1) >= 3:  # Only keep high-signal patterns
-            discovery = {
-                "id": p.get("id", f"d{len(new_memory['discoveries'])+1:03d}"),
-                "name": p["name"],
-                "trigger": p.get("when", ""),
-                "insight": p.get("do", ""),
-                "evidence": f"Signal {p.get('signal', 1)} from {len(p.get('source', []))} runs",
-                "tokens_saved": p.get("signal", 1) * 10000,  # Estimate
-                "tags": p.get("tags", []),
-                "source": p.get("source", []),
-                "created": p.get("created", date.today().isoformat()),
-                "migrated_from_v2": True
-            }
-            new_memory["discoveries"].append(discovery)
-
-    # Migrate failures (update field names)
-    for f in memory.get("failures", []):
-        failure = {
-            "id": f.get("id", f"f{len(new_memory['failures'])+1:03d}"),
-            "name": f["name"],
-            "trigger": f.get("trigger", f.get("symptom", "")),  # Support both
-            "fix": f.get("fix", ""),
-            "match": f.get("match", ""),
-            "prevent": f.get("prevent", ""),
-            "cost": f.get("cost", 0),
-            "tags": f.get("tags", []),
-            "source": f.get("source", []),
-            "created": f.get("created", date.today().isoformat())
-        }
-        new_memory["failures"].append(failure)
-
-    return new_memory
+        return _empty_memory()
+    return json.loads(path.read_text())
 
 
 def save_memory(memory: dict, path: Path) -> None:
-    """Write memory file with updated timestamp."""
+    """Write memory file."""
+    memory["version"] = MEMORY_VERSION
     memory["updated"] = date.today().isoformat()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(memory, indent=2))
 
 
-# --- SAVE Interface ---
-
 def add_failure(memory: dict, failure: dict) -> dict:
-    """
-    Add a failure mode.
-
-    If failure with same name exists, merge sources and accumulate cost.
-    Otherwise, add as new failure.
-
-    Failure schema:
-    {
-      "name": str,       # required: failure slug
-      "trigger": str,    # required: observable condition (error message, behavior)
-      "fix": str,        # required: specific action that resolves it
-      "match": str,      # required: regex to match in logs
-      "prevent": str,    # required: command to run before verify (or explain why impossible)
-      "cost": int,       # required: tokens spent on this failure
-      "tags": [str],     # optional: for filtering
-      "source": [str],   # optional: runs where discovered
-    }
-    """
+    """Add or merge a failure mode."""
     existing = next((f for f in memory.get("failures", []) if f["name"] == failure["name"]), None)
-
     if existing:
         existing["source"] = list(set(existing.get("source", []) + failure.get("source", [])))
         existing["cost"] = existing.get("cost", 0) + failure.get("cost", 0)
@@ -125,95 +106,57 @@ def add_failure(memory: dict, failure: dict) -> dict:
             memory["failures"] = []
         failure["id"] = f"f{len(memory['failures'])+1:03d}"
         failure["created"] = date.today().isoformat()
-        if "tags" not in failure:
-            failure["tags"] = []
-        if "source" not in failure:
-            failure["source"] = []
+        failure.setdefault("tags", [])
+        failure.setdefault("source", [])
+        failure.setdefault("signal", 0)
         memory["failures"].append(failure)
-
     return memory
 
 
 def add_discovery(memory: dict, discovery: dict) -> dict:
-    """
-    Add a discovery (non-obvious approach that saved tokens).
-
-    If discovery with same name exists, merge sources and evidence.
-    Otherwise, add as new discovery.
-
-    Discovery schema:
-    {
-      "name": str,           # required: discovery slug
-      "trigger": str,        # required: when this applies
-      "insight": str,        # required: the non-obvious thing
-      "evidence": str,       # required: proof from trace that it worked
-      "tokens_saved": int,   # required: estimated savings
-      "tags": [str],         # optional: for filtering
-      "source": [str],       # optional: runs where discovered
-    }
-    """
+    """Add or merge a discovery."""
     existing = next((d for d in memory.get("discoveries", []) if d["name"] == discovery["name"]), None)
-
     if existing:
         existing["source"] = list(set(existing.get("source", []) + discovery.get("source", [])))
         existing["tokens_saved"] = existing.get("tokens_saved", 0) + discovery.get("tokens_saved", 0)
-        # Append evidence (deduplicated)
-        if discovery.get("evidence"):
-            existing_evidence = existing.get("evidence", "")
-            new_evidence = discovery["evidence"]
-            # Dedupe: don't append if already contains this text
-            if new_evidence not in existing_evidence:
-                existing["evidence"] = existing_evidence + "; " + new_evidence
+        if discovery.get("evidence") and discovery["evidence"] not in existing.get("evidence", ""):
+            existing["evidence"] = existing.get("evidence", "") + "; " + discovery["evidence"]
     else:
         if "discoveries" not in memory:
             memory["discoveries"] = []
         discovery["id"] = f"d{len(memory['discoveries'])+1:03d}"
         discovery["created"] = date.today().isoformat()
-        if "tags" not in discovery:
-            discovery["tags"] = []
-        if "source" not in discovery:
-            discovery["source"] = []
+        discovery.setdefault("tags", [])
+        discovery.setdefault("source", [])
+        discovery.setdefault("signal", 0)
         memory["discoveries"].append(discovery)
-
     return memory
 
 
-# Backwards compatibility alias
-def add_pattern(memory: dict, pattern: dict) -> dict:
-    """
-    DEPRECATED: Use add_discovery instead.
+def add_signal(memory: dict, entity_id: str, signal: str) -> dict:
+    """Add +/- signal to a failure or discovery."""
+    entity = None
+    for f in memory.get("failures", []):
+        if f.get("id") == entity_id:
+            entity = f
+            break
+    if not entity:
+        for d in memory.get("discoveries", []):
+            if d.get("id") == entity_id:
+                entity = d
+                break
+    if entity:
+        current = entity.get("signal", 0)
+        entity["signal"] = current + 1 if signal == "+" else current - 1
+    return memory
 
-    Converts old pattern format to discovery format.
-    """
-    discovery = {
-        "name": pattern.get("name"),
-        "trigger": pattern.get("when", pattern.get("trigger", "")),
-        "insight": pattern.get("do", pattern.get("insight", "")),
-        "evidence": pattern.get("evidence", "Migrated from pattern"),
-        "tokens_saved": pattern.get("tokens_saved", pattern.get("signal", 1) * 10000),
-        "tags": pattern.get("tags", []),
-        "source": pattern.get("source", [])
-    }
-    return add_discovery(memory, discovery)
-
-
-# --- LOAD Interface ---
 
 def get_context_for_task(memory: dict, tags: Optional[list[str]] = None) -> dict:
-    """
-    Select relevant failures and discoveries for a task.
-
-    If tags provided, filter to items matching any tag.
-    If no tags, return all items.
-
-    Returns failures sorted by cost (highest first).
-    Returns discoveries sorted by tokens_saved (highest first).
-    """
+    """Select relevant failures and discoveries."""
     def matches_tags(item):
         if not tags:
             return True
-        item_tags = item.get("tags", [])
-        return any(t in item_tags for t in tags)
+        return any(t in item.get("tags", []) for t in tags)
 
     return {
         "failures": sorted(
@@ -223,250 +166,353 @@ def get_context_for_task(memory: dict, tags: Optional[list[str]] = None) -> dict
         "discoveries": sorted(
             [d for d in memory.get("discoveries", []) if matches_tags(d)],
             key=lambda d: -d.get("tokens_saved", 0)
-        ),
-        # Backwards compat
-        "patterns": sorted(
-            [d for d in memory.get("discoveries", []) if matches_tags(d)],
-            key=lambda d: -d.get("tokens_saved", 0)
-        ),
+        )
     }
 
 
 def format_for_injection(context: dict) -> str:
-    """
-    Format context as markdown for agent injection.
-
-    Output format prioritizes failures (the actual lessons):
-
-    ## Known Failures (avoid these)
-    - **name** (cost: Xk tokens)
-      Trigger: what you'll see
-      Fix: what to do
-      Match: `regex`
-
-    ## Pre-flight Checks
-    Run before verify:
-    - [ ] `command`
-
-    ## Discoveries
-    - **name** (saved: Xk tokens)
-      When: trigger
-      Insight: what to do
-    """
+    """Format context as markdown for agent injection."""
     lines = []
-
-    # Failures first - these are the actual lessons
     failures = context.get("failures", [])
     if failures:
-        lines.append("## Known Failures (avoid these)\n")
+        lines.append("## Known Failures\n")
         for f in failures:
-            cost_k = f.get("cost", 0) // 1000
-            lines.append(f"- **{f['name']}** (cost: {cost_k}k tokens)")
-            lines.append(f"  Trigger: {f.get('trigger', f.get('symptom', 'unknown'))}")
-            lines.append(f"  Fix: {f['fix']}")
-            if f.get("match"):
-                lines.append(f"  Match: `{f['match']}`")
+            lines.append(f"- **{f['name']}** (cost: {f.get('cost', 0)//1000}k)")
+            lines.append(f"  Trigger: {f.get('trigger', 'unknown')}")
+            lines.append(f"  Fix: {f.get('fix', 'unknown')}")
             lines.append("")
-
-        # Pre-flight checks from failure prevention
         preflights = [f for f in failures if f.get("prevent")]
         if preflights:
-            lines.append("## Pre-flight Checks\n")
-            lines.append("Run before verify:")
+            lines.append("## Pre-flight\n")
             for f in preflights:
-                lines.append(f"- [ ] `{f['prevent']}` ({f['name']})")
+                lines.append(f"- [ ] `{f['prevent']}`")
             lines.append("")
-
-    # Discoveries second
-    discoveries = context.get("discoveries", context.get("patterns", []))
+    discoveries = context.get("discoveries", [])
     if discoveries:
         lines.append("## Discoveries\n")
         for d in discoveries:
-            saved_k = d.get("tokens_saved", d.get("signal", 1) * 10) // 1000
-            lines.append(f"- **{d['name']}** (saved: {saved_k}k tokens)")
-            lines.append(f"  When: {d.get('trigger', d.get('when', 'unknown'))}")
-            lines.append(f"  Insight: {d.get('insight', d.get('do', 'unknown'))}")
+            lines.append(f"- **{d['name']}** (saved: {d.get('tokens_saved', 0)//1000}k)")
+            lines.append(f"  When: {d.get('trigger', 'unknown')}")
+            lines.append(f"  Insight: {d.get('insight', 'unknown')}")
             lines.append("")
-
     return "\n".join(lines)
 
 
-def inject_and_log(
-    memory: dict,
-    run_id: str,
-    tags: Optional[list[str]] = None,
-    log_path: Optional[Path] = None
-) -> tuple[str, dict]:
-    """
-    Format injection AND create tracking log.
-
-    This is the primary entry point for memory injection - it combines
-    formatting for agent consumption AND tracking for evaluation.
-
-    Returns:
-        tuple of (markdown_text, injection_log)
-    """
+def inject_and_log(memory: dict, run_id: str, tags: Optional[list[str]] = None, log_path: Optional[Path] = None) -> tuple[str, dict]:
+    """Format injection and create tracking log."""
     context = get_context_for_task(memory, tags)
     markdown = format_for_injection(context)
-
-    # Track what was injected
-    failure_ids = [f["id"] for f in context.get("failures", [])]
-    discovery_ids = [d["id"] for d in context.get("discoveries", [])]
-
-    log = create_injection_log(
-        run_id,
-        memory,
-        failure_ids,
-        discovery_ids,
-        tags_matched=tags
-    )
-
+    log = {
+        "run_id": run_id,
+        "timestamp": date.today().isoformat(),
+        "failures": {"injected": [f["id"] for f in context.get("failures", [])]},
+        "discoveries": {"injected": [d["id"] for d in context.get("discoveries", [])]}
+    }
     if log_path:
-        save_injection_log(log, log_path)
-
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(json.dumps(log, indent=2))
     return markdown, log
 
 
-# --- Injection Logging (for evaluation) ---
-
-def create_injection_log(
-    run_id: str,
-    memory: dict,
-    injected_failures: list[str],
-    injected_discoveries: list[str],
-    delta_files: Optional[list[str]] = None,
-    tags_matched: Optional[list[str]] = None,
-) -> dict:
-    """
-    Create injection log for evaluation.
-
-    Records what was available vs what was injected.
-    Utilization is tracked separately after run completes.
-    """
+def parse_workspace_xml(path: Path) -> Optional[dict]:
+    """Parse XML workspace file into decision record."""
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+    except ET.ParseError:
+        return None
+    parsed = parse_workspace_filename(path.name)
+    if not parsed:
+        return None
+    seq, slug, status, parent = parsed["seq"], parsed["slug"], parsed["status"], parsed["parent"]
+    delta_files = [d.text for d in root.findall('.//implementation/delta') if d.text]
+    delivered_elem = root.find('.//delivered')
+    delivered = delivered_elem.text if delivered_elem is not None and delivered_elem.text else ''
+    tags = []
+    for p in root.findall('.//pattern'):
+        if p.get('name'):
+            tags.append(f"#pattern/{p.get('name')}")
+    for f in root.findall('.//failure'):
+        if f.get('name'):
+            tags.append(f"#failure/{f.get('name')}")
     return {
-        "run_id": run_id,
-        "timestamp": date.today().isoformat(),
-        "memory_version": memory.get("version", "3.0"),
-        "delta": delta_files or [],
-        "tags_matched": tags_matched or [],
-        "failures": {
-            "available": [f["id"] for f in memory.get("failures", [])],
-            "injected": injected_failures,
-            "matched": []  # filled after run by evaluator
-        },
-        "discoveries": {
-            "available": [d["id"] for d in memory.get("discoveries", [])],
-            "injected": injected_discoveries,
-            "utilized": []  # filled after run by evaluator
-        },
-        "preflights": {
-            "ran": [],
-            "passed": [],
-            "failed": []
-        }
+        "seq": seq, "slug": slug, "status": status, "parent": parent,
+        "mtime": path.stat().st_mtime, "file": path.name,
+        "delta_files": delta_files, "delivered": delivered[:500], "tags": tags
     }
 
 
-def save_injection_log(log: dict, path: Path) -> None:
-    """Save injection log to evidence directory."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(log, indent=2))
+def mine_workspace(workspace_dir: Path, memory_path: Path) -> dict:
+    """Build decision index from workspace files."""
+    memory = load_memory(memory_path)
+    decisions = {}
+    edges = {"lineage": {}, "file_impact": defaultdict(list)}
+    for path in sorted(workspace_dir.glob("*.xml")):
+        parsed = parse_workspace_xml(path)
+        if not parsed:
+            continue
+        seq = parsed["seq"]
+        decisions[seq] = {
+            "file": parsed["file"], "slug": parsed["slug"], "mtime": parsed["mtime"],
+            "status": parsed["status"], "parent": parsed["parent"],
+            "delta_files": parsed["delta_files"], "delivered": parsed["delivered"], "tags": parsed["tags"]
+        }
+        if parsed["parent"]:
+            edges["lineage"][seq] = parsed["parent"]
+        for f in parsed["delta_files"]:
+            if seq not in edges["file_impact"][f]:
+                edges["file_impact"][f].append(seq)
+    edges["file_impact"] = dict(edges["file_impact"])
+    memory["decisions"] = decisions
+    memory["edges"] = edges
+    save_memory(memory, memory_path)
+    return memory
 
 
-# --- Memory Statistics ---
+def get_decision(seq: str, memory: dict) -> Optional[dict]:
+    """Get decision by sequence number."""
+    seq = seq.zfill(3)
+    d = memory.get("decisions", {}).get(seq)
+    if d:
+        d = dict(d)
+        d["seq"] = seq
+    return d
+
+
+def get_lineage(seq: str, memory: dict) -> list:
+    """Get ancestry chain."""
+    decisions = memory.get("decisions", {})
+    lineage_map = memory.get("edges", {}).get("lineage", {})
+    chain = []
+    current = seq.zfill(3)
+    while current and current in decisions:
+        chain.append(current)
+        current = lineage_map.get(current)
+    chain.reverse()
+    return chain
+
+
+def query_decisions(topic: Optional[str], memory: dict) -> list:
+    """Query decisions, optionally filtered by topic."""
+    decisions = memory.get("decisions", {})
+    if not topic:
+        results = []
+        for seq, d in decisions.items():
+            results.append({
+                "seq": seq, "slug": d.get("slug", ""), "status": d.get("status", ""),
+                "parent": d.get("parent"), "age_days": int((time.time() - d.get("mtime", 0)) / 86400),
+                "tags": d.get("tags", []), "file": d.get("file", "")
+            })
+        return sorted(results, key=lambda x: -decisions.get(x["seq"], {}).get("mtime", 0))
+    expanded = expand_query(topic)
+    results = []
+    for seq, d in decisions.items():
+        searchable = " ".join([d.get('slug', ''), d.get('delivered', ''), ' '.join(d.get('tags', [])), ' '.join(d.get('delta_files', []))]).lower()
+        if any(t in searchable for t in expanded):
+            results.append({
+                "seq": seq, "slug": d.get("slug", ""), "status": d.get("status", ""),
+                "parent": d.get("parent"), "age_days": int((time.time() - d.get("mtime", 0)) / 86400),
+                "tags": d.get("tags", []), "file": d.get("file", "")
+            })
+    return sorted(results, key=lambda x: -decisions.get(x["seq"], {}).get("mtime", 0))
+
+
+def trace_tag(tag: str, memory: dict) -> list:
+    """Find decisions that used a tag."""
+    decisions = memory.get("decisions", {})
+    results = []
+    for seq, d in decisions.items():
+        if tag in d.get("tags", []):
+            results.append({
+                "seq": seq, "slug": d.get("slug", ""), "status": d.get("status", ""),
+                "age_days": int((time.time() - d.get("mtime", 0)) / 86400), "file": d.get("file", "")
+            })
+    return sorted(results, key=lambda x: x["seq"])
+
+
+def impact_file(file_pattern: str, memory: dict) -> list:
+    """Find decisions that touched a file."""
+    decisions = memory.get("decisions", {})
+    file_impact = memory.get("edges", {}).get("file_impact", {})
+    results = []
+    seen = set()
+    for pattern, seqs in file_impact.items():
+        if file_pattern.lower() in pattern.lower():
+            for seq in seqs:
+                if seq not in seen and seq in decisions:
+                    seen.add(seq)
+                    d = decisions[seq]
+                    results.append({
+                        "seq": seq, "slug": d.get("slug", ""), "status": d.get("status", ""),
+                        "age_days": int((time.time() - d.get("mtime", 0)) / 86400),
+                        "file": d.get("file", ""), "delta_files": d.get("delta_files", [])
+                    })
+    return sorted(results, key=lambda x: x["seq"])
+
+
+def find_stale(days: int, memory: dict) -> list:
+    """Find decisions older than threshold."""
+    threshold = time.time() - (days * 86400)
+    decisions = memory.get("decisions", {})
+    stale = []
+    for seq, d in decisions.items():
+        if d.get("mtime", 0) < threshold:
+            stale.append({
+                "seq": seq, "slug": d.get("slug", ""),
+                "age_days": int((time.time() - d.get("mtime", 0)) / 86400),
+                "file": d.get("file", ""), "tags": d.get("tags", [])
+            })
+    return sorted(stale, key=lambda x: -x["age_days"])
+
+
+def format_decision(d: dict) -> str:
+    """Format a decision for display."""
+    lines = [f"[{d.get('seq', '???')}] {d.get('slug', 'unknown')} ({d.get('age_days', 0)}d ago, {d.get('status', '?')})"]
+    if d.get("delta_files"):
+        lines.append(f"  Delta: {', '.join(d['delta_files'][:3])}")
+    if d.get("tags"):
+        lines.append(f"  Tags: {', '.join(d['tags'])}")
+    if d.get("parent"):
+        lines.append(f"  Builds on: {d['parent']}")
+    return '\n'.join(lines)
+
+
+def format_decisions(results: list, limit: int = 10) -> str:
+    """Format decisions for display."""
+    if not results:
+        return "No decisions found."
+    return '\n\n'.join(format_decision(r) for r in results[:limit])
+
 
 def get_memory_stats(memory: dict) -> dict:
-    """Get statistics about memory health."""
+    """Get memory statistics."""
     failures = memory.get("failures", [])
     discoveries = memory.get("discoveries", [])
-
+    decisions = memory.get("decisions", {})
     return {
         "version": memory.get("version", "unknown"),
-        "failures": {
-            "count": len(failures),
-            "with_prevent": sum(1 for f in failures if f.get("prevent")),
-            "with_match": sum(1 for f in failures if f.get("match")),
-            "total_cost": sum(f.get("cost", 0) for f in failures),
-        },
-        "discoveries": {
-            "count": len(discoveries),
-            "with_evidence": sum(1 for d in discoveries if d.get("evidence")),
-            "total_saved": sum(d.get("tokens_saved", 0) for d in discoveries),
-        },
-        "health": _calculate_health(failures, discoveries)
+        "failures": {"count": len(failures), "total_cost": sum(f.get("cost", 0) for f in failures)},
+        "discoveries": {"count": len(discoveries), "total_saved": sum(d.get("tokens_saved", 0) for d in discoveries)},
+        "decisions": {"count": len(decisions), "complete": sum(1 for d in decisions.values() if d.get("status") == "complete")}
     }
 
 
-def _calculate_health(failures: list, discoveries: list) -> str:
-    """Calculate memory health rating."""
-    if not failures and not discoveries:
-        return "empty"
-
-    # Failures should have prevent commands
-    if failures:
-        prevent_ratio = sum(1 for f in failures if f.get("prevent")) / len(failures)
-        if prevent_ratio < 0.5:
-            return "incomplete (most failures lack prevent commands)"
-
-    # Should have more failures than discoveries (learning is failure-driven)
-    if discoveries and not failures:
-        return "suspicious (discoveries without failures)"
-
-    if len(failures) >= len(discoveries):
-        return "healthy"
-
-    return "pattern-heavy (consider pruning low-value discoveries)"
-
-
-# --- CLI for testing ---
-
-if __name__ == "__main__":
+def main():
+    import argparse
     import sys
 
-    if len(sys.argv) < 2:
-        print("Usage: python memory.py <command> [args]")
-        print("Commands:")
-        print("  load <path>              - Load and display memory")
-        print("  stats <path>             - Show memory statistics")
-        print("  context <path> [tags]    - Get context for tags")
-        print("  inject <path> [tags]     - Format injection markdown")
-        print("  migrate <path>           - Migrate v2.0 to v3.0")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(prog='memory', description='FTL unified memory')
+    parser.add_argument('-b', '--base', type=Path, default=Path('.'))
+    sub = parser.add_subparsers(dest='cmd')
 
-    cmd = sys.argv[1]
+    sub.add_parser('load')
+    sub.add_parser('stats')
+    context_p = sub.add_parser('context')
+    context_p.add_argument('tags', nargs='?')
+    inject_p = sub.add_parser('inject')
+    inject_p.add_argument('tags', nargs='?')
+    sub.add_parser('mine')
+    query_p = sub.add_parser('query', aliases=['q'])
+    query_p.add_argument('topic', nargs='?')
+    dec_p = sub.add_parser('decision', aliases=['d'])
+    dec_p.add_argument('seq')
+    lin_p = sub.add_parser('lineage', aliases=['l'])
+    lin_p.add_argument('seq')
+    trace_p = sub.add_parser('trace', aliases=['t'])
+    trace_p.add_argument('tag')
+    impact_p = sub.add_parser('impact', aliases=['i'])
+    impact_p.add_argument('file')
+    age_p = sub.add_parser('age', aliases=['a'])
+    age_p.add_argument('days', nargs='?', type=int, default=30)
+    signal_p = sub.add_parser('signal', aliases=['s'])
+    signal_p.add_argument('sign', choices=['+', '-'])
+    signal_p.add_argument('id')
 
-    if cmd == "load":
-        path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".ftl/memory.json")
-        memory = load_memory(path)
-        print(json.dumps(memory, indent=2))
+    args = parser.parse_args()
+    if not args.cmd:
+        parser.print_help()
+        return
 
-    elif cmd == "stats":
-        path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".ftl/memory.json")
-        memory = load_memory(path)
-        stats = get_memory_stats(memory)
-        print(json.dumps(stats, indent=2))
+    memory_path = args.base / ".ftl" / "memory.json"
 
-    elif cmd == "context":
-        path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".ftl/memory.json")
-        tags = sys.argv[3].split(",") if len(sys.argv) > 3 else None
-        memory = load_memory(path)
-        context = get_context_for_task(memory, tags)
-        print(json.dumps(context, indent=2))
+    if args.cmd == 'load':
+        print(json.dumps(load_memory(memory_path), indent=2))
+    elif args.cmd == 'stats':
+        print(json.dumps(get_memory_stats(load_memory(memory_path)), indent=2))
+    elif args.cmd == 'context':
+        tags = args.tags.split(",") if args.tags else None
+        print(json.dumps(get_context_for_task(load_memory(memory_path), tags), indent=2))
+    elif args.cmd == 'inject':
+        tags = args.tags.split(",") if args.tags else None
+        print(format_for_injection(get_context_for_task(load_memory(memory_path), tags)))
+    elif args.cmd == 'mine':
+        workspace_dir = args.base / ".ftl" / "workspace"
+        if not workspace_dir.exists():
+            print(f"No workspace: {workspace_dir}", file=sys.stderr)
+            sys.exit(1)
+        memory = mine_workspace(workspace_dir, memory_path)
+        print(f"Indexed {len(memory.get('decisions', {}))} decisions")
+        for seq in sorted(memory.get("decisions", {}).keys()):
+            d = memory["decisions"][seq]
+            print(f"  [{seq}] {d['slug']} ({d['status']})")
+    elif args.cmd in ('query', 'q'):
+        memory = load_memory(memory_path)
+        results = query_decisions(args.topic, memory)
+        print(f"Decisions{' for ' + repr(args.topic) if args.topic else ''}:\n")
+        print(format_decisions(results))
+    elif args.cmd in ('decision', 'd'):
+        memory = load_memory(memory_path)
+        d = get_decision(args.seq, memory)
+        if not d:
+            print(f"Not found: {args.seq}")
+            sys.exit(1)
+        d["age_days"] = int((time.time() - d.get("mtime", 0)) / 86400)
+        print(format_decision(d))
+        if d.get("delivered"):
+            print(f"\nDelivered:\n{d['delivered']}")
+    elif args.cmd in ('lineage', 'l'):
+        memory = load_memory(memory_path)
+        chain = get_lineage(args.seq, memory)
+        if not chain:
+            print(f"Not found: {args.seq}")
+            sys.exit(1)
+        print(f"Lineage: {' → '.join(chain)}")
+        for seq in chain:
+            d = memory.get("decisions", {}).get(seq, {})
+            print(f"  [{seq}] {d.get('slug', '?')} ({d.get('status', '?')})")
+    elif args.cmd in ('trace', 't'):
+        results = trace_tag(args.tag, load_memory(memory_path))
+        if not results:
+            print(f"No decisions using {args.tag}")
+        else:
+            print(f"Decisions using {args.tag}:\n")
+            for r in results:
+                print(f"  [{r['seq']}] {r['slug']} ({r['age_days']}d, {r['status']})")
+    elif args.cmd in ('impact', 'i'):
+        results = impact_file(args.file, load_memory(memory_path))
+        if not results:
+            print(f"No decisions affecting {args.file}")
+        else:
+            print(f"Decisions affecting '{args.file}':\n")
+            for r in results:
+                print(f"  [{r['seq']}] {r['slug']} ({r['age_days']}d)")
+    elif args.cmd in ('age', 'a'):
+        stale = find_stale(args.days, load_memory(memory_path))
+        print(f"Stale (>{args.days}d):\n")
+        for s in stale:
+            print(f"  [{s['seq']}] {s['slug']} ({s['age_days']}d)")
+    elif args.cmd in ('signal', 's'):
+        memory = load_memory(memory_path)
+        memory = add_signal(memory, args.id, args.sign)
+        save_memory(memory, memory_path)
+        entity = next((f for f in memory.get("failures", []) if f.get("id") == args.id), None)
+        if not entity:
+            entity = next((d for d in memory.get("discoveries", []) if d.get("id") == args.id), None)
+        if entity:
+            print(f"Signal: {args.id} -> {entity.get('signal', 0)}")
+        else:
+            print(f"Not found: {args.id}")
 
-    elif cmd == "inject":
-        path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".ftl/memory.json")
-        tags = sys.argv[3].split(",") if len(sys.argv) > 3 else None
-        memory = load_memory(path)
-        context = get_context_for_task(memory, tags)
-        print(format_for_injection(context))
 
-    elif cmd == "migrate":
-        path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".ftl/memory.json")
-        memory = load_memory(path)  # Auto-migrates
-        save_memory(memory, path)
-        print(f"Migrated to v{memory['version']}")
-        print(json.dumps(get_memory_stats(memory), indent=2))
-
-    else:
-        print(f"Unknown command: {cmd}")
-        sys.exit(1)
+if __name__ == "__main__":
+    main()

@@ -224,7 +224,7 @@ def test_update_task_requires_workspace(fixture):
     assert "no workspace file" in err.lower()
 
     # Create workspace file, should succeed
-    Path(f"{fixture.tmpdir}/.ftl/workspace/001_test-task_complete.md").write_text("# Test")
+    Path(f"{fixture.tmpdir}/.ftl/workspace/001_test-task_complete.xml").write_text("# Test")
     code, out, err = fixture.cmd('update-task 001 complete')
     assert code == 0, f"Should succeed with workspace: {err}"
 
@@ -237,7 +237,7 @@ def test_update_task_normalizes_seq(fixture):
     fixture.cmd('add-task 5 five-task')
 
     # Create workspace with normalized name
-    Path(f"{fixture.tmpdir}/.ftl/workspace/005_five-task_complete.md").write_text("# Test")
+    Path(f"{fixture.tmpdir}/.ftl/workspace/005_five-task_complete.xml").write_text("# Test")
 
     # Update with raw "5"
     code, out, err = fixture.cmd('update-task 5 complete')
@@ -335,7 +335,7 @@ def test_next_seq(fixture):
     assert out.strip() == "001"
 
     # Create workspace file to advance
-    Path(f"{fixture.tmpdir}/.ftl/workspace/001_test_active.md").write_text("# Test")
+    Path(f"{fixture.tmpdir}/.ftl/workspace/001_test_active.xml").write_text("# Test")
     code, out, err = fixture.cmd('next-seq')
     assert code == 0
     assert out.strip() == "002"

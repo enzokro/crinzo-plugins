@@ -14,7 +14,7 @@ Find all decisions that applied a specific pattern.
 
 2. Trace pattern usage:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" trace "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/memory.py" trace "$PATTERN"
 ```
 
 ## Output Format

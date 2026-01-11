@@ -14,7 +14,7 @@ Show complete decision record including Thinking Traces and Delivered.
 
 2. Get decision:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" decision $SEQ
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/memory.py" decision $SEQ
 ```
 
 ## Output Format

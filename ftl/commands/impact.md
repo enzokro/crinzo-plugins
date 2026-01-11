@@ -14,7 +14,7 @@ Find decisions that touched a file pattern.
 
 2. Query file impact:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" impact "$FILE"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/memory.py" impact "$FILE"
 ```
 
 ## Output Format

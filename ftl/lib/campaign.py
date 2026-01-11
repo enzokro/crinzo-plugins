@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+from memory import parse_workspace_filename, load_memory
 
 FORGE_DIR = ".ftl"
 CAMPAIGNS_DIR = "campaigns"
@@ -146,7 +147,7 @@ def add_task_to_campaign(campaign: dict, seq: str, slug: str,
     """Add task to campaign."""
     # Normalize seq to 3-digit zero-padded format
     # This ensures workspace glob pattern matching works:
-    # update-task uses {seq}_*_complete*.md which must match workspace naming
+    # update-task uses {seq}_*_complete*.xml which must match workspace naming
     seq = f"{int(seq):03d}"
     task = {
         "seq": seq,
@@ -327,22 +328,7 @@ def get_active_workspace_files(base: Path = Path(".")) -> list:
     if not workspace.exists():
         return []
 
-    return sorted(workspace.glob("*_active*.md"))
-
-
-def parse_workspace_filename(filename: str) -> Optional[dict]:
-    """Parse workspace filename into components."""
-    pattern = r'^(\d{3})_(.+?)_(active|complete|blocked)(?:_from-(\d{3}))?\.md$'
-    match = re.match(pattern, filename)
-    if not match:
-        return None
-
-    return {
-        "seq": match.group(1),
-        "slug": match.group(2),
-        "status": match.group(3),
-        "parent": match.group(4)
-    }
+    return sorted(workspace.glob("*_active*.xml"))
 
 
 def check_active_conflicts(campaign: dict, base: Path = Path(".")) -> list:
@@ -378,7 +364,7 @@ def get_next_sequence(base: Path = Path(".")) -> str:
         return "001"
 
     existing = []
-    for path in workspace.glob("*.md"):
+    for path in workspace.glob("*.xml"):
         parsed = parse_workspace_filename(path.name)
         if parsed:
             existing.append(int(parsed["seq"]))
@@ -466,16 +452,18 @@ def get_pending_work(base: Path = Path(".")) -> list:
 
 
 def get_negative_patterns(base: Path = Path(".")) -> list:
-    """Get patterns with negative net signals."""
-    # Import here to avoid circular dependency
-    from context_graph import load_memory
-    memory = load_memory(base)
+    """Get failures/discoveries with negative signals."""
+    memory_path = base / FORGE_DIR / "memory.json"
+    memory = load_memory(memory_path)
 
-    return [
-        {"pattern": k, "net": v.get("net", 0)}
-        for k, v in memory.get("patterns", {}).items()
-        if v.get("net", 0) < 0
-    ]
+    results = []
+    for f in memory.get("failures", []):
+        if f.get("signal", 0) < 0:
+            results.append({"pattern": f["name"], "net": f.get("signal", 0)})
+    for d in memory.get("discoveries", []):
+        if d.get("signal", 0) < 0:
+            results.append({"pattern": d["name"], "net": d.get("signal", 0)})
+    return results
 
 
 def get_synthesis_status(base: Path = Path(".")) -> dict:
@@ -507,7 +495,7 @@ def get_stale_workspace_files(hours: int = 24, base: Path = Path(".")) -> list:
     threshold = time.time() - (hours * 3600)
     stale = []
 
-    for path in workspace.glob("*_active*.md"):
+    for path in workspace.glob("*_active*.xml"):
         if path.stat().st_mtime < threshold:
             age_hours = int((time.time() - path.stat().st_mtime) / 3600)
             stale.append({
@@ -670,7 +658,7 @@ def main():
             # ENFORCE workspace gate for completion
             if args.status == "complete":
                 workspace = args.base / FORGE_DIR / WORKSPACE_DIR
-                pattern = f"{seq}_*_complete*.md"
+                pattern = f"{seq}_*_complete*.xml"
                 matches = list(workspace.glob(pattern))
                 if not matches:
                     print(f"ERROR: Cannot mark complete - no workspace file", file=sys.stderr)

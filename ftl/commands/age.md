@@ -14,7 +14,7 @@ Find decisions older than threshold. Stale decisions may no longer apply.
 
 2. Query stale decisions:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" age $DAYS
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/memory.py" age $DAYS
 ```
 
 3. Report findings with source files and tags.

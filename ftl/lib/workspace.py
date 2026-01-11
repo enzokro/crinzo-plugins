@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """WQL - Workspace Query Language. Minimal query tool for tether workspaces."""
 
-import re
 import sys
 import argparse
 from pathlib import Path
 from collections import defaultdict
+from memory import parse_workspace_filename
 
 
 def parse_workspace(ws: Path) -> dict:
@@ -15,10 +15,10 @@ def parse_workspace(ws: Path) -> dict:
 
     # First pass: collect all XML workspace files
     for p in sorted(ws.glob("*.xml")):
-        m = re.match(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$', p.stem)
-        if m:
-            seq, slug, status, parent = m.groups()
-            files[seq] = {"path": p.name, "slug": slug, "status": status, "parent": parent}
+        parsed = parse_workspace_filename(p.name)
+        if parsed:
+            seq = parsed["seq"]
+            files[seq] = {"path": p.name, "slug": parsed["slug"], "status": parsed["status"], "parent": parsed["parent"]}
 
     # Second pass: build children map
     for seq, f in files.items():

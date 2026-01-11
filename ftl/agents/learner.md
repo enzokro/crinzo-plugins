@@ -49,7 +49,7 @@ Pattern types:
 
 5. Update decision index:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" mine
+source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/memory.py" mine
 ```
 </instructions>
 

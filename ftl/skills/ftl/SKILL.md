@@ -317,7 +317,7 @@ Task(ftl:synthesizer)
 
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
+python3 "$FTL_LIB/memory.py" query "$TOPIC"
 ```
 
 ---
@@ -325,7 +325,7 @@ python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ## Workspace
 
 ```
-.ftl/workspace/NNN_task-slug_status.md
+.ftl/workspace/NNN_task-slug_status.xml
 ```
 
 Status: `active` | `complete` | `blocked`
@@ -343,7 +343,7 @@ Status: `active` | `complete` | `blocked`
 | `campaign.py complete` | Complete campaign |
 | `workspace.py stat` | Workspace status |
 | `workspace.py lineage NNN` | Task lineage |
-| `context_graph.py query "$TOPIC"` | Query memory |
+| `memory.py query "$TOPIC"` | Query memory |
 | `memory.py inject .ftl/memory.json` | Format memory for injection |
 
 All commands require: `source ~/.config/ftl/paths.sh`

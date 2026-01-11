@@ -2,8 +2,8 @@
 """Test FTL workspace filename pattern contracts.
 
 Validates workspace filenames match documentation:
-  {NNN}_{slug}_{status}.md
-  {NNN}_{slug}_{status}_from-{NNN}.md
+  {NNN}_{slug}_{status}.xml
+  {NNN}_{slug}_{status}_from-{NNN}.xml
 
 Where:
   NNN = 3-digit zero-padded (001, 002, etc.)
@@ -48,7 +48,7 @@ def import_parser(lib_path):
 # Canonical regex for workspace filenames (matches campaign.py implementation)
 # Note: slug allows any characters (.+?) not just kebab-case
 WORKSPACE_PATTERN = re.compile(
-    r'^(\d{3})_(.+?)_(active|complete|blocked)(?:_from-(\d{3}))?\.md$'
+    r'^(\d{3})_(.+?)_(active|complete|blocked)(?:_from-(\d{3}))?\.xml$'
 )
 
 
@@ -65,8 +65,8 @@ def glob_matches(pattern, filename):
 # --- Valid Pattern Tests ---
 
 def test_valid_active(parse):
-    """001_my-task_active.md is valid."""
-    filename = "001_my-task_active.md"
+    """001_my-task_active.xml is valid."""
+    filename = "001_my-task_active.xml"
     assert validate_filename(filename), f"Should be valid: {filename}"
     parsed = parse(filename)
     assert parsed is not None
@@ -77,8 +77,8 @@ def test_valid_active(parse):
 
 
 def test_valid_complete(parse):
-    """001_my-task_complete.md is valid."""
-    filename = "001_my-task_complete.md"
+    """001_my-task_complete.xml is valid."""
+    filename = "001_my-task_complete.xml"
     assert validate_filename(filename)
     parsed = parse(filename)
     assert parsed["status"] == "complete"
@@ -86,8 +86,8 @@ def test_valid_complete(parse):
 
 
 def test_valid_blocked(parse):
-    """001_my-task_blocked.md is valid."""
-    filename = "001_my-task_blocked.md"
+    """001_my-task_blocked.xml is valid."""
+    filename = "001_my-task_blocked.xml"
     assert validate_filename(filename)
     parsed = parse(filename)
     assert parsed["status"] == "blocked"
@@ -95,8 +95,8 @@ def test_valid_blocked(parse):
 
 
 def test_valid_lineage(parse):
-    """002_child_active_from-001.md is valid."""
-    filename = "002_child-task_active_from-001.md"
+    """002_child_active_from-001.xml is valid."""
+    filename = "002_child-task_active_from-001.xml"
     assert validate_filename(filename)
     parsed = parse(filename)
     assert parsed["seq"] == "002"
@@ -108,7 +108,7 @@ def test_valid_lineage(parse):
 
 def test_valid_complex_slug(parse):
     """Slug with multiple hyphens is valid."""
-    filename = "005_my-complex-task-name_active.md"
+    filename = "005_my-complex-task-name_active.xml"
     assert validate_filename(filename)
     parsed = parse(filename)
     assert parsed["slug"] == "my-complex-task-name"
@@ -117,7 +117,7 @@ def test_valid_complex_slug(parse):
 
 def test_valid_numbers_in_slug(parse):
     """Slug with numbers is valid."""
-    filename = "001_task-v2-beta3_active.md"
+    filename = "001_task-v2-beta3_active.xml"
     assert validate_filename(filename)
     parsed = parse(filename)
     assert parsed["slug"] == "task-v2-beta3"
@@ -127,8 +127,8 @@ def test_valid_numbers_in_slug(parse):
 # --- Invalid Pattern Tests ---
 
 def test_invalid_seq_1digit(parse):
-    """1_task_active.md is invalid (1-digit seq)."""
-    filename = "1_task_active.md"
+    """1_task_active.xml is invalid (1-digit seq)."""
+    filename = "1_task_active.xml"
     assert not validate_filename(filename), f"Should be invalid: {filename}"
     parsed = parse(filename)
     assert parsed is None
@@ -136,8 +136,8 @@ def test_invalid_seq_1digit(parse):
 
 
 def test_invalid_seq_2digit(parse):
-    """01_task_active.md is invalid (2-digit seq)."""
-    filename = "01_task_active.md"
+    """01_task_active.xml is invalid (2-digit seq)."""
+    filename = "01_task_active.xml"
     assert not validate_filename(filename)
     parsed = parse(filename)
     assert parsed is None
@@ -145,8 +145,8 @@ def test_invalid_seq_2digit(parse):
 
 
 def test_invalid_seq_4digit(parse):
-    """0001_task_active.md is invalid (4-digit seq)."""
-    filename = "0001_task_active.md"
+    """0001_task_active.xml is invalid (4-digit seq)."""
+    filename = "0001_task_active.xml"
     assert not validate_filename(filename)
     parsed = parse(filename)
     assert parsed is None
@@ -154,8 +154,8 @@ def test_invalid_seq_4digit(parse):
 
 
 def test_invalid_status(parse):
-    """001_task_pending.md is invalid (wrong status)."""
-    filename = "001_task_pending.md"
+    """001_task_pending.xml is invalid (wrong status)."""
+    filename = "001_task_pending.xml"
     assert not validate_filename(filename)
     parsed = parse(filename)
     assert parsed is None
@@ -163,8 +163,8 @@ def test_invalid_status(parse):
 
 
 def test_invalid_no_slug(parse):
-    """001__active.md is invalid (empty slug)."""
-    filename = "001__active.md"
+    """001__active.xml is invalid (empty slug)."""
+    filename = "001__active.xml"
     assert not validate_filename(filename)
     parsed = parse(filename)
     assert parsed is None
@@ -172,8 +172,8 @@ def test_invalid_no_slug(parse):
 
 
 def test_uppercase_slug_allowed(parse):
-    """001_MyTask_active.md is valid (implementation allows uppercase)."""
-    filename = "001_MyTask_active.md"
+    """001_MyTask_active.xml is valid (implementation allows uppercase)."""
+    filename = "001_MyTask_active.xml"
     # Note: Implementation uses (.+?) which allows uppercase
     # This is more permissive than kebab-case convention
     parsed = parse(filename)
@@ -183,8 +183,8 @@ def test_uppercase_slug_allowed(parse):
 
 
 def test_underscore_slug_allowed(parse):
-    """001_my_task_active.md is valid (implementation parses correctly)."""
-    filename = "001_my_task_active.md"
+    """001_my_task_active.xml is valid (implementation parses correctly)."""
+    filename = "001_my_task_active.xml"
     # Note: Regex uses (.+?)_ which matches minimally then backtracks
     # to find valid status. Result: slug=my_task, status=active
     parsed = parse(filename)
@@ -195,7 +195,7 @@ def test_underscore_slug_allowed(parse):
 
 
 def test_invalid_missing_extension(parse):
-    """001_task_active (no .md) is invalid."""
+    """001_task_active (no .xml) is invalid."""
     filename = "001_task_active"
     assert not validate_filename(filename)
     parsed = parse(filename)
@@ -213,8 +213,8 @@ def test_invalid_wrong_extension(parse):
 
 
 def test_invalid_lineage_format(parse):
-    """002_task_active_from001.md is invalid (missing hyphen)."""
-    filename = "002_task_active_from001.md"
+    """002_task_active_from001.xml is invalid (missing hyphen)."""
+    filename = "002_task_active_from001.xml"
     assert not validate_filename(filename)
     parsed = parse(filename)
     assert parsed is None
@@ -225,38 +225,38 @@ def test_invalid_lineage_format(parse):
 
 def test_workspace_gate_glob_matches_complete():
     """update-task gate glob matches complete files."""
-    pattern = "001_*_complete*.md"
-    assert glob_matches(pattern, "001_my-task_complete.md")
-    assert glob_matches(pattern, "001_another-task_complete.md")
-    assert glob_matches(pattern, "001_task_complete_extra.md")
+    pattern = "001_*_complete*.xml"
+    assert glob_matches(pattern, "001_my-task_complete.xml")
+    assert glob_matches(pattern, "001_another-task_complete.xml")
+    assert glob_matches(pattern, "001_task_complete_extra.xml")
     print("  PASS: gate glob matches complete")
 
 
 def test_workspace_gate_glob_rejects_active():
     """update-task gate glob rejects active files."""
-    pattern = "001_*_complete*.md"
-    assert not glob_matches(pattern, "001_task_active.md")
-    assert not glob_matches(pattern, "001_task_blocked.md")
+    pattern = "001_*_complete*.xml"
+    assert not glob_matches(pattern, "001_task_active.xml")
+    assert not glob_matches(pattern, "001_task_blocked.xml")
     print("  PASS: gate glob rejects active")
 
 
 def test_workspace_gate_glob_rejects_wrong_seq():
     """update-task gate glob rejects wrong sequence."""
-    pattern = "001_*_complete*.md"
-    assert not glob_matches(pattern, "002_task_complete.md")
-    assert not glob_matches(pattern, "010_task_complete.md")
+    pattern = "001_*_complete*.xml"
+    assert not glob_matches(pattern, "002_task_complete.xml")
+    assert not glob_matches(pattern, "010_task_complete.xml")
     print("  PASS: gate glob rejects wrong seq")
 
 
 def test_workspace_gate_glob_normalized():
     """Gate uses normalized 3-digit seq in glob."""
-    # The gate should use f"{seq}_*_complete*.md" with normalized seq
+    # The gate should use f"{seq}_*_complete*.xml" with normalized seq
     seq = "5"
     normalized = f"{int(seq):03d}"
-    pattern = f"{normalized}_*_complete*.md"
-    assert pattern == "005_*_complete*.md"
-    assert glob_matches(pattern, "005_five-task_complete.md")
-    assert not glob_matches(pattern, "5_five-task_complete.md")
+    pattern = f"{normalized}_*_complete*.xml"
+    assert pattern == "005_*_complete*.xml"
+    assert glob_matches(pattern, "005_five-task_complete.xml")
+    assert not glob_matches(pattern, "5_five-task_complete.xml")
     print("  PASS: gate uses normalized seq")
 
 
@@ -289,7 +289,7 @@ def test_gate_integration(lib_path):
         assert "no workspace file" in result.stderr.lower()
 
         # With wrong filename format - should fail
-        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.md").write_text("# Wrong format")
+        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.xml").write_text("# Wrong format")
         result = subprocess.run(
             f'python3 "{lib_path}/campaign.py" -b {tmpdir} update-task 001 complete',
             shell=True, capture_output=True, text=True
@@ -297,8 +297,8 @@ def test_gate_integration(lib_path):
         assert result.returncode != 0, "Should fail with wrong format"
 
         # Remove wrong file, create correct one
-        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.md").unlink()
-        Path(f"{tmpdir}/.ftl/workspace/001_test-task_complete.md").write_text("# Correct format")
+        Path(f"{tmpdir}/.ftl/workspace/1_test-task_complete.xml").unlink()
+        Path(f"{tmpdir}/.ftl/workspace/001_test-task_complete.xml").write_text("# Correct format")
 
         result = subprocess.run(
             f'python3 "{lib_path}/campaign.py" -b {tmpdir} update-task 001 complete',

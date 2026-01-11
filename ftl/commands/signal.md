@@ -1,22 +1,22 @@
 ---
-description: Mark pattern outcome for evolution tracking.
+description: Mark failure/discovery outcome for tracking.
 allowed-tools: Bash, Read, Write
 user-invocable: false
 ---
 
 # Signal Outcome
 
-Mark a pattern as successful (+) or problematic (-). Signals influence future ranking.
+Mark a failure or discovery as working (+) or problematic (-). Signals track effectiveness.
 
 ## Protocol
 
 1. Parse $ARGUMENTS:
    - First arg: `+` or `-`
-   - Second arg: pattern name (e.g., `#pattern/session-token-flow`)
+   - Second arg: entity ID (e.g., `f001` or `d003`)
 
 2. Add signal:
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" signal "$SIGN" "$PATTERN"
+source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/memory.py" signal "$SIGN" "$ID"
 ```
 
 3. Confirm result.
@@ -24,39 +24,32 @@ source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/context_graph.py" s
 ## Usage
 
 ```
-/ftl:signal + #pattern/session-token-flow    # Pattern worked well
-/ftl:signal - #constraint/max-batch-size     # Constraint caused issues
+/ftl:signal + f001    # Failure fix worked well
+/ftl:signal - d003    # Discovery didn't help
 ```
 
 ## Output Format
 
 ```
-Signal added: #pattern/session-token-flow -> net +2
+Signal: f001 -> 2
 ```
 
 ## Storage
 
-Signals stored in `.ftl/signals.json`:
+Signals stored on entities in `.ftl/memory.json`:
 ```json
 {
-  "#pattern/session-token-flow": {
-    "signals": ["+", "+"],
-    "net": 2,
-    "last": 1704153600
-  }
+  "failures": [
+    {
+      "id": "f001",
+      "name": "failure-name",
+      "signal": 2
+    }
+  ]
 }
 ```
 
-## Effect on Ranking
-
-```
-signal_factor = 1 + (net_signals * 0.2)
-```
-
-- net +5 = 2.0x weight
-- net -5 = 0x weight (effectively hidden)
-
 ## Constraints
 
-- Only writes to .ftl/signals.json
+- Only writes to .ftl/memory.json
 - Does not modify workspace files
