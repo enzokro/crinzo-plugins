@@ -7,21 +7,34 @@ allowed-tools: Bash, Edit, Read, Glob
 
 ## Protocol
 
-Find active file:
+Find active XML workspace:
 ```bash
-ls .ftl/workspace/*$ARGUMENTS*_active* 2>/dev/null
+ls .ftl/workspace/*$ARGUMENTS*_active*.xml 2>/dev/null
 ```
 
-Read file. Fill Delivered section with what was implemented.
+Read XML workspace. Update `<delivered>` element with what was implemented.
 
-Link to git:
+Update delivered section and link to git:
 ```bash
-echo "Commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'none')" >> .ftl/workspace/NNN_slug_complete.md
+WORKSPACE=$(ls .ftl/workspace/*$ARGUMENTS*_active*.xml 2>/dev/null | head -1)
+python3 -c "
+import xml.etree.ElementTree as ET
+import subprocess
+tree = ET.parse('$WORKSPACE')
+root = tree.getroot()
+delivered = root.find('.//delivered')
+commit = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip() or 'none'
+delivered.text = '''Closed manually.
+Commit: ''' + commit
+delivered.set('status', 'complete')
+root.set('status', 'complete')
+tree.write('$WORKSPACE', encoding='unicode', xml_declaration=True)
+"
 ```
 
 Rename:
 ```bash
-mv .ftl/workspace/NNN_slug_active.md .ftl/workspace/NNN_slug_complete.md
+mv .ftl/workspace/NNN_slug_active.xml .ftl/workspace/NNN_slug_complete.xml
 # or _blocked if stuck
 ```
 

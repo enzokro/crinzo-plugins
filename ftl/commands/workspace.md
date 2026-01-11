@@ -26,24 +26,38 @@ source ~/.config/ftl/paths.sh 2>/dev/null; python3 "$FTL_LIB/workspace.py" linea
 
 **"active" | "blocked" | "complete"** — filter:
 ```bash
-ls -la .ftl/workspace/*_${STATUS}*.md 2>/dev/null
+ls -la .ftl/workspace/*_${STATUS}*.xml 2>/dev/null
 ```
 
 **"roots"** — no parent:
 ```bash
-ls .ftl/workspace/*.md 2>/dev/null | while read f; do
+ls .ftl/workspace/*.xml 2>/dev/null | while read f; do
   [[ ! "$f" =~ _from-[0-9] ]] && basename "$f"
 done
 ```
 
-**"tags"** — Key Findings:
+**"tags"** — Key Findings (extract from XML):
 ```bash
-grep -h "^#pattern/\|^#constraint/\|^#decision/" .ftl/workspace/*_complete*.md 2>/dev/null | sort -u
+python3 -c "
+import xml.etree.ElementTree as ET
+from pathlib import Path
+patterns = set()
+for ws in Path('.ftl/workspace').glob('*_complete.xml'):
+    tree = ET.parse(ws)
+    for p in tree.findall('.//pattern'):
+        name = p.get('name')
+        if name: patterns.add(f'#pattern/{name}')
+    for f in tree.findall('.//failure'):
+        name = f.get('name')
+        if name: patterns.add(f'#failure/{name}')
+for p in sorted(patterns):
+    print(p)
+"
 ```
 
 **"find PATTERN"** — search:
 ```bash
-grep -rn "PATTERN" .ftl/workspace/*.md 2>/dev/null
+grep -rn "PATTERN" .ftl/workspace/*.xml 2>/dev/null
 ```
 
 ## Indicators

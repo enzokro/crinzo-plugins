@@ -64,7 +64,7 @@ State in thinking: `Memory result: N patterns, M failures`
    - Escalation protocol included
 
 6. If Mode = DIRECT: return inline spec (no workspace file)
-   If Mode = FULL: write workspace to `.ftl/workspace/NNN-slug.md`
+   If Mode = FULL: write workspace XML to `.ftl/workspace/NNN_slug_active.xml`
 </instructions>
 
 <constraints>
@@ -109,61 +109,77 @@ Path: none
 ```
 
 ### FULL Mode Workspace Template
-```markdown
-# NNN: Task Title
 
-## Implementation
-Delta: [files to modify]
-Verify: [exact command from task spec]
-Framework: [from README if specified - e.g., FastHTML, FastAPI] (use idioms)
+Write XML to `.ftl/workspace/NNN_slug_active.xml`:
 
-## Code Context
-### {delta_file} (if exists)
-```{language}
+```xml
+<?xml version="1.0" ?>
+<workspace id="NNN-slug" type="BUILD" mode="FULL" status="active">
+
+  <implementation>
+    <delta>main.py</delta>
+    <delta>test_app.py</delta>
+    <verify>uv run pytest test_app.py -v</verify>
+    <framework>FastHTML</framework>
+  </implementation>
+
+  <code_context>
+    <file path="main.py" lines="1-60">
+      <content language="python">
 {current file contents, first 60 lines}
+      </content>
+      <exports>function_name(), ClassName</exports>
+      <imports>from X import Y</imports>
+    </file>
+    <lineage>
+      <parent>NNN-1 task slug | none</parent>
+      <prior_delivery>summary of what parent task completed</prior_delivery>
+    </lineage>
+  </code_context>
+
+  <framework_idioms framework="FastHTML">
+    <required>
+      <idiom>Use @rt decorator for routes</idiom>
+      <idiom>Return component trees (Div, Ul, Li), NOT f-strings</idiom>
+      <idiom>Use Form/Input/Button for forms, NOT raw HTML</idiom>
+    </required>
+    <forbidden>
+      <idiom>Raw HTML string construction with f-strings</idiom>
+      <idiom>Manual string concatenation for templates</idiom>
+    </forbidden>
+  </framework_idioms>
+
+  <prior_knowledge>
+    <pattern name="pattern-name" saved="15k">
+      <when>trigger condition</when>
+      <insight>what to do</insight>
+    </pattern>
+    <failure name="failure-name" cost="45k">
+      <trigger>what you'll see</trigger>
+      <fix>what to do</fix>
+    </failure>
+  </prior_knowledge>
+
+  <preflight>
+    <check>python -m py_compile main.py</check>
+    <check>pytest --collect-only -q</check>
+  </preflight>
+
+  <escalation threshold="2 failures OR 5 tools">
+    Block and document. Create experience.json for synthesizer.
+  </escalation>
+
+  <delivered status="pending">
+    Builder: REPLACE this content with implementation summary
+  </delivered>
+
+</workspace>
 ```
-Exports: {function_name(), ClassName}
-Imports: {from X import Y}
 
-### Task Lineage
-Parent: {NNN-1 task slug} | none
-Prior delivery: {summary of what parent task completed}
-
-## Framework Idioms (if framework specified)
-Framework: {name}
-Required:
-- {idiom 1 - e.g., "Use @rt decorator for routes"}
-- {idiom 2 - e.g., "Return component trees (Div, Ul, Li), NOT f-strings"}
-- {idiom 3 - e.g., "Use Form/Input/Button for forms, NOT raw HTML"}
-Forbidden:
-- {anti-pattern 1 - e.g., "Raw HTML string construction with f-strings"}
-- {anti-pattern 2 - e.g., "Manual string concatenation for templates"}
-
-## Patterns
-- **[pattern-name]** (saved: Nk tokens)
-  When: [trigger]
-  Insight: [what to do]
-
-## Known Failures
-- **[failure-name]** (cost: Nk tokens)
-  Trigger: [what you'll see]
-  Fix: [what to do]
-
-## Pre-flight
-- [ ] `python -m py_compile <delta>`
-- [ ] `pytest --collect-only -q`
-
-## Escalation
-After 2 failures OR 5 tools: block and document.
-
-## Delivered
-[Builder: REPLACE this line with implementation summary]
-```
-
-Omit sections if not applicable:
-- Code Context: if Delta file doesn't exist
-- Framework Idioms: if no framework specified
-- Patterns/Known Failures: if memory returned none
+Omit elements if not applicable:
+- `<code_context>`: if Delta file doesn't exist
+- `<framework_idioms>`: if no framework specified
+- `<prior_knowledge>`: if memory returned none
 
 Report for FULL:
 ```

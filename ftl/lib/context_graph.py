@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
@@ -407,6 +408,79 @@ def parse_workspace_file(path: Path) -> dict:
     }
 
 
+def parse_workspace_xml(path: Path) -> dict:
+    """Parse XML workspace file into decision record."""
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+    except ET.ParseError:
+        return None
+
+    m = FILENAME_PATTERN.match(path.stem)
+    if not m:
+        return None
+
+    seq, slug, status, parent = m.groups()
+    mtime = path.stat().st_mtime
+
+    # Extract from XML elements
+    delta_files = [d.text for d in root.findall('.//implementation/delta') if d.text]
+    delta_content = ', '.join(delta_files)
+    verify = root.findtext('.//verify', '')
+
+    # Delivered
+    delivered_elem = root.find('.//delivered')
+    delivered_content = delivered_elem.text if delivered_elem is not None and delivered_elem.text else ''
+
+    # Framework idioms
+    idioms_elem = root.find('.//framework_idioms')
+    framework = idioms_elem.get('framework', '') if idioms_elem is not None else ''
+
+    # Tags from patterns and failures
+    tags = []
+    for p in root.findall('.//pattern'):
+        name = p.get('name')
+        if name:
+            tags.append(f"#pattern/{name}")
+    for f in root.findall('.//failure'):
+        name = f.get('name')
+        if name:
+            tags.append(f"#failure/{name}")
+
+    # Lineage
+    lineage = root.find('.//lineage')
+    prior_delivery = lineage.findtext('prior_delivery', '') if lineage is not None else ''
+
+    return {
+        "seq": seq,
+        "slug": slug,
+        "status": status,
+        "parent": parent,
+        "mtime": mtime,
+        "file": path.name,
+        # Decision-centric
+        "question": "",
+        "decision": "",
+        "options": [],
+        "precedent_used": [],
+        # Full structure
+        "path": verify,
+        "delta": delta_content,
+        "delta_files": delta_files,
+        "traces": "",
+        "delivered": delivered_content,
+        "tags": tags,
+        # Semantic memory
+        "rationale": "",
+        "concepts": [],
+        "failure_modes": "",
+        "success_conditions": "",
+        # XML-specific
+        "framework": framework,
+        "prior_delivery": prior_delivery,
+    }
+
+
 # --- Mining ---
 
 def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path(".")) -> dict:
@@ -418,10 +492,10 @@ def mine_workspace(workspace: Path = Path(".ftl/workspace"), base: Path = Path("
     decisions = {}
     patterns = defaultdict(lambda: {"decisions": [], "signals": [], "net": 0, "last": 0})
 
-    for path in sorted(workspace.glob("*.md")):
-        parsed = parse_workspace_file(path)
+    for path in sorted(workspace.glob("*.xml")):
+        parsed = parse_workspace_xml(path)
         if not parsed:
-            print(f"skip: {path.name} (naming)", file=sys.stderr)
+            print(f"skip: {path.name} (naming or parse error)", file=sys.stderr)
             continue
 
         seq = parsed["seq"]

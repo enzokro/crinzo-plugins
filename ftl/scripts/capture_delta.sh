@@ -26,21 +26,26 @@ cat > /dev/null
 LAST_SEQ=$(ls "$WORKSPACE_DIR/" 2>/dev/null | grep -oE '^[0-9]+' | sort -n | tail -1)
 [ -z "$LAST_SEQ" ] && LAST_SEQ="000"
 
-ACTIVE=$(ls "$WORKSPACE_DIR/"*_active*.md 2>/dev/null | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
+ACTIVE=$(ls "$WORKSPACE_DIR/"*_active*.xml 2>/dev/null | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
 [ -z "$ACTIVE" ] && ACTIVE="none"
 
-RECENT=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
+RECENT=$(ls -t "$WORKSPACE_DIR/"*_complete*.xml 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null | tr '\n' ', ' | sed 's/,$//' || echo "none")
 [ -z "$RECENT" ] && RECENT="none"
 
 # Extract recent learnings from the most recently completed workspace
 # This enables within-run knowledge transfer: task 002 sees what task 001 learned
 RECENT_LEARNINGS=""
-RECENT_COMPLETE=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -1)
+RECENT_COMPLETE=$(ls -t "$WORKSPACE_DIR/"*_complete*.xml 2>/dev/null | head -1)
 if [ -n "$RECENT_COMPLETE" ] && [ -f "$RECENT_COMPLETE" ]; then
-  # Extract the ## Delivered section (what was accomplished)
-  DELIVERED=$(sed -n '/^## Delivered/,/^## /p' "$RECENT_COMPLETE" 2>/dev/null | head -20 | sed '1d;$d' | sed 's/^/  /')
+  # Extract the <delivered> element from XML workspace
+  DELIVERED=$(python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('$RECENT_COMPLETE')
+d = tree.find('.//delivered')
+print(d.text if d is not None and d.text else '')
+" 2>/dev/null | head -20 | sed 's/^/  /')
   if [ -n "$DELIVERED" ]; then
-    TASK_NAME=$(basename "$RECENT_COMPLETE" | sed 's/_complete.md//' | sed 's/^[0-9]*_//')
+    TASK_NAME=$(basename "$RECENT_COMPLETE" | sed 's/_complete.xml//' | sed 's/^[0-9]*_//')
     RECENT_LEARNINGS=$(cat << LEARNING
 ## Recent Learnings
 
@@ -111,35 +116,50 @@ EOF
 rm -f "$CACHE_DIR/delta_contents.md" 2>/dev/null || true
 
 # Find workspace (prefer active, fall back to most recent complete)
-WORKSPACE=$(find "$WORKSPACE_DIR" -name "*_active*.md" 2>/dev/null | head -1)
-[ -z "$WORKSPACE" ] && WORKSPACE=$(ls -t "$WORKSPACE_DIR/"*_complete*.md 2>/dev/null | head -1)
+WORKSPACE=$(find "$WORKSPACE_DIR" -name "*_active*.xml" 2>/dev/null | head -1)
+[ -z "$WORKSPACE" ] && WORKSPACE=$(ls -t "$WORKSPACE_DIR/"*_complete*.xml 2>/dev/null | head -1)
 [ -z "$WORKSPACE" ] && exit 0
 
-# Extract Delta field (under ## Implementation section)
-DELTA_LINE=$(grep "^Delta:" "$WORKSPACE" 2>/dev/null | head -1)
-[ -z "$DELTA_LINE" ] && exit 0
+# Extract Delta and Delivered from XML using Python
+python3 << EOF
+import xml.etree.ElementTree as ET
+from pathlib import Path
+import datetime
 
-# Parse comma-separated paths
-DELTA_FILES=$(echo "$DELTA_LINE" | sed 's/Delta: //' | tr ',' '\n' | sed 's/^ *//' | sed 's/ *$//')
-[ -z "$DELTA_FILES" ] && exit 0
+workspace = Path("$WORKSPACE")
+cache_dir = Path("$CACHE_DIR")
 
-{
-  echo "# Delta File Contents (Cached)"
-  echo ""
-  echo "Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "Source workspace: $WORKSPACE"
-  echo ""
-  echo "**Use these contents instead of re-reading the files.**"
-  echo ""
+tree = ET.parse(workspace)
+root = tree.getroot()
 
-  for file in $DELTA_FILES; do
-    [ -f "$file" ] || continue
-    echo "## $file"
-    echo '```'
-    cat "$file"
-    echo '```'
-    echo ""
-  done
-} > "$CACHE_DIR/delta_contents.md"
+# Extract delta files
+delta_files = [d.text for d in root.findall('.//implementation/delta') if d.text]
+
+# Extract delivered content for cognition state
+delivered = root.find('.//delivered')
+delivered_text = delivered.text if delivered is not None and delivered.text else ''
+
+# Write delta contents
+if delta_files:
+    with open(cache_dir / 'delta_contents.md', 'w') as f:
+        f.write('# Delta File Contents (Cached)\n\n')
+        f.write(f'Cached at: {datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}\n')
+        f.write(f'Source workspace: {workspace}\n\n')
+        f.write('**Use these contents instead of re-reading the files.**\n\n')
+
+        for delta_file in delta_files:
+            path = Path(delta_file)
+            if path.exists():
+                f.write(f'## {delta_file}\n')
+                f.write('```\n')
+                f.write(path.read_text())
+                f.write('\n```\n\n')
+
+# Update cognition state with delivered if present
+if delivered_text:
+    task_name = workspace.stem.replace('_active', '').replace('_complete', '')
+    print(f"DELIVERED_FROM={workspace.name}")
+    print(f"DELIVERED_CONTENT={delivered_text[:500]}")
+EOF
 
 exit 0

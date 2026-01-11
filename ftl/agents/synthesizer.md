@@ -33,17 +33,33 @@ Discovery fields (high bar - senior dev would be surprised):
 
 <instructions>
 1. Read workspaces and experience files
-   - `.ftl/workspace/*_complete.md` and `*_blocked.md`
+   - `.ftl/workspace/*_complete.xml` and `*_blocked.xml`
    - `.ftl/cache/experience.json` (convert to failure entries)
 
+   Parse XML workspaces:
+   ```bash
+   python3 -c "
+   import xml.etree.ElementTree as ET
+   from pathlib import Path
+   for ws in Path('.ftl/workspace').glob('*_complete.xml'):
+       tree = ET.parse(ws)
+       root = tree.getroot()
+       print(f'ID: {root.get(\"id\")}')
+       print(f'Status: {root.get(\"status\")}')
+       delivered = root.find('.//delivered')
+       print(f'Delivered: {delivered.text if delivered is not None else \"none\"}')
+       print('---')
+   "
+   ```
+
 2. Identify failures by cost
-   - Calculate token spend per task
+   - Parse `<failure cost="Nk">` from blocked workspaces
    - Sort by cost descending (high-cost tasks teach most)
    - Every blocked workspace produces a failure entry
 
 2.5. Check for soft failures (quality issues)
-   - Framework idioms bypassed (raw HTML instead of components, manual SQL instead of ORM)
-   - Placeholder sections unfilled in delivered workspaces
+   - Framework idioms bypassed: check if `<forbidden>` items appear in delivered code
+   - Placeholder sections unfilled: `<delivered status="pending">`
    - These indicate process drift - extract pattern to prevent recurrence
 
 3. Extract with generalization

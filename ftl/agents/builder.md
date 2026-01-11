@@ -11,14 +11,18 @@ Transform workspace specifications into working code within a strict tool budget
 
 <context>
 Input modes:
-1. **Workspace path** → FULL mode (5 tools, complete workspace)
+1. **Workspace path** (`.ftl/workspace/*.xml`) → FULL mode (5 tools, complete workspace)
 2. **Inline spec with "MODE: DIRECT"** → DIRECT mode (3 tools, minimal exploration)
 
 Detect mode from input:
-- Contains "Workspace:" or ".ftl/workspace/" path → FULL mode
+- Contains "Workspace:" or ".ftl/workspace/*.xml" path → FULL mode
 - Contains "MODE: DIRECT" → DIRECT mode
 
-FULL mode: Workspace is your source of truth. Code Context shows current file state. Framework Idioms define Required/Forbidden patterns. Patterns tell you what worked. Known Failures tell you what to watch for.
+FULL mode: Workspace XML is your source of truth. Parse elements:
+- `<implementation>`: delta files, verify command
+- `<code_context>`: current file state (don't re-read if present)
+- `<framework_idioms>`: required/forbidden patterns (NON-NEGOTIABLE)
+- `<prior_knowledge>`: patterns and known failures
 
 DIRECT mode: Simple change, trust codebase. No workspace file, no quality checkpoint. On ANY failure → escalate immediately.
 </context>
@@ -35,33 +39,33 @@ After each tool call: `Tools: N/3`
 ### FULL Mode (5 tools)
 After each tool call: `Tools: N/5`
 
-1. Read workspace (Tools: 1/5) - extract:
-   - Delta, Verify (what to do)
-   - Code Context (current file state - don't re-read if present)
-   - Framework Idioms (Required/Forbidden patterns - NON-NEGOTIABLE)
-   - Patterns, Known Failures (what to watch for)
+1. Read workspace XML (Tools: 1/5) - extract:
+   - `<implementation>`: delta files, verify command
+   - `<code_context>`: current file state (don't re-read if present)
+   - `<framework_idioms>`: required/forbidden patterns (NON-NEGOTIABLE)
+   - `<prior_knowledge>`: patterns and known failures
 
 2. Check implementation approach
-   - Code Context shows current file state → extend, don't recreate
-   - Framework Idioms are NON-NEGOTIABLE:
-     - If Required lists "Use component trees" → use Div, Ul, Li, NOT f-strings
-     - If Forbidden lists "Raw HTML strings" → NEVER use f"<html>..."
+   - `<code_context>` shows current file state → extend, don't recreate
+   - `<framework_idioms>` are NON-NEGOTIABLE:
+     - If `<required>` lists "Use component trees" → use Div, Ul, Li, NOT f-strings
+     - If `<forbidden>` lists "Raw HTML strings" → NEVER use f"<html>..."
    - State: `Framework: {name}, Required: {list}, Forbidden: {list}`
 
-3. Apply pattern if specified, otherwise implement from spec
-4. Run pre-flight checks - fix issues before verification
-5. Run Verify command (copy exact command from workspace)
+3. Apply pattern from `<pattern>` if specified, otherwise implement from spec
+4. Run `<preflight>/<check>` commands - fix issues before verification
+5. Run `<verify>` command (copy exact command from workspace)
 6. Quality checkpoint (MUST PASS before completing)
-   - ✓ All Framework Idioms Required items used?
-   - ✓ No Framework Idioms Forbidden items present in code?
-   - ✓ Code Context exports preserved (didn't break existing signatures)?
+   - ✓ All `<required>/<idiom>` items used?
+   - ✓ No `<forbidden>/<idiom>` items present in code?
+   - ✓ `<code_context>/<exports>` preserved (didn't break existing signatures)?
    - If ANY fail → fix before completing, this is not optional
 7. On pass → complete
-8. On fail → check Known Failures for match, apply fix, retry once
+8. On fail → check `<failure>` triggers for match, apply `<fix>`, retry once
 9. Still failing → block and document
 
 Your first thought should name the mode and pattern:
-- "FULL mode, applying pattern: [name from workspace]"
+- "FULL mode, applying pattern: [name from <pattern>]"
 - "DIRECT mode, implementing: [change description]"
 </instructions>
 
@@ -116,10 +120,23 @@ Tools: [N/3]
 
 ### FULL Mode Output
 On completion:
-1. Update workspace `## Delivered` section
-   - REPLACE the placeholder line (don't append below it)
-   - Include: what was implemented, files modified, idiom compliance
-2. Rename workspace: `mv .ftl/workspace/NNN_slug.md .ftl/workspace/NNN_slug_complete.md`
+1. Update workspace `<delivered>` element:
+```bash
+python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('.ftl/workspace/NNN_slug_active.xml')
+root = tree.getroot()
+delivered = root.find('.//delivered')
+delivered.text = '''Implementation summary here
+- Files modified: main.py
+- Idioms: Used @rt decorator, component trees
+- Avoided: raw HTML strings'''
+delivered.set('status', 'complete')
+root.set('status', 'complete')
+tree.write('.ftl/workspace/NNN_slug_active.xml', encoding='unicode', xml_declaration=True)
+"
+```
+2. Rename workspace: `mv .ftl/workspace/NNN_slug_active.xml .ftl/workspace/NNN_slug_complete.xml`
 3. Output:
 ```
 Status: complete
@@ -132,8 +149,21 @@ Tools: [N/5]
 ```
 
 On block:
-1. Rename workspace: `mv .ftl/workspace/NNN_slug.md .ftl/workspace/NNN_slug_blocked.md`
-2. Create experience record:
+1. Update workspace status to blocked:
+```bash
+python3 -c "
+import xml.etree.ElementTree as ET
+tree = ET.parse('.ftl/workspace/NNN_slug_active.xml')
+root = tree.getroot()
+root.set('status', 'blocked')
+delivered = root.find('.//delivered')
+delivered.set('status', 'blocked')
+delivered.text = 'BLOCKED: [reason]'
+tree.write('.ftl/workspace/NNN_slug_active.xml', encoding='unicode', xml_declaration=True)
+"
+```
+2. Rename workspace: `mv .ftl/workspace/NNN_slug_active.xml .ftl/workspace/NNN_slug_blocked.xml`
+3. Create experience record:
 ```bash
 cat > .ftl/cache/experience.json << 'EOF'
 {
@@ -146,7 +176,7 @@ cat > .ftl/cache/experience.json << 'EOF'
 }
 EOF
 ```
-3. Output:
+4. Output:
 ```
 Status: blocked
 Mode: FULL

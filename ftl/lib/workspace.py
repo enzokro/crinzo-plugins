@@ -9,12 +9,12 @@ from collections import defaultdict
 
 
 def parse_workspace(ws: Path) -> dict:
-    """Parse workspace files into index."""
+    """Parse workspace files into index. Supports XML workspace files."""
     files = {}
     children = defaultdict(list)
 
-    # First pass: collect all files
-    for p in sorted(ws.glob("*.md")):
+    # First pass: collect all XML workspace files
+    for p in sorted(ws.glob("*.xml")):
         m = re.match(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$', p.stem)
         if m:
             seq, slug, status, parent = m.groups()
