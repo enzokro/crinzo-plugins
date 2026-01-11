@@ -108,78 +108,61 @@ Mode: DIRECT because {reason}
 Path: none
 ```
 
-### FULL Mode Workspace Template
+### FULL Mode Workspace Creation
 
-Write XML to `.ftl/workspace/NNN_slug_active.xml`:
+Create workspace using `workspace_xml.py` CLI (JSON stdin → XML file):
 
-```xml
-<?xml version="1.0" ?>
-<workspace id="NNN-slug" type="BUILD" mode="FULL" status="active">
-
-  <implementation>
-    <delta>main.py</delta>
-    <delta>test_app.py</delta>
-    <verify>uv run pytest test_app.py -v</verify>
-    <framework>FastHTML</framework>
-  </implementation>
-
-  <code_context>
-    <file path="main.py" lines="1-60">
-      <content language="python">
-{current file contents, first 60 lines}
-      </content>
-      <exports>function_name(), ClassName</exports>
-      <imports>from X import Y</imports>
-    </file>
-    <lineage>
-      <parent>NNN-1 task slug | none</parent>
-      <prior_delivery>summary of what parent task completed</prior_delivery>
-    </lineage>
-  </code_context>
-
-  <framework_idioms framework="FastHTML">
-    <required>
-      <idiom>Use @rt decorator for routes</idiom>
-      <idiom>Return component trees (Div, Ul, Li), NOT f-strings</idiom>
-      <idiom>Use Form/Input/Button for forms, NOT raw HTML</idiom>
-    </required>
-    <forbidden>
-      <idiom>Raw HTML string construction with f-strings</idiom>
-      <idiom>Manual string concatenation for templates</idiom>
-    </forbidden>
-  </framework_idioms>
-
-  <prior_knowledge>
-    <pattern name="pattern-name" saved="15k">
-      <when>trigger condition</when>
-      <insight>what to do</insight>
-    </pattern>
-    <failure name="failure-name" cost="45k">
-      <trigger>what you'll see</trigger>
-      <fix>what to do</fix>
-    </failure>
-  </prior_knowledge>
-
-  <preflight>
-    <check>python -m py_compile main.py</check>
-    <check>pytest --collect-only -q</check>
-  </preflight>
-
-  <escalation threshold="2 failures OR 5 tools">
-    Block and document. Create experience.json for synthesizer.
-  </escalation>
-
-  <delivered status="pending">
-    Builder: REPLACE this content with implementation summary
-  </delivered>
-
-</workspace>
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null
+cat << 'EOF' | python3 "$FTL_LIB/workspace_xml.py" create -o .ftl/workspace/NNN_slug_active.xml
+{
+  "id": "NNN-slug",
+  "type": "BUILD",
+  "mode": "FULL",
+  "status": "active",
+  "delta": ["main.py", "test_app.py"],
+  "verify": "uv run pytest test_app.py -v",
+  "framework": "FastHTML",
+  "code_context": {
+    "path": "main.py",
+    "lines": "1-60",
+    "language": "python",
+    "content": "# current file contents, first 60 lines",
+    "exports": "function_name(), ClassName",
+    "imports": "from X import Y"
+  },
+  "lineage": {
+    "parent": "NNN-1 task slug | none",
+    "prior_delivery": "summary of what parent task completed"
+  },
+  "idioms": {
+    "required": [
+      "Use @rt decorator for routes",
+      "Return component trees (Div, Ul, Li), NOT f-strings",
+      "Use Form/Input/Button for forms, NOT raw HTML"
+    ],
+    "forbidden": [
+      "Raw HTML string construction with f-strings",
+      "Manual string concatenation for templates"
+    ]
+  },
+  "patterns": [
+    {"name": "pattern-name", "saved": "15k", "when": "trigger condition", "insight": "what to do"}
+  ],
+  "failures": [
+    {"name": "failure-name", "cost": "45k", "trigger": "what you'll see", "fix": "what to do"}
+  ],
+  "preflight": ["python -m py_compile main.py", "pytest --collect-only -q"],
+  "escalation": "Block and document. Create experience.json for synthesizer."
+}
+EOF
 ```
 
-Omit elements if not applicable:
-- `<code_context>`: if Delta file doesn't exist
-- `<framework_idioms>`: if no framework specified
-- `<prior_knowledge>`: if memory returned none
+Omit JSON fields if not applicable:
+- `code_context`: if Delta file doesn't exist
+- `idioms`: if no framework specified
+- `patterns`, `failures`: if memory returned none
+- `lineage`: if no parent task
 
 Report for FULL:
 ```

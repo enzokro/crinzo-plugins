@@ -120,24 +120,18 @@ Tools: [N/3]
 
 ### FULL Mode Output
 On completion:
-1. Update workspace `<delivered>` element:
+1. Update and rename workspace using CLI:
 ```bash
-python3 -c "
-import xml.etree.ElementTree as ET
-tree = ET.parse('.ftl/workspace/NNN_slug_active.xml')
-root = tree.getroot()
-delivered = root.find('.//delivered')
-delivered.text = '''Implementation summary here
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/workspace_xml.py" update .ftl/workspace/NNN_slug_active.xml \
+  --content "Implementation summary here
 - Files modified: main.py
 - Idioms: Used @rt decorator, component trees
-- Avoided: raw HTML strings'''
-delivered.set('status', 'complete')
-root.set('status', 'complete')
-tree.write('.ftl/workspace/NNN_slug_active.xml', encoding='unicode', xml_declaration=True)
-"
+- Avoided: raw HTML strings" \
+  --status complete
+python3 "$FTL_LIB/workspace_xml.py" rename .ftl/workspace/NNN_slug_active.xml complete
 ```
-2. Rename workspace: `mv .ftl/workspace/NNN_slug_active.xml .ftl/workspace/NNN_slug_complete.xml`
-3. Output:
+2. Output:
 ```
 Status: complete
 Mode: FULL
@@ -149,20 +143,14 @@ Tools: [N/5]
 ```
 
 On block:
-1. Update workspace status to blocked:
+1. Update and rename workspace using CLI:
 ```bash
-python3 -c "
-import xml.etree.ElementTree as ET
-tree = ET.parse('.ftl/workspace/NNN_slug_active.xml')
-root = tree.getroot()
-root.set('status', 'blocked')
-delivered = root.find('.//delivered')
-delivered.set('status', 'blocked')
-delivered.text = 'BLOCKED: [reason]'
-tree.write('.ftl/workspace/NNN_slug_active.xml', encoding='unicode', xml_declaration=True)
-"
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/workspace_xml.py" update .ftl/workspace/NNN_slug_active.xml \
+  --content "BLOCKED: [reason]" \
+  --status blocked
+python3 "$FTL_LIB/workspace_xml.py" rename .ftl/workspace/NNN_slug_active.xml blocked
 ```
-2. Rename workspace: `mv .ftl/workspace/NNN_slug_active.xml .ftl/workspace/NNN_slug_blocked.xml`
 3. Create experience record:
 ```bash
 cat > .ftl/cache/experience.json << 'EOF'

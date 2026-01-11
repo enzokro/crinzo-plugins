@@ -227,19 +227,118 @@ def list_workspaces(workspace_dir: Path, status_filter: Optional[str] = None) ->
     return workspaces
 
 
-if __name__ == '__main__':
-    # Test
-    spec = WorkspaceSpec(
-        id='003-routes-crud',
-        type='BUILD',
-        mode='FULL',
-        status='active',
-        delta=['main.py'],
-        verify='uv run pytest test_app.py -v -k crud',
-        framework='FastHTML',
-        idioms={
-            'required': ['Use @rt decorator', 'Return component trees'],
-            'forbidden': ['Raw HTML strings']
-        }
+def spec_from_dict(d: dict) -> WorkspaceSpec:
+    """Create WorkspaceSpec from dictionary (for CLI/JSON input)."""
+    return WorkspaceSpec(
+        id=d['id'],
+        type=d['type'],
+        mode=d['mode'],
+        status=d.get('status', 'active'),
+        delta=d.get('delta', []),
+        verify=d.get('verify', ''),
+        framework=d.get('framework'),
+        code_context=d.get('code_context'),
+        lineage=d.get('lineage'),
+        idioms=d.get('idioms'),
+        patterns=d.get('patterns'),
+        failures=d.get('failures'),
+        preflight=d.get('preflight'),
+        escalation=d.get('escalation', 'After 2 failures OR 5 tools: block and document.'),
+        delivered=d.get('delivered', '')
     )
-    print(create_workspace(spec))
+
+
+def main():
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(prog='workspace_xml', description='FTL workspace XML utilities')
+    sub = parser.add_subparsers(dest='cmd')
+
+    # create: JSON stdin → XML stdout
+    create_p = sub.add_parser('create', help='Create workspace XML from JSON spec')
+    create_p.add_argument('-o', '--output', type=Path, help='Output file (default: stdout)')
+
+    # parse: XML file → JSON stdout
+    parse_p = sub.add_parser('parse', help='Parse workspace XML to JSON')
+    parse_p.add_argument('path', type=Path, help='Workspace XML file')
+
+    # update: Update delivered section
+    update_p = sub.add_parser('update', help='Update delivered section')
+    update_p.add_argument('path', type=Path, help='Workspace XML file')
+    update_p.add_argument('--content', required=True, help='Delivered content')
+    update_p.add_argument('--status', default='complete', help='Status (default: complete)')
+
+    # rename: Rename workspace with new status
+    rename_p = sub.add_parser('rename', help='Rename workspace with new status')
+    rename_p.add_argument('path', type=Path, help='Workspace XML file')
+    rename_p.add_argument('status', help='New status (active|complete|blocked)')
+
+    # list: List workspaces in directory
+    list_p = sub.add_parser('list', help='List workspaces')
+    list_p.add_argument('dir', type=Path, nargs='?', default=Path('.ftl/workspace'))
+    list_p.add_argument('--status', help='Filter by status')
+
+    # status: Quick status check
+    status_p = sub.add_parser('status', help='Get workspace status')
+    status_p.add_argument('path', type=Path, help='Workspace XML file')
+
+    args = parser.parse_args()
+
+    if not args.cmd:
+        parser.print_help()
+        return
+
+    if args.cmd == 'create':
+        spec_dict = json.load(sys.stdin)
+        spec = spec_from_dict(spec_dict)
+        xml_content = create_workspace(spec)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(xml_content)
+            print(f"Created: {args.output}")
+        else:
+            print(xml_content)
+
+    elif args.cmd == 'parse':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        result = parse_workspace(args.path)
+        # Convert Path to string for JSON serialization
+        if 'path' in result:
+            result['path'] = str(result['path'])
+        print(json.dumps(result, indent=2))
+
+    elif args.cmd == 'update':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        update_delivered(args.path, args.content, args.status)
+        print(f"Updated: {args.path}")
+
+    elif args.cmd == 'rename':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        new_path = rename_workspace(args.path, args.status)
+        print(f"Renamed: {args.path} → {new_path}")
+
+    elif args.cmd == 'list':
+        if not args.dir.exists():
+            print(f"Not found: {args.dir}", file=sys.stderr)
+            sys.exit(1)
+        workspaces = list_workspaces(args.dir, args.status)
+        for ws in workspaces:
+            print(f"[{ws['status']:8}] {ws['path'].name}: {ws['id']}")
+
+    elif args.cmd == 'status':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        print(get_status(args.path))
+
+
+if __name__ == '__main__':
+    main()
