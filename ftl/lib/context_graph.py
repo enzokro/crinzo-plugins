@@ -19,10 +19,16 @@ if str(_lib_dir) not in sys.path:
 
 # Now imports work whether run as module or script
 from concepts import expand_query
+# Import memory.py for unified memory operations
+import memory as memory_module
 
 LATTICE_DIR = ".ftl"
-MEMORY_FILE = "memory.json"
+MEMORY_FILE = "graph.json"  # Separate from memory.json to avoid schema conflicts
 MEMORY_VERSION = 3  # v3: Experiences are primary, patterns derived
+
+# Re-export memory functions for compatibility
+# The primary memory.json (failures/discoveries) is managed by memory_module
+# This module manages graph.json (decisions/patterns/lineage)
 
 # Legacy files (for migration only)
 INDEX_FILE = "index.json"
@@ -608,7 +614,7 @@ def query_for_planner(memory: dict) -> str:
 
     Returns markdown-formatted prior knowledge sorted by signal strength.
     """
-    lines = ["## Prior Knowledge (from memory.json)", ""]
+    lines = ["## Prior Knowledge (from graph.json)", ""]
 
     # Patterns by signal strength (descending)
     patterns = sorted(

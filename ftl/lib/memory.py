@@ -157,9 +157,13 @@ def add_discovery(memory: dict, discovery: dict) -> dict:
     if existing:
         existing["source"] = list(set(existing.get("source", []) + discovery.get("source", [])))
         existing["tokens_saved"] = existing.get("tokens_saved", 0) + discovery.get("tokens_saved", 0)
-        # Append evidence
+        # Append evidence (deduplicated)
         if discovery.get("evidence"):
-            existing["evidence"] = existing.get("evidence", "") + "; " + discovery["evidence"]
+            existing_evidence = existing.get("evidence", "")
+            new_evidence = discovery["evidence"]
+            # Dedupe: don't append if already contains this text
+            if new_evidence not in existing_evidence:
+                existing["evidence"] = existing_evidence + "; " + new_evidence
     else:
         if "discoveries" not in memory:
             memory["discoveries"] = []
@@ -285,6 +289,42 @@ def format_for_injection(context: dict) -> str:
             lines.append("")
 
     return "\n".join(lines)
+
+
+def inject_and_log(
+    memory: dict,
+    run_id: str,
+    tags: Optional[list[str]] = None,
+    log_path: Optional[Path] = None
+) -> tuple[str, dict]:
+    """
+    Format injection AND create tracking log.
+
+    This is the primary entry point for memory injection - it combines
+    formatting for agent consumption AND tracking for evaluation.
+
+    Returns:
+        tuple of (markdown_text, injection_log)
+    """
+    context = get_context_for_task(memory, tags)
+    markdown = format_for_injection(context)
+
+    # Track what was injected
+    failure_ids = [f["id"] for f in context.get("failures", [])]
+    discovery_ids = [d["id"] for d in context.get("discoveries", [])]
+
+    log = create_injection_log(
+        run_id,
+        memory,
+        failure_ids,
+        discovery_ids,
+        tags_matched=tags
+    )
+
+    if log_path:
+        save_injection_log(log, log_path)
+
+    return markdown, log
 
 
 # --- Injection Logging (for evaluation) ---

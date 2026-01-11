@@ -16,352 +16,116 @@ DO NOT:
 - Call `campaign.py` directly from Claude Code
 - Call `ftl:router`, `ftl:builder`, or other agents directly
 - Manually create workspace files
-- Manually update campaign state with CLI commands
 - Skip the planner when creating campaigns
-
-The orchestrator (this skill) manages all agent spawning and state transitions.
-Violating this constraint causes workspace/campaign desync and gate failures.
 
 **If user asks to use FTL**: Invoke THIS skill. Do not improvise the workflow.
 
 ---
 
-## Two Workflows: Task vs Campaign (CRITICAL ARCHITECTURE)
+## Two Workflows
 
-FTL has two fundamentally different workflows. Understanding this prevents agent misuse.
+| Mode | Flow | Pattern Agent |
+|------|------|---------------|
+| TASK | Request → Router → Builder → **Learner** | Learner (single workspace) |
+| CAMPAIGN | Objective → Planner → [Router → Builder]* → **Synthesizer** | Synthesizer (all workspaces) |
 
-### TASK Mode
-
-```
-Request → Router → Builder → Learner → Done
-```
-
-- **Scope**: Single decision
-- **Pattern agent**: Learner
-- **Why**: Surface patterns from one implementation
-
-### CAMPAIGN Mode
-
-```
-Objective → Planner → [Router → Builder → update-task]* → Synthesizer → Done
-```
-
-- **Scope**: Multiple coordinated decisions
-- **Pattern agent**: Synthesizer (at END only)
-- **Why**: Meta-patterns from cross-task analysis
-
-### Agent Assignment Matrix
+### Agent Matrix
 
 | Agent | Task | Campaign |
 |-------|------|----------|
 | Router | ✓ | ✓ |
 | Builder | ✓ | ✓ |
-| Reflector | on fail | on fail |
 | Planner | ⊘ | start only |
 | **Learner** | **✓** | **⊘ NEVER** |
 | **Synthesizer** | ⊘ | **end only** |
 
-### Why This Matters
-
-**Learner and Synthesizer are mutually exclusive by workflow.**
-
-- Learner: Extracts patterns from single task's workspace
-- Synthesizer: Extracts meta-patterns from ALL campaign workspaces
-
-### Learner in Campaign = Category Error
-
-Spawning `ftl:learner` during a campaign is not prohibited — it's **incoherent**.
-
-Like asking "what color is the number 7?" The question doesn't make sense.
-
-- Learner operates on: ONE workspace file
-- Campaign produces: MANY workspace files
-- Pattern extraction needs: ALL files (only synthesizer can see cross-task connections)
-
-If you're in campaign mode and thinking "I should spawn learner now" — that thought signals you've lost track of which workflow you're in.
-
-**Self-check**: Am I in `/ftl <task>` mode? → Learner at end.
-Am I in `/ftl campaign` mode? → Synthesizer at end, NO learner.
-
-Cost of violation: ~100k wasted tokens + shallow patterns + missed meta-patterns.
+**Learner + Synthesizer are mutually exclusive.** Using learner in campaign mode is a category error - like asking "what color is the number 7?"
 
 ---
 
 ## Entry: Route by Intent
 
-| Input Pattern | Mode | Flow |
-|---------------|------|------|
+| Input | Mode | Action |
+|-------|------|--------|
 | `/ftl <task>` | TASK | router → builder → learner |
-| `/ftl campaign <obj>` | CAMPAIGN | planner → tasks[] → synthesize |
-| `/ftl query <topic>` | MEMORY | inline CLI query |
-| `/ftl status` | STATUS | inline CLI queries |
+| `/ftl campaign <obj>` | CAMPAIGN | planner → tasks[] → synthesizer |
+| `/ftl query <topic>` | MEMORY | CLI query (no agent) |
+| `/ftl status` | STATUS | CLI query (no agent) |
 
 ---
 
-## REQUIRED: Pre-Spawn Context Injection
+## Context Injection (REQUIRED)
 
-**You MUST perform these steps before EVERY `ftl:router` spawn. No exceptions.**
+### Before EVERY router spawn:
 
-### Before spawning router:
+1. Read `.ftl/cache/session_context.md` (static, created by pre-hook)
+2. Read `.ftl/cache/cognition_state.md` (dynamic, updated after each agent)
+3. Prepend both to router prompt
 
-1. **Read** `.ftl/cache/session_context.md`
-2. **Read** `.ftl/cache/cognition_state.md`
-3. **If cache does not exist:** `mkdir -p .ftl/cache`
-4. **Prepend contents** to router prompt
+### After EVERY agent completes:
 
-### Prompt format:
+Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh`.
 
-```
-[session_context.md contents]
+### Cache Files
 
-[cognition_state.md contents]
+| File | Type | Purpose |
+|------|------|---------|
+| `session_context.md` | Static | Git state, project tools, memory injection |
+| `cognition_state.md` | Dynamic | Phase awareness, inherited knowledge |
+| `exploration_context.md` | Dynamic | Router findings for builder |
+| `delta_contents.md` | Dynamic | File contents from prior tasks |
 
----
-
-Campaign: ...
-Task: ...
-```
-
-### Why mandatory:
-
-Skipping injection → router runs redundant `git branch`, `ls .ftl/workspace`, `cat package.json`.
-Each redundant call wastes tokens. Injection eliminates ~20 Bash calls per campaign.
-
-### Cache Purpose: Cognition Transfer, Not Just State
-
-The cache is not a convenience — it's **how agents inherit knowledge across phases**.
-
-FTL's cognition loop has distinct phases:
-```
-LEARNING (planner/router) → EXECUTION (builder) → EXTRACTION (learner/synthesizer)
-```
-
-Each phase produces knowledge. The cache transfers that knowledge forward.
-Without proper transfer, downstream agents re-learn what upstream agents already knew.
-
-**This is the root cause of exploration creep**: agents read operational state (sequence numbers, file lists) but don't internalize inherited knowledge. They think "let me also check..." because nothing told them checking already happened.
-
-### Cache freshness:
-
-- `session_context.md`: Static (create at campaign start)
-- `cognition_state.md`: Dynamic (updated after EVERY agent) — replaces old `workspace_state.md`
-
-**Router also self-checks cache as backup. Both mechanisms must work.**
-
-### REQUIRED: Update Cache After Each Agent
-
-After EVERY agent completes, update `.ftl/cache/cognition_state.md`:
-
-```bash
-mkdir -p .ftl/cache
-
-# Compute current state
-LAST_SEQ=$(ls .ftl/workspace/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1 || echo "000")
-ACTIVE=$(ls .ftl/workspace/*_active*.md 2>/dev/null | xargs -I{} basename {} 2>/dev/null || echo "none")
-RECENT=$(ls -t .ftl/workspace/*_complete*.md 2>/dev/null | head -3 | xargs -I{} basename {} 2>/dev/null || echo "none")
-
-cat > .ftl/cache/cognition_state.md << EOF
-# Cognition State
-*Updated: $(date)*
-
-## Phase Model
-
-You inherit knowledge from prior phases. You do not re-learn it.
-
-| Phase | Agent | Output |
-|-------|-------|--------|
-| LEARNING | planner | task breakdown, verification commands |
-| SCOPING | router | Delta, Path, precedent |
-| EXECUTION | builder | code within Delta |
-| EXTRACTION | learner/synthesizer | patterns |
-
-**Category test**: Am I thinking "let me understand X first"?
-→ That thought is incoherent. Understanding happened in prior phases.
-→ If knowledge feels insufficient, return: "Workspace incomplete: need [X]"
-
-## Inherited Knowledge
-
-Planner analyzed: objective, requirements, verification approach
-Router scoped: Delta bounds, data transformation Path, related precedent
-
-**This knowledge is in your workspace file. Read it. Trust it. Execute from it.**
-
-## Operational State
-
-Last sequence: ${LAST_SEQ}
-Active: ${ACTIVE}
-Recent: ${RECENT}
-
-## If You're About to Explore
-
-STOP. Ask yourself:
-1. Is this file in my Delta? If no → out of scope, do not read
-2. Did planner/router already analyze this? If yes → knowledge is in workspace
-3. Am I learning or executing? If learning → wrong phase
-
-Exploration during execution costs ~10x more than exploration during routing.
-The correct response to insufficient knowledge is escalation, not exploration.
-EOF
-```
-
-**Skipping this update → next agent lacks cognitive grounding → exploration creep → wastes ~100k tokens.**
-
-### Session Context (Pre-Created by Hook)
-
-**DO NOT create session_context.md yourself.** It is created by the shell pre-hook before you run.
-
-At campaign start, **READ** `.ftl/cache/session_context.md` (already exists with prior knowledge injected).
-
-If it doesn't exist, the pre-hook didn't run - warn user to run campaign via `scripts/campaign.sh`.
-
-### For builder/learner:
-
-Delta caching handled via SubagentStop → `.ftl/cache/delta_contents.md`.
-Agents read this themselves per their instructions.
-
-### Cognitive Grounding Test
-
-An agent reading `cognition_state.md` should immediately know:
-1. **What phase they're in** — and therefore what actions are coherent
-2. **What knowledge they inherit** — and therefore what they don't need to discover
-3. **When to escalate vs explore** — exploration is never the answer mid-execution
-
-If an agent reads the cache and still thinks "let me check...", the cache failed its purpose.
+**Skipping injection → exploration creep → ~100k wasted tokens**
 
 ---
 
-## Mode: TASK (Direct Execution)
-
-Main thread spawns phases directly (subagents cannot spawn subagents):
+## Mode: TASK
 
 ```
 1. Task(ftl:router) with task description
    Returns: direct | full | clarify
-   If full: also returns workspace path (router creates it)
 
 2a. If direct:
-    Task(ftl:builder) — implement immediately, no workspace
+    Task(ftl:builder) — no workspace
 
 2b. If full:
-    [Workspace already created by router]
-    Task(ftl:builder) — implement within Delta
-    If builder fails verification:
-      Task(ftl:reflector) — diagnose, return RETRY or ESCALATE
-
-    **TASK mode only**: Task(ftl:learner) — extract patterns, update index
-    **CAMPAIGN mode**: See "Two Workflows" section — Synthesizer replaces Learner.
+    Task(ftl:builder) — workspace created by router
+    Task(ftl:learner) — extract patterns
 
 2c. If clarify:
     Return question to user
 ```
 
-### Mode Detection: How Agents Know
+### Mode Detection
 
-| Signal | Mode | Effect |
-|--------|------|--------|
-| Prompt starts with `Campaign:` | CAMPAIGN | Force workspace, Synthesizer at end |
-| No `Campaign:` prefix | TASK | Router decides, Learner at end |
-
-**Learner self-check**: If workspace path exists AND no active campaign → TASK mode → run Learner.
-```bash
-# Check for active campaign
-ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null || echo "")
-if [ -z "$ACTIVE" ]; then
-  # TASK mode: Learner appropriate
-  Task(ftl:learner) with workspace path
-fi
-```
-
-### Direct vs Full Routing (router decides)
-
-**Direct** (no workspace):
-- Single file, location obvious
-- Mechanical change
-- No exploration needed
-- No future value
-
-**Full** (with workspace):
-- Multi-file or uncertain scope
-- Requires exploration
-- Understanding benefits future work
-
-Router merges assess + anchor: explores AND routes in one pass.
-
-### Verification in TASK Mode
-
-**If user has tests** (typical):
-- Router surfaces test file path → Builder's Verify command runs it
-- TDD loop: implement → run test → pass
-
-**If user has NO tests** (clarify route):
-- Router returns `clarify` with question: "What should verify success?"
-- Options presented:
-  1. User provides a command to run
-  2. User says "manual verification" → Builder reports what was implemented
-  3. User provides expected behavior → Router creates ad-hoc Verify
-
-**Router clarify response format**:
-```
-Route: clarify
-Question: How should I verify this change works?
-Options:
-- Provide a test command (e.g., `pytest test_foo.py -k test_name`)
-- Describe expected behavior for manual check
-- Say "no verification needed" (not recommended)
-```
-
-**Rationale**: Verify should never be guessed. If unclear, ask. This prevents:
-- Builder implementing wrong behavior
-- False "complete" status
-- Bugs discovered much later
+| Signal | Mode |
+|--------|------|
+| Prompt starts with `Campaign:` | CAMPAIGN |
+| No `Campaign:` prefix | TASK |
 
 ---
 
 ## Mode: CAMPAIGN
 
-For compound objectives requiring multiple coordinated tasks.
-
 ### Step 1: Check Active Campaign
 
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null && ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
+source ~/.config/ftl/paths.sh 2>/dev/null
+ACTIVE=$(python3 "$FTL_LIB/campaign.py" active 2>/dev/null)
 ```
 
-If campaign exists, skip to Step 5 (task execution).
+If campaign exists, skip to Step 5.
 
-### Step 2: Invoke Planner (REQUIRED)
+### Step 2: Invoke Planner
 
-**DO NOT skip this step. DO NOT manually create campaigns.**
-
-**CRITICAL: Prior Knowledge Injection (Memory System)**
-
-Before spawning planner, you MUST:
-1. Check if `.ftl/memory/prior_knowledge.md` exists
-2. If it exists, **READ** it and prepend its contents to the planner prompt
-3. This injects learnings from previous campaigns (failure modes, patterns, warnings)
-
-**Planner prompt format:**
 ```
-## Prior Knowledge (from previous campaigns)
+Task(ftl:planner) with prompt:
+  [session_context.md contents - includes Prior Knowledge]
 
-[contents of .ftl/memory/prior_knowledge.md here - READ THE FILE]
-
----
-
-Objective: [objective from user]
-
-Return markdown with ### Tasks section.
-Reference relevant patterns from prior knowledge above.
-Include warnings in task descriptions for known failure modes.
+  Objective: [objective from user]
 ```
 
-If `.ftl/memory/prior_knowledge.md` does NOT exist, skip the Prior Knowledge section (de novo run).
-
-**Memory empty on first task is expected.** Router receiving 0 patterns / 0 failures on task 001 is normal — use default escalation protocol.
-
-Task(ftl:planner) returns: PROCEED | CONFIRM | CLARIFY
-
-**After CLARIFY**: Re-invoke THIS flow from Step 2. Do NOT continue as Claude Code.
+Returns: PROCEED | CONFIRM | CLARIFY
 
 ### Step 3: Create Campaign
 
@@ -369,166 +133,86 @@ Task(ftl:planner) returns: PROCEED | CONFIRM | CLARIFY
 python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 ```
 
-**Command is `campaign`, NOT `create`**
-
-### Step 4: Add Tasks from Planner Output
-
-**CRITICAL: Use add-tasks-from-plan, NOT add-task**
+### Step 4: Add Tasks
 
 ```bash
 echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
 ```
 
-Tasks are created with 3-digit sequence numbers (001, 002, etc.).
-
 ### Step 5: Execute Each Task
 
-**Campaign loop = Router → Builder → update-task.** (See "Two Workflows" — no Learner)
+For each task in sequence:
 
-For each task in sequence, spawn exactly these agents:
-
-**1. Router** — invoke with campaign context:
+**1. Router**
 ```
 Task(ftl:router) with prompt:
   Campaign: $OBJECTIVE
   Task: $SEQ $SLUG
   Type: SPEC | BUILD | VERIFY
-  Delta: [files from planner]
-  Done-when: [outcome from planner]
-
-  [description]
+  Delta: [files]
+  Done-when: [outcome]
 ```
-The `Campaign:` prefix forces router to create workspace.
-Including Type/Delta/Done-when prevents router from re-deriving classification.
 
-**2. Builder** — implement within workspace:
-
-**Pre-spawn injection (REQUIRED):**
-1. Read `.ftl/cache/exploration_context.md` (if exists)
-2. Read `.ftl/cache/delta_contents.md` (if exists)
-3. Prepend to builder prompt
-
+**2. Builder**
 ```
 Task(ftl:builder) with prompt:
-  [exploration_context.md contents if exists]
-
-  [delta_contents.md contents if exists]
-
+  [exploration_context.md if exists]
+  [delta_contents.md if exists]
   ---
-  Workspace: [path returned by router]
+  Workspace: [path from router]
 ```
 
-Exploration context: router's findings (patterns, implementation hints, files examined).
-Delta cache: post-edit file contents from prior tasks.
-
-Workspace file remains the specification. Builder reads it for Path, Delta, Verify.
-Cache injection prevents re-exploration; ~500k-1M tokens saved per task.
-
-**Pre-flight is mandatory.** Builder runs workspace pre-flight checks BEFORE Verify.
-Cost ratio: pre-flight fix ~500 tokens, verify debug ~50K tokens (100:1).
-
-**3. Update cache** — after builder completes:
-
-Use the full cognition_state.md format from "REQUIRED: Update Cache After Each Agent" section above.
-This provides cognitive grounding, not just operational state.
-
-**4. Update task** — mark complete:
+**3. Update state**
 ```bash
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
-
-**Synthesizer at campaign end** — see "Two Workflows" section for why Learner is excluded.
-
-update-task enforces workspace gate.
+(Hooks update cognition_state.md automatically)
 
 ### Step 6: Complete Campaign
 
 ```bash
 python3 "$FTL_LIB/campaign.py" complete
-# Then Task(ftl:synthesizer)
+Task(ftl:synthesizer)
 ```
 
-**Synthesizer scope restriction:**
-Synthesizer reads ONLY workspace files (not implementation files).
-Extracts failures/discoveries from `## Known Failures` and `## Delivered` sections.
-Does NOT run tests, read source code, or explore the codebase.
-
-**Critical**:
-- Create campaign: `campaign.py campaign`, NOT `campaign.py create`
-- Add tasks: pipe to `add-tasks-from-plan`, NOT `add-task SEQ SLUG DESC`
-- Router prompt MUST include `Campaign:` prefix to force workspace creation
+**Synthesizer reads ONLY workspace files.** Does NOT read source code or run tests.
 
 ---
 
 ## Mode: MEMORY
 
-Query the decision graph for precedent (inlined, no agent spawn):
-
 ```bash
-source ~/.config/ftl/paths.sh 2>/dev/null && python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
 ```
-
-Main thread formats and displays ranked decisions.
-
----
-
-## The FTL Contract
-
-```
-┌────────────────────────────────────────────────────────────┐
-│ CAMPAIGN              │ TASK                   │ MEMORY    │
-├────────────────────────────────────────────────────────────┤
-│ Query precedent  ────→│                        │←── query  │
-│                       │                        │  (inline) │
-│ Delegate task    ────→│ router→builder→        │           │
-│                       │ reflector (if fail)    │           │
-│                       │ Creates workspace file │           │
-│                       │                        │           │
-│ Gate on workspace ←───│ Returns _complete.md   │           │
-│                       │                        │           │
-│ Signal patterns  ────→│                        │←── signal │
-│                       │                        │           │
-│ Synthesizer (end)────→│ Learner (TASK only)    │←── mine   │
-└────────────────────────────────────────────────────────────┘
-```
-
-**6 Agents**: router, builder, reflector, learner, planner, synthesizer
 
 ---
 
 ## Workspace
 
-Task state persists in workspace files:
-
 ```
-.ftl/workspace/NNN_task-slug_status[_from-NNN].md
+.ftl/workspace/NNN_task-slug_status.md
 ```
 
 Status: `active` | `complete` | `blocked`
 
 ---
 
-## CLI Tools
+## CLI Reference
 
-All state management via Python CLIs:
+| Command | Purpose |
+|---------|---------|
+| `campaign.py active` | Check active campaign |
+| `campaign.py campaign "$OBJ"` | Create campaign |
+| `campaign.py add-tasks-from-plan` | Add tasks from planner output |
+| `campaign.py update-task $SEQ complete` | Mark task complete |
+| `campaign.py complete` | Complete campaign |
+| `workspace.py stat` | Workspace status |
+| `workspace.py lineage NNN` | Task lineage |
+| `context_graph.py query "$TOPIC"` | Query memory |
+| `memory.py inject .ftl/memory.json` | Format memory for injection |
 
-```bash
-source ~/.config/ftl/paths.sh
-
-# Workspace
-python3 "$FTL_LIB/workspace.py" stat
-python3 "$FTL_LIB/workspace.py" lineage NNN
-
-# Memory
-python3 "$FTL_LIB/context_graph.py" query "$TOPIC"
-python3 "$FTL_LIB/context_graph.py" mine
-python3 "$FTL_LIB/context_graph.py" signal + "#pattern/name"
-
-# Campaign
-python3 "$FTL_LIB/campaign.py" active
-python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
-python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
-```
+All commands require: `source ~/.config/ftl/paths.sh`
 
 ---
 
@@ -542,3 +226,13 @@ python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 | Edit over create | Modify existing first |
 
 No new abstractions. No files outside Delta.
+
+---
+
+## 5 Agents
+
+- **router**: Classify tasks, create workspaces, inject memory patterns
+- **builder**: Transform workspace spec into code (5 tools max)
+- **planner**: Decompose objectives into verifiable tasks
+- **learner**: Extract patterns from single workspace (TASK mode)
+- **synthesizer**: Extract meta-patterns from all workspaces (CAMPAIGN mode)
