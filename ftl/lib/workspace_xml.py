@@ -213,6 +213,24 @@ def rename_workspace(path: Path, new_status: str) -> Path:
     return new_path
 
 
+def complete_workspace(path: Path, delivered: str) -> Path:
+    """Atomic: update delivered content + set status to complete + rename file.
+
+    This prevents status desync between XML attribute and filename.
+    """
+    update_delivered(path, delivered, status='complete')
+    return rename_workspace(path, 'complete')
+
+
+def block_workspace(path: Path, delivered: str) -> Path:
+    """Atomic: update delivered content + set status to blocked + rename file.
+
+    This prevents status desync between XML attribute and filename.
+    """
+    update_delivered(path, delivered, status='blocked')
+    return rename_workspace(path, 'blocked')
+
+
 def list_workspaces(workspace_dir: Path, status_filter: Optional[str] = None) -> list[dict]:
     """List all workspaces with optional status filter."""
     workspaces = []
@@ -275,6 +293,16 @@ def main():
     rename_p.add_argument('path', type=Path, help='Workspace XML file')
     rename_p.add_argument('status', help='New status (active|complete|blocked)')
 
+    # complete: Atomic complete (update XML + rename file)
+    complete_p = sub.add_parser('complete', help='Atomic: update delivered + set complete + rename')
+    complete_p.add_argument('path', type=Path, help='Workspace XML file')
+    complete_p.add_argument('--delivered', required=True, help='Delivered content summary')
+
+    # block: Atomic block (update XML + rename file)
+    block_p = sub.add_parser('block', help='Atomic: update delivered + set blocked + rename')
+    block_p.add_argument('path', type=Path, help='Workspace XML file')
+    block_p.add_argument('--delivered', required=True, help='Block reason/diagnosis')
+
     # list: List workspaces in directory
     list_p = sub.add_parser('list', help='List workspaces')
     list_p.add_argument('dir', type=Path, nargs='?', default=Path('.ftl/workspace'))
@@ -324,6 +352,20 @@ def main():
             sys.exit(1)
         new_path = rename_workspace(args.path, args.status)
         print(f"Renamed: {args.path} → {new_path}")
+
+    elif args.cmd == 'complete':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        new_path = complete_workspace(args.path, args.delivered)
+        print(f"Completed: {args.path} → {new_path}")
+
+    elif args.cmd == 'block':
+        if not args.path.exists():
+            print(f"Not found: {args.path}", file=sys.stderr)
+            sys.exit(1)
+        new_path = block_workspace(args.path, args.delivered)
+        print(f"Blocked: {args.path} → {new_path}")
 
     elif args.cmd == 'list':
         if not args.dir.exists():

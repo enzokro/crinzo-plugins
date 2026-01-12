@@ -120,16 +120,14 @@ Tools: [N/3]
 
 ### FULL Mode Output
 On completion:
-1. Update and rename workspace using CLI:
+1. Complete workspace atomically (single command prevents status/filename desync):
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/workspace_xml.py" update .ftl/workspace/NNN_slug_active.xml \
-  --content "Implementation summary here
+python3 "$FTL_LIB/workspace_xml.py" complete .ftl/workspace/NNN_slug_active.xml \
+  --delivered "Implementation summary here
 - Files modified: main.py
 - Idioms: Used @rt decorator, component trees
-- Avoided: raw HTML strings" \
-  --status complete
-python3 "$FTL_LIB/workspace_xml.py" rename .ftl/workspace/NNN_slug_active.xml complete
+- Avoided: raw HTML strings"
 ```
 2. Output:
 ```
@@ -143,13 +141,11 @@ Tools: [N/5]
 ```
 
 On block:
-1. Update and rename workspace using CLI:
+1. Block workspace atomically (single command prevents status/filename desync):
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/workspace_xml.py" update .ftl/workspace/NNN_slug_active.xml \
-  --content "BLOCKED: [reason]" \
-  --status blocked
-python3 "$FTL_LIB/workspace_xml.py" rename .ftl/workspace/NNN_slug_active.xml blocked
+python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
+  --delivered "BLOCKED: [reason]"
 ```
 3. Create experience record:
 ```bash

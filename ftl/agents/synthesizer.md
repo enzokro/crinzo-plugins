@@ -52,26 +52,48 @@ Discovery fields (high bar - senior dev would be surprised):
    "
    ```
 
-2. Identify failures by cost
+2. **VERIFY BLOCKS BEFORE EXTRACTION** (REQUIRED)
+
+   Builder can hallucinate issues. Before extracting ANY failure from a blocked workspace:
+
+   ```bash
+   # For each blocked workspace
+   python3 "$FTL_LIB/workspace_xml.py" parse .ftl/workspace/NNN_slug_blocked.xml | jq -r '.verify'
+   # → gets verify command
+
+   cd $PROJECT_ROOT && $VERIFY_COMMAND 2>&1 | head -100
+   ```
+
+   Check result:
+   - **Tests PASS** → Block was FALSE POSITIVE (Builder hallucinated the issue)
+     - Do NOT extract failure from this workspace
+     - Log: `Block verification: [workspace_id] - INVALID (tests pass)`
+   - **Tests FAIL** → Block was CONFIRMED
+     - Extract failure as normal
+     - Log: `Block verification: [workspace_id] - CONFIRMED (tests fail)`
+
+   **NEVER extract failures from unverified blocks.**
+
+3. Identify failures by cost (from VERIFIED blocks only)
    - Parse `<failure cost="Nk">` from blocked workspaces
    - Sort by cost descending (high-cost tasks teach most)
-   - Every blocked workspace produces a failure entry
+   - Every VERIFIED blocked workspace produces a failure entry
 
-2.5. Check for soft failures (quality issues)
+4. Check for soft failures (quality issues)
    - Framework idioms bypassed: check if `<forbidden>` items appear in delivered code
    - Placeholder sections unfilled: `<delivered status="pending">`
    - These indicate process drift - extract pattern to prevent recurrence
 
-3. Extract with generalization
+5. Extract with generalization
    - Replace specifics with placeholders (`handler.py` → `<IMPLEMENTATION_FILE>`)
    - Test: would this help a different project? If no, skip.
 
-4. Check for discoveries (only after failures)
+6. Check for discoveries (only after failures)
    - Builder tried 2+ approaches first
    - Token savings >20K
    - Senior engineer would not say "obviously"
 
-5. Deduplicate and save
+7. Deduplicate and save
    - Compare triggers semantically
    - If same insight exists, merge sources
    - Update memory via python script

@@ -27,17 +27,19 @@ DO NOT:
 | Mode | Flow | Pattern Agent |
 |------|------|---------------|
 | TASK | Request → Router → Builder → **Learner** | Learner (single workspace) |
-| CAMPAIGN | Objective → Planner → [Router → Builder]* → **Synthesizer** | Synthesizer (all workspaces) |
+| CAMPAIGN | Objective → Planner → [workspace_from_plan.py → Builder]* → **Synthesizer** | Synthesizer (all workspaces) |
 
 ### Agent Matrix
 
 | Agent | Task | Campaign |
 |-------|------|----------|
-| Router | ✓ | ✓ |
+| Router | ✓ | ⊘ (use workspace_from_plan.py) |
 | Builder | ✓ | ✓ |
 | Planner | ⊘ | start only |
 | **Learner** | **✓** | **⊘ NEVER** |
 | **Synthesizer** | ⊘ | **end only** |
+
+**Router is only for TASK mode.** In Campaign mode, Planner outputs JSON task specs, and `workspace_from_plan.py` generates workspace XML directly - no Router agent needed.
 
 **Learner + Synthesizer are mutually exclusive.** Using learner in campaign mode is a category error - like asking "what color is the number 7?"
 
@@ -56,11 +58,18 @@ DO NOT:
 
 ## Context Injection (REQUIRED)
 
-### Before EVERY router spawn:
+### Before TASK mode (Router):
 
 1. Read `.ftl/cache/session_context.md` (static, created by pre-hook)
 2. Read `.ftl/cache/cognition_state.md` (dynamic, updated after each agent)
 3. Prepend both to router prompt
+
+### For CAMPAIGN mode (workspace_from_plan.py):
+
+Context is handled automatically:
+- Memory injection via `--memory` parameter
+- Code context read from Delta files
+- No manual context injection needed
 
 ### After EVERY agent completes:
 
@@ -83,13 +92,10 @@ Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh
 
 Framework idioms are **defined in README**, not hardcoded in agents. This makes FTL framework-agnostic.
 
-```
-README.md (defines)    →    Router (extracts)    →    Builder (enforces)
-     ↓                           ↓                         ↓
-## Framework Idioms      Parses section from      Treats as Essential
-Required: [...]          README verbatim          constraints
-Forbidden: [...]
-```
+| Mode | Flow |
+|------|------|
+| TASK | README → Router (extracts) → Builder (enforces) |
+| CAMPAIGN | README → Planner (extracts to JSON) → workspace_from_plan.py → Builder (enforces) |
 
 ### README Structure (project defines)
 
@@ -104,12 +110,18 @@ Forbidden:
 - [anti-pattern 2 - e.g., "Manual string concatenation"]
 ```
 
-### Router (extracts)
+### Extraction (mode-dependent)
 
+**TASK mode (Router)**:
 - Looks for "## Framework Idioms" section in README
 - If found: copies Required/Forbidden lists verbatim to workspace
 - If not found but framework mentioned: infers generic guidance
 - If no framework: omits Framework Idioms section entirely
+
+**CAMPAIGN mode (Planner → workspace_from_plan.py)**:
+- Planner extracts idioms to JSON output
+- workspace_from_plan.py copies idioms to each workspace
+- No Router agent needed
 
 ### Builder (enforces)
 
@@ -273,30 +285,34 @@ python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
 ```
 
+### Step 4.5: Generate All Workspaces (NEW - replaces per-task Router)
+
+Extract JSON from Planner output and generate all workspaces at once:
+
+```bash
+# Extract JSON block from Planner markdown (between ```json and ```)
+PLAN_JSON=$(echo "$PLANNER_OUTPUT" | sed -n '/```json/,/```/p' | sed '1d;$d')
+
+# Generate all workspaces
+echo "$PLAN_JSON" | python3 "$FTL_LIB/workspace_from_plan.py" -
+```
+
+This replaces spawning Router for each task (saves ~300-400k tokens per campaign).
+
 ### Step 5: Execute Each Task
 
 For each task in sequence:
 
-**1. Router**
-```
-Task(ftl:router) with prompt:
-  Campaign: $OBJECTIVE
-  Task: $SEQ $SLUG
-  Type: SPEC | BUILD | VERIFY
-  Delta: [files]
-  Done-when: [outcome]
-```
-
-**2. Builder**
+**1. Builder** (workspace already exists from Step 4.5)
 ```
 Task(ftl:builder) with prompt:
   [exploration_context.md if exists]
   [delta_contents.md if exists]
   ---
-  Workspace: [path from router]
+  Workspace: .ftl/workspace/NNN_slug_active.xml
 ```
 
-**3. Update state**
+**2. Update state**
 ```bash
 python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
@@ -341,6 +357,9 @@ Status: `active` | `complete` | `blocked`
 | `campaign.py add-tasks-from-plan` | Add tasks from planner output |
 | `campaign.py update-task $SEQ complete` | Mark task complete |
 | `campaign.py complete` | Complete campaign |
+| `workspace_from_plan.py plan.json` | Generate workspaces from Planner JSON |
+| `workspace_xml.py complete <path> --delivered "..."` | Atomic: complete workspace |
+| `workspace_xml.py block <path> --delivered "..."` | Atomic: block workspace |
 | `workspace.py stat` | Workspace status |
 | `workspace.py lineage NNN` | Task lineage |
 | `memory.py query "$TOPIC"` | Query memory |
@@ -402,8 +421,10 @@ Quality checkpoint catches issues before they propagate.
 
 | Agent | Role | Key Constraint |
 |-------|------|----------------|
-| **router** | Classify tasks, create workspaces, inject memory | Pass framework context to builder |
+| **router** | Classify tasks (TASK mode only) | Pass framework context to builder |
 | **builder** | Transform workspace spec into code | 5 tools max, framework fidelity |
-| **planner** | Decompose objectives into verifiable tasks | Verification coherence |
+| **planner** | Decompose objectives + output JSON specs | Verification coherence |
 | **learner** | Extract patterns from single workspace (TASK) | Read-only except Key Findings |
-| **synthesizer** | Extract meta-patterns from all workspaces (CAMPAIGN) | Detect soft failures |
+| **synthesizer** | Extract meta-patterns from all workspaces (CAMPAIGN) | Verify blocks before extraction |
+
+**Note**: In Campaign mode, `workspace_from_plan.py` replaces Router for workspace generation. This saves ~300-400k tokens per campaign by eliminating redundant agent spawns.

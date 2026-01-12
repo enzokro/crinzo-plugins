@@ -86,25 +86,9 @@ Use 3-digit task numbers (000, 001, 002) for parser compatibility.
 </constraints>
 
 <output_format>
-Task format:
-```markdown
-### NNN. **task-slug**
-- Type: SPEC | BUILD | VERIFY
-- Delta: [files this task modifies]
-- Verify: [command that proves success]
-- Depends: [prior task numbers or "none"]
-- Source: [README | pattern name | failure name]
+**Output TWO blocks**: Human-readable markdown, then machine-parseable JSON.
 
-Pre-flight:
-- [ ] `python -m py_compile <delta>`
-
-Known failures:
-- [failure-name]: [symptom] → [fix action]
-
-Escalation: After 2 failures OR 5 tools, block and document.
-```
-
-Campaign plan:
+### 1. Markdown Campaign Plan (for human review)
 ```markdown
 ## Campaign: [objective]
 
@@ -116,18 +100,65 @@ Rationale: [one sentence]
 - Failure risk: {F}k tokens
 - Framework: {level} ({0-3})
 - Score: C = {value} → {task_count} tasks
-- Rationale: [why this decomposition fits the complexity]
 
 ### Downstream Impact
-- Framework: [from README - e.g., FastHTML, FastAPI] (Builder must use idioms)
-- Framework complexity: [low | moderate | high]
+- Framework: [from README - e.g., FastHTML, FastAPI]
 - Experience coverage: [complete | partial | none]
 
 ### Tasks
-[task blocks]
-
-### Estimated tokens: [N]
+#### NNN. **task-slug**
+- Type: SPEC | BUILD | VERIFY
+- Delta: [files]
+- Verify: [command]
+- Depends: [prior task numbers or "none"]
 ```
+
+### 2. JSON Task Specs (for workspace generation)
+Immediately after markdown, output a fenced JSON block with this exact structure:
+
+```json
+{
+  "campaign": "campaign-name",
+  "framework": "FastHTML | FastAPI | none",
+  "idioms": {
+    "required": ["Use @rt decorator", "Return component trees"],
+    "forbidden": ["Raw HTML strings", "Manual string concatenation"]
+  },
+  "tasks": [
+    {
+      "seq": "001",
+      "slug": "spec-tests",
+      "type": "SPEC",
+      "mode": "FULL",
+      "delta": ["test_app.py"],
+      "verify": "pytest --collect-only -q",
+      "depends": "none",
+      "preflight": ["python -m py_compile test_app.py"],
+      "failures": ["failure-name-from-memory"]
+    },
+    {
+      "seq": "002",
+      "slug": "build-model",
+      "type": "BUILD",
+      "mode": "FULL",
+      "delta": ["main.py"],
+      "verify": "pytest test_app.py -k model -v",
+      "depends": "001",
+      "preflight": ["python -m py_compile main.py"],
+      "failures": []
+    }
+  ]
+}
+```
+
+**Mode selection rules**:
+- `FULL`: Framework present, OR failures referenced, OR multiple Delta files
+- `DIRECT`: Single file, no framework, no failures, <100 lines expected
+
+**Idioms**: Extract from README's "Framework Idioms" section if present.
+If README has framework but no idioms section, infer from framework:
+- FastHTML: required=["@rt decorator", "component trees"], forbidden=["f-string HTML"]
+- FastAPI: required=["Depends injection", "Pydantic models"], forbidden=["raw dicts"]
 
 | Signal | Meaning |
 |--------|---------|
