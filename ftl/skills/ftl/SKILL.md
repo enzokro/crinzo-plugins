@@ -249,10 +249,21 @@ Router assesses whether task qualifies for DIRECT mode:
 | Prior Knowledge shows 0 related failures | DIRECT |
 | Multiple files OR framework involved | FULL |
 | Prior Knowledge shows related failures | FULL |
-| SPEC or VERIFY task type | FULL (always) |
+| SPEC task type | FULL (always) |
+| VERIFY task type (standalone) | FULL |
+| VERIFY task type (final campaign task) | DIRECT (inline) |
 
 **DIRECT mode**: 3 tools, no workspace, no retry, no learner
 **FULL mode**: 5 tools, workspace with Code Context + Framework Idioms, retry once, learner
+
+**Campaign DIRECT mode (VERIFY tasks)**:
+In campaign mode, the final VERIFY task may run inline without spawning an agent:
+- No workspace file created
+- Main orchestrator runs verify command directly
+- Status update skipped (no workspace to mark complete)
+- Campaign completion unaffected
+
+This saves agent spawn overhead (~50k tokens) for simple verification.
 
 **Note**: In CAMPAIGN mode, BUILD tasks may still use DIRECT mode if simple. Synthesizer runs at campaign end regardless of individual task modes.
 
@@ -319,20 +330,34 @@ This replaces spawning Router for each task (saves ~300-400k tokens per campaign
 
 For each task in sequence:
 
-**1. Builder** (workspace already exists from Step 4.5)
+**1. Builder** (workspace from Step 4.5, except DIRECT mode)
 
 Agent selection by task type (cost optimization):
 | Task Type | Agent | Model | Reason |
 |-----------|-------|-------|--------|
-| VERIFY | ftl:ftl-builder-verify | sonnet | No code generation, just runs tests |
+| VERIFY (with workspace) | ftl:ftl-builder-verify | sonnet | No code generation, just runs tests |
+| VERIFY (final, DIRECT) | inline | - | No agent spawn, runs verify command directly |
 | DIRECT | ftl:ftl-builder-verify | sonnet | Simple changes, minimal reasoning |
 | SPEC | ftl:ftl-builder | opus | Complex test design |
 | BUILD | ftl:ftl-builder | opus | Framework idiom enforcement |
 
-For VERIFY tasks or DIRECT mode:
+For VERIFY tasks with workspace:
 ```
 Task(ftl:ftl-builder-verify) with prompt:
   Workspace: .ftl/workspace/NNN_slug_active.xml
+```
+
+For VERIFY tasks in DIRECT mode (final campaign task, no workspace):
+```bash
+# Run verify command inline - no agent spawn needed
+uv run pytest test_app.py -v
+# Skip status update (no workspace file to mark complete)
+# Campaign completion handles overall status
+```
+
+For DIRECT mode (BUILD):
+```
+Task(ftl:ftl-builder-verify) with inline spec (no workspace path)
 ```
 
 For SPEC/BUILD tasks:
@@ -344,9 +369,12 @@ Task(ftl:ftl-builder) with prompt:
   Workspace: .ftl/workspace/NNN_slug_active.xml
 ```
 
-**2. Update state**
+**2. Update state** (skip for DIRECT mode - no workspace file)
 ```bash
-python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+# Only run if workspace file exists
+if [ -f ".ftl/workspace/${SEQ}_*_active.xml" ]; then
+  python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+fi
 ```
 (Hooks update cognition_state.md automatically)
 

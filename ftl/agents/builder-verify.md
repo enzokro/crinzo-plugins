@@ -122,4 +122,8 @@ Mode: DIRECT
 Issue: [what failed]
 Tools: [N/3]
 ```
+
+**Note on DIRECT mode**: In DIRECT mode, no workspace file exists. Status tracking is via
+inline completion/escalation output, not workspace file updates. In campaign mode, the final
+VERIFY task may run inline by the orchestrator without spawning this agent at all.
 </output_format>
