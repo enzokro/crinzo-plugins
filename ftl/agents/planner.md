@@ -10,8 +10,10 @@ Decompose campaigns into verifiable tasks where each task can be verified using 
 </role>
 
 <context>
-Input: README.md with task specifications, Prior Knowledge from memory (primary source)
+Input: README.md with task specifications
 Output: Campaign plan with ordered tasks
+
+Memory is fetched explicitly (not pre-injected) so Planner gets exactly what it needs.
 
 If Prior Knowledge is present:
 - Embed checkpoints for known failures
@@ -19,12 +21,18 @@ If Prior Knowledge is present:
 - Higher cost failures = more critical to prevent
 
 If no Prior Knowledge: fall back to README-as-spec.
-
-Context is pre-injected. Do not re-read session_context.md.
 </context>
 
 <instructions>
-0. Assess campaign complexity (ADAPTIVE DECOMPOSITION)
+0. Fetch Prior Knowledge (REQUIRED before complexity assessment)
+   ```bash
+   source ~/.config/ftl/paths.sh 2>/dev/null
+   python3 "$FTL_LIB/memory.py" -b . inject
+   ```
+   This returns ALL failures and discoveries (unfiltered) for complexity calculation.
+   State: `Prior Knowledge: {N} failures ({total_cost}k tokens), {M} discoveries`
+
+1. Assess campaign complexity (ADAPTIVE DECOMPOSITION)
    - Count README specification sections (N)
    - Sum Prior Knowledge failure costs: F = Σ cost_k (in tokens)
    - Evaluate framework: none(0), simple(1), moderate(2), high(3)
@@ -41,25 +49,25 @@ Context is pre-injected. Do not re-read session_context.md.
 
    If README mandates specific task count, note deviation: `README specifies {N} tasks, complexity suggests {M}`
 
-1. Check verification coherence for each task
+2. Check verification coherence for each task
    - Can Verify pass with ONLY this Delta?
    - YES for all → PROCEED
    - Uncertain → VERIFY (explore first)
    - No clear verification → CLARIFY with user
 
-2. Design task ordering
+3. Design task ordering
    - SPEC tasks have no dependencies (or depend only on prior SPEC)
    - BUILD task k depends on k-1
    - Each BUILD uses mutually-exclusive test filter
    - VERIFY depends on final BUILD
 
-3. Create pre-flight checks
+4. Create pre-flight checks
    - Executable bash commands
    - Scoped to this task's Delta only
    - Good: `python -m py_compile src/handler.py`
    - Bad: `pytest` (not scoped)
 
-4. Output campaign plan
+5. Output campaign plan
 </instructions>
 
 <constraints>

@@ -37,11 +37,25 @@ Mode assessment (for BUILD tasks only):
 State: `Type: {type}, Mode: {mode} because {reason}`
 
 2. Get patterns and failures from memory:
+
+Build tags from task context (comma-separated):
+- Task type: `spec`, `build`, or `verify`
+- Framework: from README (e.g., `fasthtml`, `fastapi`) or omit if none
+- Language: `python` if any Delta file ends in `.py`
+- Testing: `testing` if any Delta file contains "test"
+
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-python3 "$FTL_LIB/memory.py" -b . inject "$TAGS"
+# Example: BUILD task with FastHTML, Python delta, no test files
+python3 "$FTL_LIB/memory.py" -b . inject "build,fasthtml,python"
+
+# Example: SPEC task with test file
+python3 "$FTL_LIB/memory.py" -b . inject "spec,python,testing"
+
+# Example: Simple BUILD, no framework
+python3 "$FTL_LIB/memory.py" -b . inject "build,python"
 ```
-State in thinking: `Memory result: N patterns, M failures`
+State in thinking: `Tags: {list}, Memory result: N patterns, M failures`
 
 3. Embed code context (if Mode = FULL and Delta file exists)
    - Read Delta file: `head -60 "$DELTA_FILE" 2>/dev/null`

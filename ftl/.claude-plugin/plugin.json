@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.74",
+  "version": "1.0.75",
   "author": {
     "name": "crinzo"
   },
@@ -9,11 +9,9 @@
   "agents": [
     "./agents/router.md",
     "./agents/builder.md",
-    "./agents/reflector.md",
     "./agents/learner.md",
     "./agents/planner.md",
-    "./agents/synthesizer.md",
-    "./agents/observer.md"
+    "./agents/synthesizer.md"
   ],
   "commands": "./commands/",
   "hooks": {
@@ -111,15 +109,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh synthesizer"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-reflector",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh reflector"
           }
         ]
       }

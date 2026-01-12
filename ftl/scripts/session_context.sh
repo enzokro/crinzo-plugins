@@ -1,10 +1,13 @@
 #!/bin/bash
 ## NOTE:: FUTURE FIX
-# This script is called by campaign.sh as a shell pre-hook.
+# This script is called as a SessionStart hook.
 # It creates .ftl/cache/session_context.md with:
 # - Git state (branch, recent commits)
 # - Project verification tools
-# - Prior knowledge from .ftl/memory.json (v4.0 format)
+#
+# NOTE: Memory is NOT injected here. Agents fetch their own:
+# - Planner: all memory (for complexity formula)
+# - Router: filtered memory (for mode decision + workspace)
 #
 # This is a workaround because:
 # - SKILL.md bash code blocks are not executed by Claude
@@ -71,74 +74,10 @@ Cached at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 **For cognition state**: See \`.ftl/cache/cognition_state.md\` (updated after each agent).
 EOF
 
-# Inject prior knowledge from memory.json v4.0 (cross-run learning)
-MEMORY_FILE=".ftl/memory.json"
-if [ -f "$MEMORY_FILE" ]; then
-  # Check if memory has any discoveries or failures (v4.0 uses discoveries, v2.0 used patterns)
-  DISCOVERY_COUNT=$(jq '.discoveries | length' "$MEMORY_FILE" 2>/dev/null || jq '.patterns | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
-  FAILURE_COUNT=$(jq '.failures | length' "$MEMORY_FILE" 2>/dev/null || echo "0")
+# Memory is NOT injected here - agents fetch what they need:
+# - Planner: fetches ALL memory (for complexity formula)
+# - Router: fetches FILTERED memory (for mode decision + workspace)
+# This eliminates redundant memory reads.
 
-  if [ "$DISCOVERY_COUNT" -gt 0 ] || [ "$FAILURE_COUNT" -gt 0 ]; then
-    echo "" >> .ftl/cache/session_context.md
-    echo "## Prior Knowledge (from previous campaigns)" >> .ftl/cache/session_context.md
-    echo "" >> .ftl/cache/session_context.md
-
-    # Load FTL lib path and use memory.py to format injection
-    source ~/.config/ftl/paths.sh 2>/dev/null
-
-    if [ -n "$FTL_LIB" ] && [ -f "$FTL_LIB/memory.py" ]; then
-      # Use memory.py for proper formatting AND tracking
-      # Generate run_id from timestamp and random suffix
-      RUN_ID="run-$(date +%Y%m%d-%H%M%S)-$$"
-
-      python3 -c "
-import sys
-sys.path.insert(0, '$FTL_LIB')
-from memory import load_memory, inject_and_log
-from pathlib import Path
-
-memory = load_memory(Path('$MEMORY_FILE'))
-log_path = Path('.ftl/results/injection.json')
-log_path.parent.mkdir(parents=True, exist_ok=True)
-
-# Use inject_and_log for proper tracking
-markdown, injection_log = inject_and_log(
-    memory,
-    run_id='$RUN_ID',
-    log_path=log_path
-)
-print(markdown)
-" >> .ftl/cache/session_context.md
-    else
-      # Fallback: inline formatting if memory.py not available (v4.0 schema)
-      echo "### Known Failures" >> .ftl/cache/session_context.md
-      echo "" >> .ftl/cache/session_context.md
-      jq -r '.failures[] | "- **\(.name)** (cost: \(.cost // 0)k)\n  Trigger: \(.trigger)\n  Fix: \(.fix)\n"' "$MEMORY_FILE" 2>/dev/null >> .ftl/cache/session_context.md
-
-      # Pre-flight checks from failures with prevent field
-      PREFLIGHT=$(jq -r '.failures[] | select(.prevent) | "- [ ] `\(.prevent)`"' "$MEMORY_FILE" 2>/dev/null)
-      if [ -n "$PREFLIGHT" ]; then
-        echo "### Pre-flight Checks" >> .ftl/cache/session_context.md
-        echo "" >> .ftl/cache/session_context.md
-        echo "Before verify, run:" >> .ftl/cache/session_context.md
-        echo "$PREFLIGHT" >> .ftl/cache/session_context.md
-        echo "" >> .ftl/cache/session_context.md
-      fi
-
-      echo "### Discoveries" >> .ftl/cache/session_context.md
-      echo "" >> .ftl/cache/session_context.md
-      jq -r '.discoveries[] | "- **\(.name)** (saved: \(.tokens_saved // 0)k)\n  When: \(.trigger)\n  Insight: \(.insight)\n"' "$MEMORY_FILE" 2>/dev/null >> .ftl/cache/session_context.md
-    fi
-
-    echo "" >> .ftl/cache/session_context.md
-    echo "**Memory seeded**: $DISCOVERY_COUNT discoveries, $FAILURE_COUNT failures available." >> .ftl/cache/session_context.md
-    echo "Prior knowledge injected from $MEMORY_FILE ($DISCOVERY_COUNT discoveries, $FAILURE_COUNT failures)"
-  else
-    echo "Memory file exists but empty (de novo run)"
-  fi
-else
-  echo "No memory file found (de novo run)"
-fi
-
-echo "Session context cached to .ftl/cache/session_context.md"
+echo "Session context cached to .ftl/cache/session_context.md (memory fetched by agents)"
 exit 0

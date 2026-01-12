@@ -58,18 +58,31 @@ DO NOT:
 
 ## Context Injection (REQUIRED)
 
+### Memory Injection Architecture
+
+Agents fetch their own memory (not pre-injected):
+- **Planner**: Fetches ALL memory (unfiltered) for complexity formula
+- **Router**: Fetches FILTERED memory (by task tags) for mode decision + workspace
+
+This eliminates redundant memory reads.
+
 ### Before TASK mode (Router):
 
-1. Read `.ftl/cache/session_context.md` (static, created by pre-hook)
+1. Read `.ftl/cache/session_context.md` (git state, tools - NO memory)
 2. Read `.ftl/cache/cognition_state.md` (dynamic, updated after each agent)
-3. Prepend both to router prompt
+3. Router fetches filtered memory: `memory.py inject "tags"`
 
-### For CAMPAIGN mode (workspace_from_plan.py):
+### Before CAMPAIGN mode (Planner):
 
-Context is handled automatically:
-- Memory injection via `--memory` parameter
+1. Read `.ftl/cache/session_context.md` (git state, tools - NO memory)
+2. Planner fetches all memory: `memory.py inject` (for complexity formula)
+
+### For workspace generation (workspace_from_plan.py):
+
+Memory injection handled automatically:
+- Filters by task tags (framework, type, delta files)
 - Code context read from Delta files
-- No manual context injection needed
+- No manual injection needed
 
 ### After EVERY agent completes:
 
@@ -79,12 +92,12 @@ Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh
 
 | File | Type | Purpose |
 |------|------|---------|
-| `session_context.md` | Static | Git state, project tools, memory injection |
+| `session_context.md` | Static | Git state, project tools (NO memory) |
 | `cognition_state.md` | Dynamic | Phase awareness, inherited knowledge |
 | `exploration_context.md` | Dynamic | Router findings for builder |
 | `delta_contents.md` | Dynamic | File contents from prior tasks |
 
-**Skipping injection → exploration creep → ~100k wasted tokens**
+**Memory is fetched by agents, not cached** - each agent gets exactly what it needs.
 
 ---
 
@@ -209,10 +222,11 @@ Forbidden:
    Returns: direct | full | clarify
 
 2a. If direct:
-    Task(ftl:builder) with inline spec — no workspace file
+    Task(ftl:builder, model: sonnet) with inline spec — no workspace file
     - 3 tool budget
     - No retry on failure
     - Skip learner (simple change, no pattern extraction)
+    - **Use sonnet** (simple changes don't need Opus reasoning)
 
 2b. If full:
     Task(ftl:builder) — workspace created by router
@@ -266,10 +280,12 @@ If campaign exists, skip to Step 5.
 
 ```
 Task(ftl:planner) with prompt:
-  [session_context.md contents - includes Prior Knowledge]
+  [session_context.md contents - git state, tools]
 
   Objective: [objective from user]
 ```
+
+Planner fetches its own memory (Step 0 in planner.md).
 
 Returns: PROCEED | CONFIRM | CLARIFY
 
@@ -304,8 +320,17 @@ This replaces spawning Router for each task (saves ~300-400k tokens per campaign
 For each task in sequence:
 
 **1. Builder** (workspace already exists from Step 4.5)
+
+Model selection by task type (cost optimization):
+| Task Type | Model | Reason |
+|-----------|-------|--------|
+| VERIFY | sonnet | No code generation, just runs tests |
+| DIRECT | sonnet | Simple changes, minimal reasoning |
+| SPEC | opus | Complex test design |
+| BUILD | opus | Framework idiom enforcement |
+
 ```
-Task(ftl:builder) with prompt:
+Task(ftl:builder, model: sonnet if VERIFY else opus) with prompt:
   [exploration_context.md if exists]
   [delta_contents.md if exists]
   ---

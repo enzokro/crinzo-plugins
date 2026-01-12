@@ -27,36 +27,66 @@ from typing import Optional
 from memory import load_memory, get_context_for_task
 from workspace_xml import spec_from_dict, create_workspace
 
+# Session-level file cache for stable files (test files don't change during campaign)
+_file_cache: dict[str, str] = {}
+
+
+def get_cached_file_content(path: Path, max_lines: int = 60) -> Optional[str]:
+    """Return cached content or read and cache.
+
+    Caches files at session level to avoid redundant reads when
+    multiple tasks reference the same file.
+    """
+    cache_key = str(path.resolve())
+    if cache_key in _file_cache:
+        return _file_cache[cache_key]
+
+    if not path.exists():
+        return None
+
+    try:
+        lines = path.read_text().split('\n')[:max_lines]
+        content = '\n'.join(lines)
+        _file_cache[cache_key] = content
+        return content
+    except Exception:
+        return None
+
 
 def read_code_context(delta_files: list[str], project_root: Path) -> Optional[dict]:
-    """Read code context from first Delta file (first 60 lines)."""
+    """Read code context from first Delta file (first 60 lines).
+
+    Uses session-level caching to avoid redundant reads when
+    multiple tasks reference the same file.
+    """
     for delta in delta_files:
         delta_path = project_root / delta
-        if delta_path.exists():
-            try:
-                lines = delta_path.read_text().split('\n')[:60]
-                content = '\n'.join(lines)
 
-                # Extract basic info
-                exports = []
-                imports = []
-                for line in lines:
-                    if line.startswith('def ') or line.startswith('class '):
-                        name = line.split('(')[0].replace('def ', '').replace('class ', '').strip()
-                        exports.append(name)
-                    elif line.startswith('from ') or line.startswith('import '):
-                        imports.append(line.strip())
+        # Use cached content if available
+        content = get_cached_file_content(delta_path, max_lines=60)
+        if content is None:
+            continue
 
-                return {
-                    'path': delta,
-                    'lines': f'1-{len(lines)}',
-                    'language': 'python' if delta.endswith('.py') else 'text',
-                    'content': content,
-                    'exports': ', '.join(exports[:5]),
-                    'imports': ', '.join(imports[:5])
-                }
-            except Exception:
-                continue
+        lines = content.split('\n')
+
+        # Extract basic info
+        exports = []
+        imports = []
+        for line in lines:
+            if line.startswith('def ') or line.startswith('class '):
+                name = line.split('(')[0].replace('def ', '').replace('class ', '').strip()
+                exports.append(name)
+            elif line.startswith('from ') or line.startswith('import '):
+                imports.append(line.strip())
+
+        return {
+            'path': delta,
+            'lines': f'1-{len(lines)}',
+            'language': 'python' if delta.endswith('.py') else 'text',
+            'content': content,
+            'exports': ', '.join(exports[:5]),
+            'imports': ', '.join(imports[:5])
+        }
     return None
 
 
@@ -77,9 +107,35 @@ def get_lineage(task: dict, plan: dict) -> Optional[dict]:
     return None
 
 
+def filter_failures_by_task_type(failures: list, task_type: str) -> list:
+    """Filter failures based on task type (lazy memory injection).
+
+    - VERIFY: No failures needed (just runs tests)
+    - SPEC: Only test/fixture-related failures
+    - BUILD: All failures (framework issues possible)
+    """
+    if task_type == 'VERIFY':
+        return []  # VERIFY tasks don't need failure patterns
+
+    if task_type == 'SPEC':
+        # Only test and fixture-related failures
+        return [f for f in failures
+                if 'test' in f.get('name', '') or 'fixture' in f.get('name', '')]
+
+    # BUILD and other types get all failures
+    return failures
+
+
 def get_memory_for_task(memory_path: Path, task: dict, plan: dict) -> tuple[list, list]:
-    """Get patterns and failures relevant to this task."""
+    """Get patterns and failures relevant to this task.
+
+    Uses lazy memory injection to reduce context size:
+    - VERIFY tasks: 0 failures (just run tests)
+    - SPEC tasks: ~6 failures (test/fixture only)
+    - BUILD tasks: all failures (framework issues possible)
+    """
     memory = load_memory(memory_path)
+    task_type = task.get('type', '').upper()
 
     # Build tags from: framework, type, delta file extensions
     tags = []
@@ -92,9 +148,8 @@ def get_memory_for_task(memory_path: Path, task: dict, plan: dict) -> tuple[list
         tags.append('python')
 
     # Add task type
-    task_type = task.get('type', '').lower()
     if task_type:
-        tags.append(task_type)
+        tags.append(task_type.lower())
 
     # Add testing tag for test files
     if any('test' in d for d in task.get('delta', [])):
@@ -111,11 +166,18 @@ def get_memory_for_task(memory_path: Path, task: dict, plan: dict) -> tuple[list
         for d in context.get('discoveries', [])[:3]  # Top 3 discoveries
     ]
 
-    failures = [
+    # Get all failures from context, then apply task-type filter
+    all_failures = [
         {'name': f['name'], 'cost': str(f.get('cost', 0)),
          'trigger': f.get('trigger', ''), 'fix': f.get('fix', '')}
-        for f in context.get('failures', [])[:5]  # Top 5 failures
+        for f in context.get('failures', [])
     ]
+
+    # Apply lazy memory injection filter
+    failures = filter_failures_by_task_type(all_failures, task_type)
+
+    # Limit to top 5 after filtering
+    failures = failures[:5]
 
     # Prioritize failures named in task spec
     if task_failures:
