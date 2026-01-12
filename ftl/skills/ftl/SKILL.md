@@ -222,11 +222,11 @@ Forbidden:
    Returns: direct | full | clarify
 
 2a. If direct:
-    Task(ftl:builder, model: sonnet) with inline spec — no workspace file
+    Task(ftl:ftl-builder-verify) with inline spec — no workspace file
     - 3 tool budget
     - No retry on failure
     - Skip learner (simple change, no pattern extraction)
-    - **Use sonnet** (simple changes don't need Opus reasoning)
+    - Uses Sonnet model (simple changes don't need Opus reasoning)
 
 2b. If full:
     Task(ftl:builder) — workspace created by router
@@ -321,16 +321,23 @@ For each task in sequence:
 
 **1. Builder** (workspace already exists from Step 4.5)
 
-Model selection by task type (cost optimization):
-| Task Type | Model | Reason |
-|-----------|-------|--------|
-| VERIFY | sonnet | No code generation, just runs tests |
-| DIRECT | sonnet | Simple changes, minimal reasoning |
-| SPEC | opus | Complex test design |
-| BUILD | opus | Framework idiom enforcement |
+Agent selection by task type (cost optimization):
+| Task Type | Agent | Model | Reason |
+|-----------|-------|-------|--------|
+| VERIFY | ftl:ftl-builder-verify | sonnet | No code generation, just runs tests |
+| DIRECT | ftl:ftl-builder-verify | sonnet | Simple changes, minimal reasoning |
+| SPEC | ftl:ftl-builder | opus | Complex test design |
+| BUILD | ftl:ftl-builder | opus | Framework idiom enforcement |
 
+For VERIFY tasks or DIRECT mode:
 ```
-Task(ftl:builder, model: sonnet if VERIFY else opus) with prompt:
+Task(ftl:ftl-builder-verify) with prompt:
+  Workspace: .ftl/workspace/NNN_slug_active.xml
+```
+
+For SPEC/BUILD tasks:
+```
+Task(ftl:ftl-builder) with prompt:
   [exploration_context.md if exists]
   [delta_contents.md if exists]
   ---
