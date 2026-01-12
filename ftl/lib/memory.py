@@ -28,6 +28,13 @@ except ImportError:
 MEMORY_VERSION = "4.0"
 # Strict pattern: requires .xml extension and specific status values
 FILENAME_PATTERN = re.compile(r'^(\d{3})_(.+?)_(active|complete|blocked)(?:_from-(\d{3}))?\.xml$')
+
+# Known frameworks for synthesizer gate
+KNOWN_FRAMEWORKS = {
+    'fasthtml', 'fastapi', 'flask', 'django', 'fastlite',
+    'starlette', 'litestar', 'quart', 'sanic', 'tornado',
+    'sqlalchemy', 'pydantic', 'pytest', 'numpy', 'pandas'
+}
 # Lenient pattern for internal use: matches stem without extension
 FILENAME_PATTERN_STEM = re.compile(r'^(\d{3})_(.+?)_([^_]+?)(?:_from-(\d{3}))?$')
 
@@ -397,6 +404,63 @@ def get_memory_stats(memory: dict) -> dict:
     }
 
 
+def check_new_frameworks(memory: dict, campaign_frameworks: list[str]) -> list[str]:
+    """Return frameworks not yet seen in memory.
+
+    Used by synthesizer gate to determine if new framework learning is needed.
+
+    Args:
+        memory: Loaded memory dict
+        campaign_frameworks: List of frameworks used in current campaign
+
+    Returns:
+        List of frameworks not found in memory's failure/discovery tags
+    """
+    # Collect all tags from failures and discoveries
+    known_tags = set()
+    for f in memory.get("failures", []):
+        known_tags.update(t.lower() for t in f.get("tags", []))
+    for d in memory.get("discoveries", []):
+        known_tags.update(t.lower() for t in d.get("tags", []))
+
+    # Filter to known framework tags
+    known_frameworks = known_tags & KNOWN_FRAMEWORKS
+
+    # Return frameworks in campaign that aren't in memory
+    return [f for f in campaign_frameworks if f.lower() not in known_frameworks]
+
+
+def add_source_to_patterns(memory: dict, campaign_id: str) -> dict:
+    """Add campaign as source reference to existing patterns.
+
+    Minimal tracking when synthesizer is skipped - just records that
+    patterns were used in this campaign without full synthesis.
+
+    Args:
+        memory: Loaded memory dict
+        campaign_id: Campaign identifier to add
+
+    Returns:
+        Updated memory dict
+    """
+    # Add to failures that were likely consulted
+    for f in memory.get("failures", []):
+        sources = f.get("source", [])
+        if campaign_id not in sources:
+            # Only add to patterns that have been used before
+            if sources:
+                f["source"] = sources + [campaign_id]
+
+    # Add to discoveries that were likely applied
+    for d in memory.get("discoveries", []):
+        sources = d.get("source", [])
+        if campaign_id not in sources:
+            if sources:
+                d["source"] = sources + [campaign_id]
+
+    return memory
+
+
 def main():
     import argparse
     import sys
@@ -427,6 +491,13 @@ def main():
     signal_p = sub.add_parser('signal', aliases=['s'])
     signal_p.add_argument('sign', choices=['+', '-'])
     signal_p.add_argument('id')
+
+    # Synthesizer gate commands
+    check_fw_p = sub.add_parser('check-new-frameworks', help='Check if frameworks are new to memory')
+    check_fw_p.add_argument('frameworks', nargs='+', help='Frameworks to check (e.g., fasthtml fastapi)')
+
+    add_src_p = sub.add_parser('add-source', help='Add campaign as source to existing patterns')
+    add_src_p.add_argument('campaign_id', help='Campaign identifier')
 
     args = parser.parse_args()
     if not args.cmd:
@@ -512,6 +583,20 @@ def main():
             print(f"Signal: {args.id} -> {entity.get('signal', 0)}")
         else:
             print(f"Not found: {args.id}")
+
+    elif args.cmd == 'check-new-frameworks':
+        memory = load_memory(memory_path)
+        new_fw = check_new_frameworks(memory, args.frameworks)
+        if new_fw:
+            # Output new frameworks (non-empty = synthesizer should run)
+            print(" ".join(new_fw))
+        # Empty output = all frameworks known, skip synthesizer
+
+    elif args.cmd == 'add-source':
+        memory = load_memory(memory_path)
+        memory = add_source_to_patterns(memory, args.campaign_id)
+        save_memory(memory, memory_path)
+        print(f"Added source '{args.campaign_id}' to existing patterns")
 
 
 if __name__ == "__main__":

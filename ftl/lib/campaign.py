@@ -506,6 +506,36 @@ def get_stale_workspace_files(hours: int = 24, base: Path = Path(".")) -> list:
     return stale
 
 
+def get_campaign_framework(base: Path = Path(".")) -> Optional[str]:
+    """Get framework used in campaign from workspace files.
+
+    Used by synthesizer gate to check if new framework learning is needed.
+
+    Returns:
+        Framework name (e.g., 'FastHTML') or None if not found
+    """
+    import xml.etree.ElementTree as ET
+
+    workspace = base / FORGE_DIR / WORKSPACE_DIR
+    if not workspace.exists():
+        return None
+
+    # Check workspace files for framework_idioms element
+    for xml_file in sorted(workspace.glob("*.xml")):
+        try:
+            tree = ET.parse(xml_file)
+            root = tree.getroot()
+            idioms_elem = root.find('.//framework_idioms')
+            if idioms_elem is not None:
+                framework = idioms_elem.get('framework')
+                if framework:
+                    return framework
+        except ET.ParseError:
+            continue
+
+    return None
+
+
 # --- Status ---
 
 def get_status(base: Path = Path(".")) -> dict:
@@ -583,6 +613,9 @@ def main():
     sub.add_parser("synthesis-status", help="Check if synthesis needed")
     stale_p = sub.add_parser("stale-workspace", help="Get stale active files")
     stale_p.add_argument("hours", nargs="?", type=int, default=24)
+
+    # Synthesizer gate commands
+    sub.add_parser("get-framework", help="Get framework from workspace files")
 
     args = parser.parse_args()
 
@@ -756,6 +789,12 @@ def main():
                 print(f"  {s['file']} ({s['age_hours']}h)")
         else:
             print("No stale active files")
+
+    elif args.cmd == "get-framework":
+        framework = get_campaign_framework(args.base)
+        if framework:
+            print(framework)
+        # Empty output = no framework found
 
 
 if __name__ == "__main__":

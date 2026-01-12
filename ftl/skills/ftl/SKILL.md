@@ -222,7 +222,7 @@ Forbidden:
    Returns: direct | full | clarify
 
 2a. If direct:
-    Task(ftl:ftl-builder-verify) with inline spec — no workspace file
+    Task(ftl:ftl-builder) with inline spec
     - 3 tool budget
     - No retry on failure
     - Skip learner (simple change, no pattern extraction)
@@ -350,12 +350,47 @@ python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 ```
 (Hooks update cognition_state.md automatically)
 
-### Step 6: Complete Campaign
+### Step 6: Complete Campaign (Conditional Synthesizer)
 
 ```bash
 python3 "$FTL_LIB/campaign.py" complete
-Task(ftl:synthesizer)
 ```
+
+**Synthesizer Gate** (skip when no learning opportunity):
+
+```bash
+# Gate 1: Check for blocked workspaces (must extract failures)
+BLOCKED=$(find .ftl/workspace -name "*_blocked.xml" 2>/dev/null | wc -l)
+
+# Gate 2: Check for new frameworks (not yet in memory)
+CAMPAIGN_FRAMEWORK=$(python3 "$FTL_LIB/campaign.py" get-framework 2>/dev/null || echo "")
+NEW_FRAMEWORK=""
+if [ -n "$CAMPAIGN_FRAMEWORK" ]; then
+    NEW_FRAMEWORK=$(python3 "$FTL_LIB/memory.py" check-new-frameworks "$CAMPAIGN_FRAMEWORK" 2>/dev/null || echo "")
+fi
+
+# Decision: Run synthesizer only if learning opportunity exists
+if [ "$BLOCKED" -gt 0 ] || [ -n "$NEW_FRAMEWORK" ]; then
+    echo "Learning opportunity detected - running synthesizer"
+    echo "  Blocked workspaces: $BLOCKED"
+    echo "  New framework: ${NEW_FRAMEWORK:-none}"
+    Task(ftl:synthesizer)
+else
+    echo "No new learnings expected - skipping synthesizer"
+    echo "  Reason: All workspaces complete, no new frameworks"
+    # Minimal tracking: add campaign source reference to existing patterns
+    python3 "$FTL_LIB/memory.py" add-source "$CAMPAIGN_ID" 2>/dev/null || true
+fi
+```
+
+**Gate Logic**:
+- **RUN synthesizer if**: blocked workspaces > 0 OR new framework detected
+- **SKIP synthesizer if**: all workspaces complete AND framework already in memory
+
+**Historical ROI**:
+- Blocked tasks: 2-4x ROI (always run)
+- New framework: 2-3x ROI (run)
+- Clean + patterns matched: 0x ROI (skip - saves 26.6% tokens)
 
 **Synthesizer reads ONLY workspace files.** Does NOT read source code or run tests.
 
@@ -389,6 +424,7 @@ Status: `active` | `complete` | `blocked`
 | `campaign.py add-tasks-from-plan` | Add tasks from planner output |
 | `campaign.py update-task $SEQ complete` | Mark task complete |
 | `campaign.py complete` | Complete campaign |
+| `campaign.py get-framework` | Get framework from workspace files |
 | `workspace_from_plan.py plan.json` | Generate workspaces from Planner JSON |
 | `workspace_xml.py complete <path> --delivered "..."` | Atomic: complete workspace |
 | `workspace_xml.py block <path> --delivered "..."` | Atomic: block workspace |
@@ -396,6 +432,8 @@ Status: `active` | `complete` | `blocked`
 | `workspace.py lineage NNN` | Task lineage |
 | `memory.py query "$TOPIC"` | Query memory |
 | `memory.py inject .ftl/memory.json` | Format memory for injection |
+| `memory.py check-new-frameworks <fw>` | Check if framework is new to memory |
+| `memory.py add-source <campaign>` | Add campaign to pattern sources |
 
 All commands require: `source ~/.config/ftl/paths.sh`
 
