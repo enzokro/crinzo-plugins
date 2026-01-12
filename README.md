@@ -43,46 +43,47 @@ Or from inside of Claude Code:
 
 ```
 TASK MODE:
-/ftl <task> → router → builder → learner → graph.json
+/ftl <task> → router → builder → learner → memory.json
 
 CAMPAIGN MODE:
-/ftl campaign <obj> → planner → [router → builder]* → synthesizer → memory.json
-                                      ↑                                  ↓
-                                      └────── queries precedent ─────────┘
+/ftl campaign <obj> → planner → [builder]* → synthesizer → memory.json
+                          ↑                                      ↓
+                          └────────── queries precedent ─────────┘
 ```
 
-**Tasks** produce workspace files capturing decisions, reasoning, and patterns. **Memory** indexes these into a queryable knowledge graph. **Campaigns** coordinate multi-task objectives, querying memory for precedent before planning.
+**Tasks** produce workspace files capturing decisions, reasoning, and patterns. **Memory** indexes these into queryable knowledge. **Campaigns** coordinate multi-task objectives with adaptive learning — the synthesizer runs only when there's something new to learn.
 
 Each completed task makes the system smarter. Patterns emerge over time to influence future work.
 
 ## Agents
 
-The system has nine agents. Five handle the core work of routing, building, and learning. Four evaluate what happened so the system can get smarter.
+Six agents with distinct roles and model assignments:
 
-### Core Agents
+| Agent | Model | Role |
+|-------|-------|------|
+| **Router** | Sonnet | Classify tasks, create workspaces, inject memory (TASK mode) |
+| **Builder** | Opus | Transform workspace spec into code (SPEC/BUILD tasks) |
+| **Builder-Verify** | Sonnet | Execute VERIFY tasks and simple DIRECT changes |
+| **Planner** | Opus | Decompose objectives into verifiable tasks (CAMPAIGN mode) |
+| **Learner** | Opus | Extract patterns from single workspace (TASK mode) |
+| **Synthesizer** | Opus | Extract failures/discoveries from campaign workspaces |
 
-| Agent           | Role                                                                 |
-| --------------- | -------------------------------------------------------------------- |
-| **Router**      | Classify tasks, create workspaces, inject memory patterns            |
-| **Builder**     | Transform workspace spec into code (5-tool max, TDD)                 |
-| **Planner**     | Decompose objectives into verifiable tasks (campaigns only)          |
-| **Learner**     | Extract patterns from single workspace (TASK mode)                   |
-| **Synthesizer** | Extract failures/discoveries from all workspaces (CAMPAIGN mode)     |
+**Constraints:**
+- Learner and Synthesizer are mutually exclusive — Learner handles single tasks, Synthesizer handles campaigns
+- Tool budgets enforce focus: Builder gets 5 tools (FULL) or 3 (DIRECT), Builder-Verify gets 3
+- Synthesizer is conditionally gated — runs only when blocked workspaces exist or new frameworks are encountered
 
-### Evaluation Agents
+## Execution Modes
 
-| Agent              | Role                                                              | Registered |
-| ------------------ | ----------------------------------------------------------------- | ---------- |
-| **Observer**       | Compute information theory metrics (epiplexity, entropy, IGR)     | Yes        |
-| **Meta-Reflector** | Analyze completed runs, maintain reflection journal               | Yes        |
-| **Save Evaluator** | Evaluate quality of extracted patterns and failures               | Harness    |
-| **Load Evaluator** | Evaluate memory injection efficacy and utilization                | Harness    |
+**FULL mode** (default for SPEC/BUILD):
+- 5-tool budget with retry-once on known failure match
+- Workspace file with code context and framework idioms
+- Quality checkpoint before completion
 
-*Registered agents can be spawned via Task tool. Harness agents are prompt definitions used by the external evaluation framework.*
-
-**Constraint:** Learner and Synthesizer are mutually exclusive — using Learner in campaign mode is a category error.
-
-**Tool Budgets:** Builder has a hard 5-tool limit. Router gets 2 reads, 1 bash, 1 write. Synthesizer gets 10. These constraints exist because if the agent hasn't solved it within budget, it's exploring, not debugging.
+**DIRECT mode** (simple changes, final VERIFY):
+- 3-tool budget, no retry
+- No workspace file — inline execution
+- Sonnet model via Builder-Verify agent
 
 ## Commands
 
@@ -90,7 +91,7 @@ The system has nine agents. Five handle the core work of routing, building, and 
 
 | Command                         | Purpose                                 |
 | ------------------------------- | --------------------------------------- |
-| `/ftl:ftl <task>`               | Execute task (routes to direct or full) |
+| `/ftl:ftl <task>`               | Execute task (routes to DIRECT or FULL) |
 | `/ftl:ftl campaign <objective>` | Plan and execute multi-task campaign    |
 | `/ftl:ftl query <topic>`        | Surface relevant precedent from memory  |
 | `/ftl:ftl status`               | Combined campaign + workspace status    |
@@ -99,7 +100,7 @@ The system has nine agents. Five handle the core work of routing, building, and 
 
 | Command          | Purpose                       |
 | ---------------- | ----------------------------- |
-| `/ftl:workspace` | Query state, lineage, tags    |
+| `/ftl:workspace` | Query state, lineage, graph   |
 | `/ftl:close`     | Complete active task manually |
 
 ### Memory
@@ -115,65 +116,59 @@ The system has nine agents. Five handle the core work of routing, building, and 
 
 ## Workspace Format
 
-Tasks produce workspace files in `.ftl/workspace/`. Each workspace is a contract between the planner and builder — what to do, how to verify, and what to watch out for.
+Tasks produce XML workspace files in `.ftl/workspace/`. Each workspace is a contract between planner and builder — what to do, how to verify, and what to watch out for.
 
-```markdown
-# NNN: task-slug
-
-## Implementation
-Delta: files to modify
-Verify: `command that proves success`
-
-## Patterns
-- **pattern-name** (saved: Xk tokens)
-  When: condition that triggers this pattern
-  Insight: what to do differently
-
-## Known Failures
-- **failure-name** (cost: Xk tokens)
-  Trigger: observable error or regex
-  Fix: specific action to resolve
-
-## Pre-flight
-- [ ] `python -m py_compile file.py`
-- [ ] `pytest --collect-only -q`
-
-## Implementation Requirements
-[Detailed specs, code snippets, constraints]
-
-## Escalation
-After 2 failures OR 5 tools: BLOCK
-"Discovery needed: [describe unknown issue]"
-This is SUCCESS (informed handoff), not failure.
-
-## Delivered
-[What was actually implemented]
+```xml
+<workspace id="003-routes-crud" type="BUILD" mode="FULL" status="active">
+  <implementation>
+    <delta>src/routes.py</delta>
+    <verify>pytest routes/test_*.py -v</verify>
+    <framework>FastHTML</framework>
+  </implementation>
+  <code_context>
+    <file path="src/routes.py" lines="1-60">
+      <content language="python">...</content>
+      <exports>create_route, handle_request</exports>
+    </file>
+    <lineage>
+      <parent>002-database</parent>
+      <prior_delivery>Created database schema</prior_delivery>
+    </lineage>
+  </code_context>
+  <framework_idioms framework="FastHTML">
+    <required><idiom>use @rt decorator for routes</idiom></required>
+    <forbidden><idiom>raw HTML string construction</idiom></forbidden>
+  </framework_idioms>
+  <prior_knowledge>
+    <pattern name="stubs-in-first-build" saved="2293760000">...</pattern>
+    <failure name="import-order" cost="2500">...</failure>
+  </prior_knowledge>
+  <preflight>
+    <check>python -m py_compile src/routes.py</check>
+  </preflight>
+  <delivered status="pending">...</delivered>
+</workspace>
 ```
 
-**Naming:** `NNN_task-slug_status.md`
+**Naming:** `NNN_task-slug_status.xml`
 - `NNN` — 3-digit sequence (000, 001, 002)
 - `status` — `active`, `complete`, or `blocked`
 
-The workspace is the builder's only source of truth. Patterns and Known Failures are injected from memory. Pre-flight checks run before Verify. If something goes wrong that isn't in Known Failures, the builder blocks — discovery is needed, not more debugging.
+The workspace is the builder's single source of truth. Framework idioms are non-negotiable. If something goes wrong that isn't in prior knowledge, the builder blocks — discovery is needed, not more debugging.
 
 ## Memory
 
-Two complementary systems. One captures what went wrong (and how to fix it). The other captures what was decided (and why).
+A unified system capturing what went wrong and what was decided:
 
-| File                 | Purpose                                           | Updated By   |
-| -------------------- | ------------------------------------------------- | ------------ |
-| `.ftl/memory.json`   | Failures with fixes, discoveries with evidence    | Synthesizer  |
-| `.ftl/graph.json`    | Decisions, patterns, lineage, experiences         | Learner      |
+| File                 | Purpose                                           |
+| -------------------- | ------------------------------------------------- |
+| `.ftl/memory.json`   | Failures, discoveries, decisions, edges           |
 
-### What Each System Stores
+**Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a match regex (to catch in logs), and a prevent command (pre-flight check). This is where "don't repeat mistakes" lives.
 
-**Failures** (memory.json) — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a match regex (to catch in logs), and a prevent command (pre-flight check). This is where "don't repeat mistakes" lives.
+**Discoveries** — Non-obvious insights that save significant tokens. High bar: a senior dev would be surprised by this. If it's obvious, it doesn't belong here.
 
-**Discoveries** (memory.json) — Non-obvious insights that save significant tokens. High bar: a senior dev would be surprised by this. If it's obvious, it doesn't belong here.
-
-**Decisions** (graph.json) — Choices made with rationale. Each decision tracks options considered, the choice made, files touched, and thinking traces. This is precedent for future tasks.
-
-**Experiences** (graph.json) — Failure modes with symptoms, diagnosis, prevention, and recovery actions. More structured than raw failures, with escalation triggers built in.
+**Decisions** — Choices made with rationale. Each decision tracks options considered, the choice made, files touched, and thinking traces. This is precedent for future tasks.
 
 ### Signal Evolution
 
@@ -182,10 +177,10 @@ Patterns with positive signals (`/ftl:signal +`) surface higher in future querie
 ## Examples
 
 ```bash
-# Simple task — routes to direct, no workspace
+# Simple task — routes to DIRECT, no workspace
 /ftl:ftl fix typo in README
 
-# Complex task — routes to full, creates workspace
+# Complex task — routes to FULL, creates workspace
 /ftl:ftl add user authentication
 
 # Multi-task campaign
