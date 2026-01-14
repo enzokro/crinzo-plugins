@@ -60,7 +60,18 @@ def test_seq_normalization(lib_path, tmpdir):
 
 def test_workspace_gate(lib_path, tmpdir):
     """Gate 2: update-task complete requires workspace file."""
-    # Try to complete without workspace
+    # First create a campaign and add a task
+    code, out, err = run_cmd(
+        f'python3 "{lib_path}/campaign.py" -b {tmpdir} campaign "test objective"'
+    )
+    assert code == 0, f"Campaign creation failed: {err}"
+
+    code, out, err = run_cmd(
+        f'python3 "{lib_path}/campaign.py" -b {tmpdir} add-task 001 test-slug'
+    )
+    assert code == 0, f"add-task failed: {err}"
+
+    # Try to complete without workspace file
     code, out, err = run_cmd(
         f'python3 "{lib_path}/campaign.py" -b {tmpdir} update-task 001 complete'
     )
@@ -68,7 +79,7 @@ def test_workspace_gate(lib_path, tmpdir):
     assert "no workspace file" in err.lower(), f"Wrong error: {err}"
 
     # Create workspace file
-    Path(f"{tmpdir}/.ftl/workspace/001_test-slug_complete.xml").write_text("# Test")
+    Path(f"{tmpdir}/.ftl/workspace/001_test-slug_complete.xml").write_text("<workspace/>")
 
     # Now should succeed
     code, out, err = run_cmd(

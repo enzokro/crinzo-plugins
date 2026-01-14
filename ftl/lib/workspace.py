@@ -5,6 +5,12 @@ import sys
 import argparse
 from pathlib import Path
 from collections import defaultdict
+
+# Ensure sibling modules are importable regardless of working directory
+_lib_dir = Path(__file__).resolve().parent
+if str(_lib_dir) not in sys.path:
+    sys.path.insert(0, str(_lib_dir))
+
 from memory import parse_workspace_filename
 
 

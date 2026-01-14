@@ -23,7 +23,11 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Import sibling modules
+# Ensure sibling modules are importable regardless of working directory
+_lib_dir = Path(__file__).resolve().parent
+if str(_lib_dir) not in sys.path:
+    sys.path.insert(0, str(_lib_dir))
+
 from memory import load_memory, get_context_for_task
 from workspace_xml import spec_from_dict, create_workspace
 

@@ -12,12 +12,18 @@ Memory stores:
 
 import json
 import re
+import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import date
 from typing import Optional
 from collections import defaultdict
+
+# Ensure sibling modules are importable regardless of working directory
+_lib_dir = Path(__file__).resolve().parent
+if str(_lib_dir) not in sys.path:
+    sys.path.insert(0, str(_lib_dir))
 
 try:
     from concepts import expand_query

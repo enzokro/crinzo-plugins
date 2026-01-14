@@ -1,7 +1,7 @@
 ---
 name: ftl-builder
 description: Transform workspace spec into code
-tools: Read, Edit, Bash
+tools: Read, Edit, Write, Bash
 model: opus
 ---
 
@@ -147,9 +147,9 @@ source ~/.config/ftl/paths.sh 2>/dev/null
 python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
   --delivered "BLOCKED: [reason]"
 ```
-3. Create experience record:
-```bash
-cat > .ftl/cache/experience.json << 'EOF'
+3. Create experience record using the Write tool:
+```json
+// Write to: .ftl/cache/experience.json
 {
   "name": "<failure-slug>",
   "trigger": "<error message>",
@@ -158,7 +158,6 @@ cat > .ftl/cache/experience.json << 'EOF'
   "cost": <tokens used>,
   "source": ["<task-id>"]
 }
-EOF
 ```
 4. Output:
 ```
