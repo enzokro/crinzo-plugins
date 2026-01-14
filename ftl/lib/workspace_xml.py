@@ -203,13 +203,21 @@ def get_status(path: Path) -> str:
 
 
 def rename_workspace(path: Path, new_status: str) -> Path:
-    """Rename workspace file with new status."""
+    """Rename workspace file with new status.
+
+    Raises OSError if rename fails (e.g., permission denied, disk full).
+    """
     # Parse current filename: NNN_slug_status.xml
     stem = path.stem  # "003_routes-crud_active"
     parts = stem.rsplit('_', 1)  # ["003_routes-crud", "active"]
     new_stem = f"{parts[0]}_{new_status}"
     new_path = path.parent / f"{new_stem}.xml"
-    path.rename(new_path)
+    try:
+        path.rename(new_path)
+    except OSError as e:
+        import sys
+        print(f"ERROR: Failed to rename workspace {path} to {new_path}: {e}", file=sys.stderr)
+        raise
     return new_path
 
 

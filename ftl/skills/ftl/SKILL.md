@@ -105,6 +105,8 @@ Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh
 
 Framework idioms are **defined in README**, not hardcoded in agents. This makes FTL framework-agnostic.
 
+If README mentions a framework but lacks explicit idioms, Planner uses minimal fallback idioms for common frameworks (FastHTML, FastAPI). Projects should define explicit idioms in README for clarity.
+
 | Mode | Flow |
 |------|------|
 | TASK | README → Router (extracts) → Builder (enforces) |
@@ -155,25 +157,12 @@ Forbidden:
 
 ## Adaptive Decomposition
 
-Planner assesses complexity before determining task count:
+Planner calculates task complexity using:
+- N = README specification sections
+- F = Prior Knowledge failure costs (tokens)
+- Framework complexity factor (none/simple/moderate/high)
 
-### Complexity Formula
-```
-C = (N × 2) + (F / 50000) + (framework × 3)
-
-N = README specification sections
-F = Prior Knowledge failure costs (tokens)
-framework = none(0), simple(1), moderate(2), high(3)
-```
-
-### Task Count by Complexity
-
-| Score | Decomposition |
-|-------|---------------|
-| C < 8 | 2 tasks: combined SPEC+BUILD → VERIFY |
-| 8 ≤ C < 15 | 3 tasks: SPEC → BUILD → VERIFY |
-| 15 ≤ C < 25 | 4-5 tasks: SPEC → BUILD_1 → BUILD_2 → VERIFY |
-| C ≥ 25 | 5-7 tasks: full decomposition with checkpoints |
+See `planner.md` for complete formula. Task counts scale from 2 (simple) to 7 (complex).
 
 **If README mandates specific task count**, planner notes deviation but follows README.
 
@@ -241,27 +230,23 @@ Forbidden:
 
 ### DIRECT Mode Routing
 
-Router assesses whether task qualifies for DIRECT mode:
+Router determines DIRECT vs FULL mode based on:
+- File count and complexity
+- Framework involvement
+- Related failure history
+- Task type (SPEC/BUILD/VERIFY)
 
-| Signal | Mode |
-|--------|------|
-| Single Delta file, no framework, <100 lines | DIRECT |
-| Prior Knowledge shows 0 related failures | DIRECT |
-| Multiple files OR framework involved | FULL |
-| Prior Knowledge shows related failures | FULL |
-| SPEC task type | FULL (always) |
-| VERIFY task type (standalone) | FULL |
-| VERIFY task type (final campaign task) | DIRECT (inline) |
+See `router.md` for complete signal table.
 
 **DIRECT mode**: 3 tools, no workspace, no retry, no learner
 **FULL mode**: 5 tools, workspace with Code Context + Framework Idioms, retry once, learner
 
 **Campaign DIRECT mode (VERIFY tasks)**:
-In campaign mode, the final VERIFY task may run inline without spawning an agent:
+The final VERIFY task may run inline without spawning an agent:
 - No workspace file created
-- Main orchestrator runs verify command directly
-- Status update skipped (no workspace to mark complete)
-- Campaign completion unaffected
+- Orchestrator runs verify command directly in bash
+- On **pass**: Campaign completes successfully
+- On **fail**: Campaign status set to blocked, error logged to campaign.json
 
 This saves agent spawn overhead (~50k tokens) for simple verification.
 
@@ -322,6 +307,9 @@ PLAN_JSON=$(echo "$PLANNER_OUTPUT" | sed -n '/```json/,/```/p' | sed '1d;$d')
 
 # Generate all workspaces
 echo "$PLAN_JSON" | python3 "$FTL_LIB/workspace_from_plan.py" -
+
+# Sync tasks from plan.json to campaign.json for audit trail
+python3 "$FTL_LIB/campaign.py" sync-from-plan
 ```
 
 This replaces spawning Router for each task (saves ~300-400k tokens per campaign).
@@ -369,11 +357,42 @@ Task(ftl:ftl-builder) with prompt:
   Workspace: .ftl/workspace/NNN_slug_active.xml
 ```
 
-**2. Update state** (skip for DIRECT mode - no workspace file)
+**2. Update state** (handles builder completion AND escalation)
 ```bash
-# Only run if workspace file exists
-if [ -f ".ftl/workspace/${SEQ}_*_active.xml" ]; then
-  python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+source ~/.config/ftl/paths.sh 2>/dev/null
+
+# Skip state update for DIRECT mode (no workspace file)
+if [ -z "$DIRECT_MODE" ]; then
+  # Check if builder already completed the workspace (renamed to _complete)
+  COMPLETE_WS=$(ls .ftl/workspace/${SEQ}_*_complete*.xml 2>/dev/null | head -1)
+
+  if [ -n "$COMPLETE_WS" ]; then
+    # Builder completed properly - just update campaign
+    python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+  else
+    # Check if workspace still active (builder escalated/failed)
+    ACTIVE_WS=$(ls .ftl/workspace/${SEQ}_*_active*.xml 2>/dev/null | head -1)
+    if [ -n "$ACTIVE_WS" ]; then
+      # Builder didn't complete - orchestrator must finalize if work was done
+      echo "Builder did not complete workspace. Checking if work was done..."
+      # Read delta from workspace and check if files exist
+      DELTA=$(python3 "$FTL_LIB/workspace_xml.py" parse "$ACTIVE_WS" 2>/dev/null | jq -r '.delta[]' 2>/dev/null)
+
+      WORK_DONE=true
+      for f in $DELTA; do
+        [ ! -f "$f" ] && WORK_DONE=false
+      done
+
+      if [ "$WORK_DONE" = true ]; then
+        echo "Delta files exist - completing workspace on behalf of builder"
+        python3 "$FTL_LIB/workspace_xml.py" complete "$ACTIVE_WS" \
+          --delivered "Completed by orchestrator after builder escalation"
+        python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+      else
+        echo "WARNING: Delta files missing, cannot complete workspace"
+      fi
+    fi
+  fi
 fi
 ```
 (Hooks update cognition_state.md automatically)
@@ -450,6 +469,7 @@ Status: `active` | `complete` | `blocked`
 | `campaign.py active` | Check active campaign |
 | `campaign.py campaign "$OBJ"` | Create campaign |
 | `campaign.py add-tasks-from-plan` | Add tasks from planner output |
+| `campaign.py sync-from-plan` | Copy tasks from plan.json to campaign for audit trail |
 | `campaign.py update-task $SEQ complete` | Mark task complete |
 | `campaign.py complete` | Complete campaign |
 | `campaign.py get-framework` | Get framework from workspace files |
@@ -464,6 +484,31 @@ Status: `active` | `complete` | `blocked`
 | `memory.py add-source <campaign>` | Add campaign to pattern sources |
 
 All commands require: `source ~/.config/ftl/paths.sh`
+
+---
+
+## Hooks Reference
+
+### capture_delta.sh (SubagentStop)
+**Trigger:** After every agent completes (router, builder, builder-verify, learner, planner, synthesizer)
+
+**Purpose:** Update cognition cache to enable knowledge inheritance between agents.
+
+**Creates/Updates:**
+| File | Content |
+|------|---------|
+| `.ftl/cache/cognition_state.md` | Phase model, active/recent workspaces, recent learnings |
+| `.ftl/cache/delta_contents.md` | Current Delta file contents for builder/learner |
+
+### capture_exploration.sh (SubagentStop: Router only)
+**Trigger:** After Router agent completes
+
+**Purpose:** Extract structured context from Router's workspace XML for Builder injection.
+
+**Creates:**
+| File | Content |
+|------|---------|
+| `.ftl/cache/exploration_context.md` | Implementation spec, code context, framework idioms, prior knowledge |
 
 ---
 
@@ -509,7 +554,7 @@ Every agent runs a quality checkpoint before completing:
 | Router | Delta specific? Verify executable? Framework context? |
 | Planner | All tasks verifiable? Dependencies ordered? |
 | Synthesizer | Soft failures detected? Generalizable patterns? |
-| Learner | Confidence threshold met? Evidence cited? |
+| Learner | Pattern extraction rules met? Evidence cited? |
 
 Quality checkpoint catches issues before they propagate.
 

@@ -257,6 +257,47 @@ def add_tasks_from_plan(plan_text: str, base: Path = Path(".")) -> list:
     return added
 
 
+def sync_tasks_from_plan(campaign: dict, base: Path = Path(".")) -> int:
+    """Copy tasks from plan.json to campaign.json. Returns count of tasks synced.
+
+    This ensures campaign.json has task records for audit trail and status tracking,
+    even when tasks are defined in plan.json by the planner.
+    """
+    plan_path = base / FORGE_DIR / "plan.json"
+    if not plan_path.exists():
+        return 0
+
+    plan = json.loads(plan_path.read_text())
+    plan_tasks = plan.get("tasks", [])
+
+    # Get existing task seqs to avoid duplicates
+    existing_seqs = {t["seq"] for t in campaign["tasks"]}
+    synced = 0
+
+    for task in plan_tasks:
+        task_seq = task.get("seq", "000")
+        # Normalize to 3-digit format
+        try:
+            task_seq = f"{int(task_seq):03d}"
+        except ValueError:
+            pass
+
+        if task_seq not in existing_seqs:
+            campaign["tasks"].append({
+                "seq": task_seq,
+                "slug": task.get("slug", "unknown"),
+                "status": task.get("status", "pending"),
+                "delta": task.get("delta", ""),
+                "verify": task.get("verify", "")
+            })
+            synced += 1
+
+    if synced > 0:
+        update_campaign(campaign, base)
+
+    return synced
+
+
 def update_task_status(campaign: dict, seq: str, status: str, base: Path = Path(".")) -> bool:
     """Update task status in campaign. Returns True if task found, False otherwise."""
     # Normalize seq for comparison (handles "1" vs "001" mismatch)
@@ -592,6 +633,9 @@ def main():
     # Add tasks from planner output
     sub.add_parser("add-tasks-from-plan", help="Parse planner output (stdin) and add tasks")
 
+    # Sync tasks from plan.json to campaign.json
+    sub.add_parser("sync-from-plan", help="Copy tasks from plan.json to campaign.json for audit trail")
+
     # Update task
     upd_p = sub.add_parser("update-task", help="Update task status")
     upd_p.add_argument("seq")
@@ -689,6 +733,15 @@ def main():
             print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
+    elif args.cmd == "sync-from-plan":
+        campaign = load_active_campaign(args.base)
+        if campaign:
+            count = sync_tasks_from_plan(campaign, args.base)
+            print(f"Synced {count} tasks from plan.json")
+        else:
+            print("No active campaign", file=sys.stderr)
+            sys.exit(1)
+
     elif args.cmd == "update-task":
         campaign = load_active_campaign(args.base)
         if campaign:
@@ -697,12 +750,17 @@ def main():
             # ENFORCE workspace gate for completion
             if args.status == "complete":
                 workspace = args.base / FORGE_DIR / WORKSPACE_DIR
+                # Fix #4: Check if workspace directory exists first
+                if not workspace.exists():
+                    print(f"ERROR: Workspace directory not found: {workspace}", file=sys.stderr)
+                    print(f"Ensure .ftl/workspace/ directory exists before marking tasks complete.", file=sys.stderr)
+                    sys.exit(1)
                 pattern = f"{seq}_*_complete*.xml"
                 matches = list(workspace.glob(pattern))
                 if not matches:
                     print(f"ERROR: Cannot mark complete - no workspace file", file=sys.stderr)
                     print(f"Expected: workspace/{pattern}", file=sys.stderr)
-                    print(f"Tether must create workspace file before task can be marked complete.", file=sys.stderr)
+                    print(f"Builder must call workspace_xml.py complete before task can be marked complete.", file=sys.stderr)
                     sys.exit(1)
             found = update_task_status(campaign, seq, args.status, args.base)
             if found:

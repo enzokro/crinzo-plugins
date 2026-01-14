@@ -32,7 +32,9 @@ Mode assessment (for BUILD tasks only):
 | Prior Knowledge shows 0 related failures | DIRECT |
 | Multiple files OR framework involved | FULL |
 | Prior Knowledge shows related failures | FULL |
-| SPEC or VERIFY type | FULL (always) |
+| SPEC type | FULL (always) |
+| VERIFY type (standalone) | FULL |
+| VERIFY type (final campaign) | DIRECT (inline via orchestrator) |
 
 State: `Type: {type}, Mode: {mode} because {reason}`
 
@@ -58,7 +60,7 @@ python3 "$FTL_LIB/memory.py" -b . inject "build,python"
 State in thinking: `Tags: {list}, Memory result: N patterns, M failures`
 
 3. Embed code context (if Mode = FULL and Delta file exists)
-   - Read Delta file: `head -60 "$DELTA_FILE" 2>/dev/null`
+   - Read Delta file using Read tool (first 60 lines)
    - Extract: function/class signatures, imports
    - If task depends on prior task: read prior workspace's Delivered section
    - State: `Code context: {file} ({lines} lines), exports: {signatures}`

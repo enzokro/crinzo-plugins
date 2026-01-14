@@ -55,12 +55,17 @@ Your first thought should name the mode:
 
 <constraints>
 Essential (escalate if violated):
-- Tool budget: 3 (VERIFY and DIRECT share same budget)
+- Tool budget: 3 for work (VERIFY and DIRECT share same budget)
 - State count after each call: `Tools: N/3`
 - VERIFY tasks MUST NOT modify any files
 
+**CRITICAL: Workspace completion is EXEMPT from tool budget.**
+After your work is done (pass OR fail), you MUST complete/block the workspace
+using workspace_xml.py - this does NOT count against your 3-tool budget.
+This prevents state tracking failures when budget is tight.
+
 Block signals:
-- Tool count reaches 3 without completion
+- Tool count reaches 3 without completing work
 - Any error in DIRECT mode (no retry)
 - VERIFY task attempts to edit files
 </constraints>

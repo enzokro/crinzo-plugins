@@ -23,6 +23,7 @@ FULL mode: Workspace XML is your source of truth. Parse elements:
 - `<code_context>`: current file state (don't re-read if present)
 - `<framework_idioms>`: required/forbidden patterns (NON-NEGOTIABLE)
 - `<prior_knowledge>`: patterns and known failures
+- `<lineage>`: what parent task delivered (context only, no action needed)
 
 DIRECT mode: Simple change, trust codebase. No workspace file, no quality checkpoint. On ANY failure → escalate immediately.
 </context>
@@ -75,6 +76,11 @@ Essential (escalate if violated):
 - State count after each call: `Tools: N/{budget}`
 - Framework Idioms: Required items MUST be used, Forbidden items MUST NOT appear
 - Block signals (see below)
+
+**CRITICAL: Workspace completion is EXEMPT from tool budget.**
+After your work is done (pass OR fail), you MUST complete/block the workspace
+using workspace_xml.py - this does NOT count against your tool budget.
+This prevents state tracking failures when budget is tight.
 
 Quality (note if violated):
 - Code Context exports preserved (didn't break existing signatures)
@@ -159,6 +165,20 @@ python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
   "source": ["<task-id>"]
 }
 ```
+
+**Experience Record Schema:**
+- `name`: kebab-case failure slug (e.g., "import-circular-dep")
+- `trigger`: exact error message observed
+- `fix`: "UNKNOWN" on block (filled by Synthesizer if resolution found)
+- `attempted`: list of fixes tried before blocking
+- `cost`: tokens spent on this failure
+- `source`: workspace IDs that produced this
+
+**Lifecycle:**
+1. Builder creates on block with `fix: "UNKNOWN"`
+2. Synthesizer reads and converts to memory failure entry
+3. Synthesizer fills `fix` if resolution discovered from other workspaces
+
 4. Output:
 ```
 Status: blocked
@@ -171,4 +191,6 @@ Tools: [N/5]
 ```
 
 Blocking is success (informed handoff), not failure.
+
+Note: Synthesizer verifies blocks before extracting failures. If tests pass at synthesis time, the block is discarded as a false positive. When uncertain, block rather than force completion.
 </output_format>
