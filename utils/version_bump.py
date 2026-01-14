@@ -6,9 +6,16 @@ We are inside the folder crinzo-plugins/utils.
 import os 
 import json 
 import copy
+import shutil
+from pathlib import Path
 
 # plugin path is one directory up from the utils/ folder
 plugin_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# home dir when claude plugins live 
+ftl_plugin_cache_home = Path('/Users/cck/.claude/plugins/cache/crinzo-plugins/ftl')
+
+new_version = None
 
 # change the versions in crinzo-plugins/.claude-plugin/marketplace.json
 with open(os.path.join(plugin_path, '.claude-plugin/marketplace.json'), 'r') as f:
@@ -33,5 +40,16 @@ for plugin in ['ftl']:
         new_plugin_json['version'] = '.'.join(new_version)
         with open(os.path.join(plugin_path, plugin, '.claude-plugin/plugin.json'), 'w') as f:
             json.dump(new_plugin_json, f, indent=2)
+
+# force copy the entire ftl plugin to the ftl cache folder to ensure the new version is used next time
+if ftl_plugin_cache_home.exists():
+    shutil.rmtree(ftl_plugin_cache_home)
+
+new_version = '.'.join(new_version)
+new_cache_dir = os.path.join(ftl_plugin_cache_home, f'{new_version}')
+os.makedirs(new_cache_dir, exist_ok=True)
+
+shutil.copytree(os.path.join(plugin_path, 'ftl'), new_cache_dir, dirs_exist_ok=True)  # Python 3.8+ allows dirs_exist_ok in
+# shutil.copytree()
     
 
