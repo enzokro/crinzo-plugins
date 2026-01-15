@@ -88,6 +88,9 @@ class CLIRunner:
     def campaign(self, *args, stdin: str = None):
         return self.run("campaign", *args, stdin=stdin)
 
+    def exploration(self, *args, stdin: str = None):
+        return self.run("exploration", *args, stdin=stdin)
+
 
 @pytest.fixture
 def cli(lib_path, ftl_dir):

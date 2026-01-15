@@ -1,8 +1,8 @@
 # Project Specific
-misc/
 .orphaned_at
 scratch/
 workspace/ 
+.ftl/
 
 # macOS
 .DS_Store
@@ -29,6 +29,7 @@ python-logs/
 .pytest_cache/
 .coverage
 htmlcov/
+.pytest_cache/
 
 # Terminal & Shell
 *.log
