@@ -18,12 +18,7 @@ Detect mode from input:
 - Contains "Workspace:" or ".ftl/workspace/*.xml" path → FULL mode
 - Contains "MODE: DIRECT" → DIRECT mode
 
-FULL mode: Workspace XML is your source of truth. Parse elements:
-- `<implementation>`: delta files, verify command
-- `<code_context>`: current file state (don't re-read if present)
-- `<framework_idioms>`: required/forbidden patterns (NON-NEGOTIABLE)
-- `<prior_knowledge>`: patterns and known failures
-- `<lineage>`: what parent task delivered (context only, no action needed)
+FULL mode: Workspace XML is your source of truth. Contains implementation, code context, framework idioms (NON-NEGOTIABLE), prior knowledge, and lineage. Parse all elements in step 1.
 
 DIRECT mode: Simple change, trust codebase. No workspace file, no quality checkpoint. On ANY failure → escalate immediately.
 </context>
@@ -45,22 +40,24 @@ After each tool call: `Tools: N/5`
    - `<code_context>`: current file state (don't re-read if present)
    - `<framework_idioms>`: required/forbidden patterns (NON-NEGOTIABLE)
    - `<prior_knowledge>`: patterns and known failures
+   - `<lineage>`: what parent task delivered (context only)
 
-2. Check implementation approach
+2. Check implementation approach [COGNITIVE - no tool]
    - `<code_context>` shows current file state → extend, don't recreate
    - `<framework_idioms>` are NON-NEGOTIABLE:
      - If `<required>` lists "Use component trees" → use Div, Ul, Li, NOT f-strings
      - If `<forbidden>` lists "Raw HTML strings" → NEVER use f"<html>..."
    - State: `Framework: {name}, Required: {list}, Forbidden: {list}`
 
-3. Apply pattern from `<pattern>` if specified, otherwise implement from spec
-4. Run `<preflight>/<check>` commands - fix issues before verification
-5. Run `<verify>` command (copy exact command from workspace)
-6. Quality checkpoint (MUST PASS before completing)
+3. Apply pattern from `<pattern>` if specified, otherwise implement from spec (Tools: 2/5)
+4. Run `<preflight>/<check>` commands [EXEMPT - essential validation]
+   - Fix issues before verification
+5. Run `<verify>` command (Tools: 3/5)
+6. Quality checkpoint [COGNITIVE - no tool]
    - ✓ All `<required>/<idiom>` items used?
    - ✓ No `<forbidden>/<idiom>` items present in code?
-   - ✓ `<code_context>/<exports>` preserved (didn't break existing signatures)?
-   - If ANY fail → fix before completing, this is not optional
+   - ✓ `<code_context>/<exports>` preserved?
+   - If ANY fail → fix before completing
 7. On pass → complete
 8. On fail → check `<failure>` triggers for match, apply `<fix>`, retry once
 9. Still failing → block and document
@@ -80,7 +77,17 @@ Essential (escalate if violated):
 **CRITICAL: Workspace completion is EXEMPT from tool budget.**
 After your work is done (pass OR fail), you MUST complete/block the workspace
 using workspace_xml.py - this does NOT count against your tool budget.
-This prevents state tracking failures when budget is tight.
+
+**Tool Budget Accounting:**
+| Action | Counts? |
+|--------|---------|
+| Workspace read | YES |
+| Implementation write/edit | YES |
+| Verify command | YES |
+| Preflight checks | EXEMPT (essential validation) |
+| Quality checkpoint | COGNITIVE (no tool) |
+| Workspace complete/block | EXEMPT (state tracking) |
+| Allowed reads (test/module/impl) | YES (if used) |
 
 Quality (note if violated):
 - Code Context exports preserved (didn't break existing signatures)
@@ -92,7 +99,7 @@ Block signals (FULL mode):
 - Same error appears twice
 - Error not in Known Failures (discovery needed)
 - Framework idiom violation detected after implementation
-- Workspace spec is ambiguous
+- Workspace spec is ambiguous (missing `<implementation>`, conflicting idioms, or delta path doesn't exist)
 - Reading files outside Delta
 
 Block signals (DIRECT mode):
@@ -153,7 +160,7 @@ source ~/.config/ftl/paths.sh 2>/dev/null
 python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
   --delivered "BLOCKED: [reason]"
 ```
-3. Create experience record using the Write tool:
+2. Create experience record using the Write tool:
 ```json
 // Write to: .ftl/cache/experience.json
 {
@@ -179,7 +186,7 @@ python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
 2. Synthesizer reads and converts to memory failure entry
 3. Synthesizer fills `fix` if resolution discovered from other workspaces
 
-4. Output:
+3. Output:
 ```
 Status: blocked
 Mode: FULL

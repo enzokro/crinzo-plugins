@@ -32,28 +32,31 @@ If no Prior Knowledge: fall back to README-as-spec.
    This returns ALL failures and discoveries (unfiltered) for complexity calculation.
    State: `Prior Knowledge: {N} failures ({total_cost}k tokens), {M} discoveries`
 
-1. Assess campaign complexity (ADAPTIVE DECOMPOSITION)
-   - Count README specification sections (N)
-   - Sum Prior Knowledge failure costs: F = Σ cost_k (in tokens)
-   - Evaluate framework: none(0), simple(1), moderate(2), high(3)
-   - Complexity score: C = (N × 2) + (F / 50000) + (framework × 3)
+1. Assess campaign complexity
+   C = (sections × 2) + (failure_cost_k / 50) + (framework_level × 3)
+   Framework levels: none(0), simple(1), moderate(2), high(3)
 
-   | Score | Decomposition |
-   |-------|---------------|
-   | C < 8 | 2 tasks: combined SPEC+BUILD → VERIFY |
-   | 8 ≤ C < 15 | 3 tasks: SPEC → BUILD → VERIFY |
-   | 15 ≤ C < 25 | 4-5 tasks: SPEC → BUILD_1 → BUILD_2 → VERIFY |
-   | C ≥ 25 | 5-7 tasks: full decomposition with checkpoints |
+   | C | Tasks | Structure |
+   |---|-------|-----------|
+   | <8 | 2 | SPEC+BUILD → VERIFY |
+   | 8-14 | 3 | SPEC → BUILD → VERIFY |
+   | 15-24 | 4-5 | SPEC → BUILD₁ → BUILD₂ → VERIFY |
+   | ≥25 | 5-7 | Full decomposition with checkpoints |
 
-   State in thinking: `Complexity: N={sections}, F={failure_cost}k, framework={level} → C={score} → {task_count} tasks`
-
-   If README mandates specific task count, note deviation: `README specifies {N} tasks, complexity suggests {M}`
+   State: `Complexity: C={score} → {task_count} tasks` (note if README overrides)
 
 2. Check verification coherence for each task
-   - Can Verify pass with ONLY this Delta?
-   - YES for all → PROCEED
-   - Uncertain → VERIFY (explore first)
-   - No clear verification → CLARIFY with user
+   - Apply mechanical test: "Can I write a verify command that COULD work?"
+
+   | Test Result | Decision | Continuation |
+   |-------------|----------|--------------|
+   | Yes, command clear | PROCEED | Continue to step 3 |
+   | Yes, but needs confirmation | VERIFY | Continue to step 3, add exploration commands |
+   | No, cannot write command | CLARIFY | Output CLARIFY template, STOP |
+
+   State: `Decision: {PROCEED|VERIFY|CLARIFY} - {rationale}`
+
+   **CLARIFY flow**: Output CLARIFY template (see output_format). Do NOT proceed to steps 3-5.
 
 3. Design task ordering
    - SPEC tasks have no dependencies (or depend only on prior SPEC)
@@ -122,55 +125,76 @@ Rationale: [one sentence]
 ```
 
 ### 2. JSON Task Specs (for workspace generation)
-Immediately after markdown, output a fenced JSON block with this exact structure:
+Output fenced JSON immediately after markdown:
 
-```json
-{
-  "campaign": "campaign-name",
-  "framework": "FastHTML | FastAPI | none",
-  "idioms": {
-    "required": ["Use @rt decorator", "Return component trees"],
-    "forbidden": ["Raw HTML strings", "Manual string concatenation"]
-  },
-  "tasks": [
-    {
-      "seq": "001",
-      "slug": "spec-tests",
-      "type": "SPEC",
-      "mode": "FULL",
-      "delta": ["test_app.py"],
-      "verify": "pytest --collect-only -q",
-      "depends": "none",
-      "preflight": ["python -m py_compile test_app.py"],
-      "failures": ["failure-name-from-memory"]
-    },
-    {
-      "seq": "002",
-      "slug": "build-model",
-      "type": "BUILD",
-      "mode": "FULL",
-      "delta": ["main.py"],
-      "verify": "pytest test_app.py -k model -v",
-      "depends": "001",
-      "preflight": ["python -m py_compile main.py"],
-      "failures": []
-    }
-  ]
-}
+| Field | Required | Description |
+|-------|----------|-------------|
+| campaign | Y | kebab-case name |
+| framework | Y | FastHTML, FastAPI, or "none" |
+| idioms | If framework | {required: [], forbidden: []} |
+| tasks[] | Y | Array of task objects |
+
+**Task object fields:**
+| Field | Required | Example |
+|-------|----------|---------|
+| seq | Y | "001" (3-digit) |
+| slug | Y | "spec-tests" |
+| type | Y | SPEC, BUILD, or VERIFY |
+| mode | Y | FULL or DIRECT |
+| delta | Y | ["test_app.py"] |
+| verify | Y | "pytest --collect-only -q" |
+| depends | Y | "none" or "001" |
+| preflight | N | ["python -m py_compile file.py"] |
+| failures | N | ["failure-slug"] from memory |
+
+**Mode selection**: FULL if framework OR failures OR multi-file. DIRECT if single file + no framework + no failures.
+
+**Idioms**: Copy from README's "Framework Idioms" section, or output `"framework": "{name}"` only (workspace_from_plan.py infers idioms).
+
+| Signal | Meaning | Next Action |
+|--------|---------|-------------|
+| PROCEED | Clear path, all verifiable | Output plan, continue to workspace generation |
+| VERIFY | Sound but uncertain, explore first | Output plan + exploration commands, human runs |
+| CLARIFY | Can't verify, context gaps | Output questions, STOP and wait for human |
+
+### CLARIFY Output Template
+When Decision = CLARIFY, output this instead of campaign plan:
+
+```markdown
+### Confidence: CLARIFY
+Rationale: [one sentence on what blocks planning]
+
+## Blocking Questions
+1. [Question that, if answered, would unblock planning]
+2. [Additional question if needed]
+
+## What I Analyzed
+- README sections: [list]
+- Prior failures: [count, highest cost]
+- Framework: [detected or none]
+
+## What Blocks Progress
+- Cannot determine: [specific unknown]
+- Missing context: [what README doesn't specify]
+
+## Suggested Resolution
+- Option A: [interpretation] → [consequence for plan]
+- Option B: [interpretation] → [consequence for plan]
 ```
 
-**Mode selection rules**:
-- `FULL`: Framework present, OR failures referenced, OR multiple Delta files
-- `DIRECT`: Single file, no framework, no failures, <100 lines expected
+STOP after CLARIFY output. Do not proceed to steps 3-5.
 
-**Idioms**: Extract from README's "Framework Idioms" section if present.
-If README has framework but no idioms section, infer from framework:
-- FastHTML: required=["@rt decorator", "component trees"], forbidden=["f-string HTML"]
-- FastAPI: required=["Depends injection", "Pydantic models"], forbidden=["raw dicts"]
+### VERIFY Output Addendum
+When Decision = VERIFY, include exploration section after tasks:
 
-| Signal | Meaning |
-|--------|---------|
-| PROCEED | Clear path, all verifiable |
-| VERIFY | Sound but uncertain, explore first |
-| CLARIFY | Can't verify, context gaps |
+```markdown
+### Exploration Commands (run before proceeding)
+| Task | Uncertainty | Command | Expected |
+|------|-------------|---------|----------|
+| 001 | Import structure | `python -c "import main"` | No error |
+| 002 | Test file location | `ls tests/` | test_*.py exists |
+
+Run these commands. If results match Expected, proceed with plan.
+If mismatch, return here with results for plan revision.
+```
 </output_format>

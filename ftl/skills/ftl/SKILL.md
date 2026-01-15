@@ -39,9 +39,8 @@ DO NOT:
 | **Learner** | **✓** | **⊘ NEVER** |
 | **Synthesizer** | ⊘ | **end only** |
 
-**Router is only for TASK mode.** In Campaign mode, Planner outputs JSON task specs, and `workspace_from_plan.py` generates workspace XML directly - no Router agent needed.
-
-**Learner + Synthesizer are mutually exclusive.** Using learner in campaign mode is a category error - like asking "what color is the number 7?"
+**Router**: TASK mode only. Campaign uses `workspace_from_plan.py` instead.
+**Learner + Synthesizer**: Mutually exclusive by mode.
 
 ---
 
@@ -58,46 +57,26 @@ DO NOT:
 
 ## Context Injection (REQUIRED)
 
-### Memory Injection Architecture
+### Before Invoking Agent
 
-Agents fetch their own memory (not pre-injected):
-- **Planner**: Fetches ALL memory (unfiltered) for complexity formula
-- **Router**: Fetches FILTERED memory (by task tags) for mode decision + workspace
+| Mode | Read Files | Agent Fetches Memory |
+|------|------------|---------------------|
+| TASK | `session_context.md`, `cognition_state.md` | Router: `memory.py inject "tags"` |
+| CAMPAIGN | `session_context.md` | Planner: `memory.py inject` (all) |
 
-This eliminates redundant memory reads.
+**workspace_from_plan.py**: Handles memory automatically (filters by task tags, reads Delta files).
 
-### Before TASK mode (Router):
-
-1. Read `.ftl/cache/session_context.md` (git state, tools - NO memory)
-2. Read `.ftl/cache/cognition_state.md` (dynamic, updated after each agent)
-3. Router fetches filtered memory: `memory.py inject "tags"`
-
-### Before CAMPAIGN mode (Planner):
-
-1. Read `.ftl/cache/session_context.md` (git state, tools - NO memory)
-2. Planner fetches all memory: `memory.py inject` (for complexity formula)
-
-### For workspace generation (workspace_from_plan.py):
-
-Memory injection handled automatically:
-- Filters by task tags (framework, type, delta files)
-- Code context read from Delta files
-- No manual injection needed
-
-### After EVERY agent completes:
-
-Hooks automatically update `.ftl/cache/cognition_state.md` via `capture_delta.sh`.
+### After Every Agent
+Hooks update `cognition_state.md` via `capture_delta.sh`.
 
 ### Cache Files
 
 | File | Type | Purpose |
 |------|------|---------|
-| `session_context.md` | Static | Git state, project tools (NO memory) |
+| `session_context.md` | Static | Git state, project tools |
 | `cognition_state.md` | Dynamic | Phase awareness, inherited knowledge |
 | `exploration_context.md` | Dynamic | Router findings for builder |
 | `delta_contents.md` | Dynamic | File contents from prior tasks |
-
-**Memory is fetched by agents, not cached** - each agent gets exactly what it needs.
 
 ---
 
@@ -242,15 +221,12 @@ See `router.md` for complete signal table.
 **FULL mode**: 5 tools, workspace with Code Context + Framework Idioms, retry once, learner
 
 **Campaign DIRECT mode (VERIFY tasks)**:
-The final VERIFY task may run inline without spawning an agent:
+Final VERIFY task may run inline without spawning an agent:
 - No workspace file created
-- Orchestrator runs verify command directly in bash
-- On **pass**: Campaign completes successfully
-- On **fail**: Campaign status set to blocked, error logged to campaign.json
+- On **pass**: Campaign completes
+- On **fail**: Campaign blocked, error logged
 
-This saves agent spawn overhead (~50k tokens) for simple verification.
-
-**Note**: In CAMPAIGN mode, BUILD tasks may still use DIRECT mode if simple. Synthesizer runs at campaign end regardless of individual task modes.
+**Note**: BUILD tasks may use DIRECT mode if simple. Synthesizer runs at campaign end regardless.
 
 ### Mode Detection
 
@@ -297,22 +273,13 @@ python3 "$FTL_LIB/campaign.py" campaign "$OBJECTIVE"
 echo "$PLANNER_OUTPUT" | python3 "$FTL_LIB/campaign.py" add-tasks-from-plan
 ```
 
-### Step 4.5: Generate All Workspaces (NEW - replaces per-task Router)
-
-Extract JSON from Planner output and generate all workspaces at once:
+### Step 4.5: Generate All Workspaces
 
 ```bash
-# Extract JSON block from Planner markdown (between ```json and ```)
 PLAN_JSON=$(echo "$PLANNER_OUTPUT" | sed -n '/```json/,/```/p' | sed '1d;$d')
-
-# Generate all workspaces
 echo "$PLAN_JSON" | python3 "$FTL_LIB/workspace_from_plan.py" -
-
-# Sync tasks from plan.json to campaign.json for audit trail
 python3 "$FTL_LIB/campaign.py" sync-from-plan
 ```
-
-This replaces spawning Router for each task (saves ~300-400k tokens per campaign).
 
 ### Step 5: Execute Each Task
 
@@ -357,45 +324,29 @@ Task(ftl:ftl-builder) with prompt:
   Workspace: .ftl/workspace/NNN_slug_active.xml
 ```
 
-**2. Update state** (handles builder completion AND escalation)
+**2. Update state** (skip for DIRECT mode)
+
+| Workspace State | Action |
+|-----------------|--------|
+| `${SEQ}_*_complete*.xml` exists | `campaign.py update-task $SEQ complete` |
+| `${SEQ}_*_active*.xml` + Delta files exist | Complete workspace on behalf of builder |
+| Active workspace + Delta missing | Warning, cannot complete |
+
 ```bash
 source ~/.config/ftl/paths.sh 2>/dev/null
-
-# Skip state update for DIRECT mode (no workspace file)
-if [ -z "$DIRECT_MODE" ]; then
-  # Check if builder already completed the workspace (renamed to _complete)
-  COMPLETE_WS=$(ls .ftl/workspace/${SEQ}_*_complete*.xml 2>/dev/null | head -1)
-
-  if [ -n "$COMPLETE_WS" ]; then
-    # Builder completed properly - just update campaign
-    python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
-  else
-    # Check if workspace still active (builder escalated/failed)
-    ACTIVE_WS=$(ls .ftl/workspace/${SEQ}_*_active*.xml 2>/dev/null | head -1)
-    if [ -n "$ACTIVE_WS" ]; then
-      # Builder didn't complete - orchestrator must finalize if work was done
-      echo "Builder did not complete workspace. Checking if work was done..."
-      # Read delta from workspace and check if files exist
-      DELTA=$(python3 "$FTL_LIB/workspace_xml.py" parse "$ACTIVE_WS" 2>/dev/null | jq -r '.delta[]' 2>/dev/null)
-
-      WORK_DONE=true
-      for f in $DELTA; do
-        [ ! -f "$f" ] && WORK_DONE=false
-      done
-
-      if [ "$WORK_DONE" = true ]; then
-        echo "Delta files exist - completing workspace on behalf of builder"
-        python3 "$FTL_LIB/workspace_xml.py" complete "$ACTIVE_WS" \
-          --delivered "Completed by orchestrator after builder escalation"
-        python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
-      else
-        echo "WARNING: Delta files missing, cannot complete workspace"
-      fi
-    fi
-  fi
+COMPLETE_WS=$(ls .ftl/workspace/${SEQ}_*_complete*.xml 2>/dev/null | head -1)
+ACTIVE_WS=$(ls .ftl/workspace/${SEQ}_*_active*.xml 2>/dev/null | head -1)
+if [ -n "$COMPLETE_WS" ]; then
+  python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
+elif [ -n "$ACTIVE_WS" ]; then
+  DELTA=$(python3 "$FTL_LIB/workspace_xml.py" parse "$ACTIVE_WS" 2>/dev/null | jq -r '.delta[]')
+  ALL_EXIST=true; for f in $DELTA; do [ ! -f "$f" ] && ALL_EXIST=false; done
+  [ "$ALL_EXIST" = true ] && python3 "$FTL_LIB/workspace_xml.py" complete "$ACTIVE_WS" --delivered "Orchestrator"
+  python3 "$FTL_LIB/campaign.py" update-task "$SEQ" complete
 fi
 ```
-(Hooks update cognition_state.md automatically)
+
+Hooks update `cognition_state.md` automatically.
 
 ### Step 6: Complete Campaign (Conditional Synthesizer)
 
@@ -403,43 +354,26 @@ fi
 python3 "$FTL_LIB/campaign.py" complete
 ```
 
-**Synthesizer Gate** (skip when no learning opportunity):
+**Synthesizer Gate**:
+
+| Condition | Action |
+|-----------|--------|
+| Blocked workspaces > 0 | RUN synthesizer |
+| New framework (not in memory) | RUN synthesizer |
+| All complete + framework known | SKIP; run `memory.py add-source $CAMPAIGN_ID` |
 
 ```bash
-# Gate 1: Check for blocked workspaces (must extract failures)
 BLOCKED=$(find .ftl/workspace -name "*_blocked.xml" 2>/dev/null | wc -l)
-
-# Gate 2: Check for new frameworks (not yet in memory)
-CAMPAIGN_FRAMEWORK=$(python3 "$FTL_LIB/campaign.py" get-framework 2>/dev/null || echo "")
-NEW_FRAMEWORK=""
-if [ -n "$CAMPAIGN_FRAMEWORK" ]; then
-    NEW_FRAMEWORK=$(python3 "$FTL_LIB/memory.py" check-new-frameworks "$CAMPAIGN_FRAMEWORK" 2>/dev/null || echo "")
-fi
-
-# Decision: Run synthesizer only if learning opportunity exists
-if [ "$BLOCKED" -gt 0 ] || [ -n "$NEW_FRAMEWORK" ]; then
-    echo "Learning opportunity detected - running synthesizer"
-    echo "  Blocked workspaces: $BLOCKED"
-    echo "  New framework: ${NEW_FRAMEWORK:-none}"
-    Task(ftl:synthesizer)
+FW=$(python3 "$FTL_LIB/campaign.py" get-framework 2>/dev/null)
+NEW_FW=$(python3 "$FTL_LIB/memory.py" check-new-frameworks "$FW" 2>/dev/null)
+if [ "$BLOCKED" -gt 0 ] || [ -n "$NEW_FW" ]; then
+  Task(ftl:synthesizer)
 else
-    echo "No new learnings expected - skipping synthesizer"
-    echo "  Reason: All workspaces complete, no new frameworks"
-    # Minimal tracking: add campaign source reference to existing patterns
-    python3 "$FTL_LIB/memory.py" add-source "$CAMPAIGN_ID" 2>/dev/null || true
+  python3 "$FTL_LIB/memory.py" add-source "$CAMPAIGN_ID"
 fi
 ```
 
-**Gate Logic**:
-- **RUN synthesizer if**: blocked workspaces > 0 OR new framework detected
-- **SKIP synthesizer if**: all workspaces complete AND framework already in memory
-
-**Historical ROI**:
-- Blocked tasks: 2-4x ROI (always run)
-- New framework: 2-3x ROI (run)
-- Clean + patterns matched: 0x ROI (skip - saves 26.6% tokens)
-
-**Synthesizer reads ONLY workspace files.** Does NOT read source code or run tests.
+Synthesizer reads ONLY workspace files (not source code).
 
 ---
 
@@ -570,4 +504,4 @@ Quality checkpoint catches issues before they propagate.
 | **learner** | Extract patterns from single workspace (TASK) | Read-only except Key Findings |
 | **synthesizer** | Extract meta-patterns from all workspaces (CAMPAIGN) | Verify blocks before extraction |
 
-**Note**: In Campaign mode, `workspace_from_plan.py` replaces Router for workspace generation. This saves ~300-400k tokens per campaign by eliminating redundant agent spawns.
+**Note**: In Campaign mode, `workspace_from_plan.py` replaces Router for workspace generation.

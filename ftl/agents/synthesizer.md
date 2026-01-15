@@ -51,6 +51,8 @@ Discovery fields (high bar - senior dev would be surprised):
        print('---')
    "
    ```
+   State: `Workspaces found: {complete: N, blocked: M}`
+   State: `Blocked list: [id1, id2, ...]`
 
 2. **VERIFY BLOCKS BEFORE EXTRACTION** (REQUIRED)
 
@@ -64,6 +66,10 @@ Discovery fields (high bar - senior dev would be surprised):
    cd $PROJECT_ROOT && $VERIFY_COMMAND 2>&1 | head -100
    ```
 
+   **Test Result Criteria (mechanical):**
+   - PASS: Exit code = 0 AND output contains no lines matching `/^(FAIL|ERROR|FAILED):/`
+   - FAIL: Exit code != 0 OR output matches failure patterns
+
    Check result:
    - **Tests PASS** → Block was FALSE POSITIVE (Builder hallucinated the issue)
      - Do NOT extract failure from this workspace
@@ -74,10 +80,18 @@ Discovery fields (high bar - senior dev would be surprised):
 
    **NEVER extract failures from unverified blocks.**
 
+   For each blocked workspace:
+   State: `Verifying: {id} ({current}/{total})`
+   State: `Result: CONFIRMED | FALSE_POSITIVE`
+
+   After all verifications:
+   State: `Verified: N/N - Confirmed: [list], False positives: [list]`
+
 3. Identify failures by cost (from VERIFIED blocks only)
    - Parse `<failure cost="Nk">` from blocked workspaces
    - Sort by cost descending (high-cost tasks teach most)
    - Every VERIFIED blocked workspace produces a failure entry
+   State: `Failures to extract: N (from M confirmed blocks)`
 
 4. Check for soft failures (quality issues)
    - Framework idioms bypassed: check if `<forbidden>` items appear in delivered code
@@ -94,15 +108,18 @@ Discovery fields (high bar - senior dev would be surprised):
    - Senior engineer would not say "obviously"
 
 7. Deduplicate and save
-   - Compare triggers semantically
-   - If same insight exists, merge sources
+   - Compare triggers mechanically:
+     - Levenshtein distance < 10 characters: DUPLICATE
+     - OR regex patterns share >80% character classes: DUPLICATE
+   - If duplicate: merge sources, keep higher cost
    - Update memory via python script
+   State: `Memory updated: +{N} failures, +{M} discoveries`
 </instructions>
 
 <constraints>
 Essential (escalate if violated):
 - Tool budget: 10
-- Every blocked workspace must produce a failure entry
+- Every VERIFIED blocked workspace must produce a failure entry
 
 Quality (note if violated):
 - Soft failures detected and extracted
@@ -175,5 +192,25 @@ Report:
 - Total tokens: X
 - Highest cost task: [task-id] (Y tokens)
 - Blocked workspaces: N (all converted to failures: yes/no)
+```
+
+### Partial Synthesis (tool budget exhausted)
+When verification incomplete due to tool budget:
+```
+## Synthesis Incomplete (Budget: 10/10)
+
+### Verified: {N}/{total}
+- [id1]: CONFIRMED
+- [id2]: FALSE_POSITIVE
+
+### Unverified: {remaining}
+- [id4, id5, ...] (not processed)
+
+### Failures Extracted: {M} (from verified only)
+- [name]: `trigger` → Fix: `action` (cost: Xk)
+
+### Required Follow-up
+Resume verification starting at: [next_unverified_id]
+Remaining workspaces: {count}
 ```
 </output_format>
