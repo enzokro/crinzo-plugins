@@ -42,98 +42,87 @@ Or from inside of Claude Code:
 ## Development Loop
 
 ```
-TASK MODE:
-/ftl <task> → router → builder → learner → memory.json
-
-CAMPAIGN MODE:
-/ftl campaign <obj> → planner → [builder]* → synthesizer → memory.json
-                          ↑                                      ↓
-                          └────────── queries precedent ─────────┘
+/ftl <task>
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  EXPLORER (4x parallel)             │
+│  structure │ pattern │ memory │ delta
+└─────────────────────────────────────┘
+    │
+    ▼ exploration.json
+┌─────────────────────────────────────┐
+│  PLANNER                            │
+│  Decompose → Verify → Budget → Order│
+└─────────────────────────────────────┘
+    │
+    ▼ plan.json → workspace XMLs
+┌─────────────────────────────────────┐
+│  BUILDER (per task)                 │
+│  Read spec → Implement → Verify     │
+└─────────────────────────────────────┘
+    │
+    ▼ complete/blocked workspaces
+┌─────────────────────────────────────┐
+│  OBSERVER                           │
+│  Verify blocks → Extract patterns   │
+└─────────────────────────────────────┘
+    │
+    ▼ memory.json
 ```
 
-**Tasks** produce workspace files capturing decisions, reasoning, and patterns. **Memory** indexes these into queryable knowledge. **Campaigns** coordinate multi-task objectives with adaptive learning — the synthesizer runs only when there's something new to learn.
+**Explorers** gather codebase context in parallel. **Planner** decomposes work into verifiable tasks. **Builder** implements each task within strict budgets. **Observer** extracts patterns from outcomes — both successes and failures become future knowledge.
 
 Each completed task makes the system smarter. Patterns emerge over time to influence future work.
 
 ## Agents
 
-Six agents with distinct roles and model assignments:
+Four agents with distinct roles:
 
-| Agent | Model | Role |
-|-------|-------|------|
-| **Router** | Sonnet | Classify tasks, create workspaces, inject memory (TASK mode) |
-| **Builder** | Opus | Transform workspace spec into code (SPEC/BUILD tasks) |
-| **Builder-Verify** | Sonnet | Execute VERIFY tasks and simple DIRECT changes |
-| **Planner** | Opus | Decompose objectives into verifiable tasks (CAMPAIGN mode) |
-| **Learner** | Opus | Extract patterns from single workspace (TASK mode) |
-| **Synthesizer** | Opus | Extract failures/discoveries from campaign workspaces |
+| Agent | Model | Role | Budget |
+|-------|-------|------|--------|
+| **Explorer** | Haiku | Parallel codebase reconnaissance (4 modes) | 4 |
+| **Planner** | Opus | Decompose objectives into verifiable tasks | — |
+| **Builder** | Opus | Transform workspace spec into code | 3-7 |
+| **Observer** | Opus | Extract patterns, update memory | 10 |
+
+**Explorer modes** run in parallel:
+- **structure**: Maps directories, entry points, test patterns, language
+- **pattern**: Detects framework, extracts idioms (required/forbidden)
+- **memory**: Retrieves prior failures and learned patterns
+- **delta**: Identifies candidate files for modification
 
 **Constraints:**
-- Learner and Synthesizer are mutually exclusive — Learner handles single tasks, Synthesizer handles campaigns
-- Tool budgets enforce focus: Builder gets 5 tools (FULL) or 3 (DIRECT), Builder-Verify gets 3
-- Synthesizer is conditionally gated — runs only when blocked workspaces exist or new frameworks are encountered
-
-## Execution Modes
-
-**FULL mode** (default for SPEC/BUILD):
-- 5-tool budget with retry-once on known failure match
-- Workspace file with code context and framework idioms
-- Quality checkpoint before completion
-
-**DIRECT mode** (simple changes, final VERIFY):
-- 3-tool budget, no retry
-- No workspace file — inline execution
-- Sonnet model via Builder-Verify agent
+- Explorers write to `.ftl/cache/explorer_{mode}.json` for reliable aggregation
+- Builder enforces framework idioms as non-negotiable — blocks even if tests pass
+- Observer verifies blocked workspaces before extracting failures (prevents false positives)
+- Blocking is success — informed handoff, not failure
 
 ## Commands
 
-### Core
-
-| Command                         | Purpose                                 |
-| ------------------------------- | --------------------------------------- |
-| `/ftl:ftl <task>`               | Execute task (routes to DIRECT or FULL) |
-| `/ftl:ftl campaign <objective>` | Plan and execute multi-task campaign    |
-| `/ftl:ftl query <topic>`        | Surface relevant precedent from memory  |
-| `/ftl:ftl status`               | Combined campaign + workspace status    |
-
-### Workspace
-
-| Command          | Purpose                       |
-| ---------------- | ----------------------------- |
-| `/ftl:workspace` | Query state, lineage, graph   |
-| `/ftl:close`     | Complete active task manually |
-
-### Memory
-
-| Command                    | Purpose                          |
-| -------------------------- | -------------------------------- |
-| `/ftl:learn`               | Force pattern synthesis          |
-| `/ftl:signal +/- #pattern` | Mark pattern outcome (+/-)       |
-| `/ftl:trace #pattern`      | Find decisions using a pattern   |
-| `/ftl:impact <file>`       | Find decisions affecting a file  |
-| `/ftl:age [days]`          | Find stale decisions             |
-| `/ftl:decision NNN`        | Full decision record with traces |
+| Command | Purpose |
+|---------|---------|
+| `/ftl <task>` | Full pipeline: explore → plan → build → observe |
+| `/ftl campaign "objective"` | Multi-task campaign with learning |
+| `/ftl query "topic"` | Surface relevant precedent from memory |
+| `/ftl status` | Current campaign and workspace state |
 
 ## Workspace Format
 
 Tasks produce XML workspace files in `.ftl/workspace/`. Each workspace is a contract between planner and builder — what to do, how to verify, and what to watch out for.
 
 ```xml
-<workspace id="003-routes-crud" type="BUILD" mode="FULL" status="active">
+<workspace id="003-routes-crud" type="BUILD" status="active">
   <implementation>
     <delta>src/routes.py</delta>
     <verify>pytest routes/test_*.py -v</verify>
-    <framework>FastHTML</framework>
+    <budget>5</budget>
+    <target_lines>45-120</target_lines>
   </implementation>
   <code_context>
-    <file path="src/routes.py" lines="1-60">
+    <file path="src/routes.py" lines="45-120">
       <content language="python">...</content>
-      <exports>create_route, handle_request</exports>
     </file>
-    <lineage>
-      <parent>002-database</parent>
-      <prior_delivery>Created database schema</prior_delivery>
-    </lineage>
   </code_context>
   <framework_idioms framework="FastHTML">
     <required><idiom>use @rt decorator for routes</idiom></required>
@@ -151,52 +140,53 @@ Tasks produce XML workspace files in `.ftl/workspace/`. Each workspace is a cont
 ```
 
 **Naming:** `NNN_task-slug_status.xml`
-- `NNN` — 3-digit sequence (000, 001, 002)
+- `NNN` — 3-digit sequence (001, 002, 003)
 - `status` — `active`, `complete`, or `blocked`
 
 The workspace is the builder's single source of truth. Framework idioms are non-negotiable. If something goes wrong that isn't in prior knowledge, the builder blocks — discovery is needed, not more debugging.
 
 ## Memory
 
-A unified system capturing what went wrong and what was decided:
+A unified system capturing what went wrong and what worked:
 
-| File                 | Purpose                                           |
-| -------------------- | ------------------------------------------------- |
-| `.ftl/memory.json`   | Failures, discoveries, decisions, edges           |
+| File | Purpose |
+|------|---------|
+| `.ftl/memory.json` | Failures and patterns |
+| `.ftl/exploration.json` | Aggregated explorer outputs |
+| `.ftl/campaign.json` | Active campaign state |
+| `.ftl/archive/` | Completed campaigns |
 
-**Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a match regex (to catch in logs), and a prevent command (pre-flight check). This is where "don't repeat mistakes" lives.
+**Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a regex match pattern (to catch in logs), and a cost estimate. Injected into builder's `prior_knowledge` to prevent repeats.
 
-**Discoveries** — Non-obvious insights that save significant tokens. High bar: a senior dev would be surprised by this. If it's obvious, it doesn't belong here.
+**Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Score ≥3 gets extracted.
 
-**Decisions** — Choices made with rationale. Each decision tracks options considered, the choice made, files touched, and thinking traces. This is precedent for future tasks.
+The Observer verifies blocked workspaces before extracting failures — no learning from false positives.
 
-### Signal Evolution
+## CLI Tools
 
-Patterns with positive signals (`/ftl:signal +`) surface higher in future queries. Patterns with negative signals fade. Net +5 gets 2x weight. Net -5 gets hidden. The system learns which approaches work in *your* codebase over time.
+The `lib/` directory provides Python utilities for orchestration:
+
+| Library | Purpose | Key Commands |
+|---------|---------|--------------|
+| `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
+| `campaign.py` | Campaign lifecycle | `create`, `add-tasks`, `status`, `complete`, `export` |
+| `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
+| `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query` |
 
 ## Examples
 
 ```bash
-# Simple task — routes to DIRECT, no workspace
-/ftl:ftl fix typo in README
-
-# Complex task — routes to FULL, creates workspace
-/ftl:ftl add user authentication
+# Execute a task — full pipeline runs
+/ftl add user authentication
 
 # Multi-task campaign
-/ftl:ftl campaign implement OAuth with Google and GitHub
+/ftl campaign "implement OAuth with Google and GitHub"
 
-# Query what you've done before
-/ftl:ftl query session handling
+# Query past patterns
+/ftl query session handling
 
 # Check status
-/ftl:ftl status
-
-# Mark a pattern as successful
-/ftl:signal + #pattern/session-token-flow
-
-# Find what touched a file
-/ftl:impact src/auth/
+/ftl status
 ```
 
 ## When to Use
