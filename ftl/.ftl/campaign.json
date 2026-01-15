@@ -1,31 +1,31 @@
 {
-  "objective": "Add campaign archiving: (1) Archive campaigns to .ftl/archive/{timestamp}.json on complete, (2) Add 'history' command showing archived campaigns with statistics",
+  "objective": "Add campaign history export to JSON with filtering by date range",
   "framework": "none",
-  "created_at": "2026-01-14T22:38:53.073933",
+  "created_at": "2026-01-15T11:12:45.232380",
   "status": "complete",
   "tasks": [
     {
       "seq": "001",
-      "slug": "archive-tests",
+      "slug": "spec-export-history",
       "type": "SPEC",
       "status": "complete",
-      "updated_at": "2026-01-14T22:41:42.665391"
+      "updated_at": "2026-01-15T11:14:30.349377"
     },
     {
       "seq": "002",
-      "slug": "archive-on-complete",
+      "slug": "impl-export-history",
       "type": "BUILD",
-      "status": "blocked",
-      "updated_at": "2026-01-14T22:42:53.434971"
+      "status": "complete",
+      "updated_at": "2026-01-15T11:16:04.265459"
     },
     {
       "seq": "003",
-      "slug": "history-command",
-      "type": "BUILD",
+      "slug": "verify-integration",
+      "type": "VERIFY",
       "status": "complete",
-      "updated_at": "2026-01-14T22:48:30.240567"
+      "updated_at": "2026-01-15T11:16:38.070166"
     }
   ],
-  "completed_at": "2026-01-14T22:49:59.323835",
-  "summary": "Implemented campaign archiving: archive on complete + history CLI. 26 tests pass."
+  "completed_at": "2026-01-15T11:16:50.082119",
+  "summary": "Implemented campaign history export to JSON with date range filtering. 30 tests pass."
 }

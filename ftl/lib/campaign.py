@@ -158,6 +158,47 @@ def history() -> dict:
     return {"archives": archives}
 
 
+def export_history(output_file: str, start_date: str = None, end_date: str = None) -> dict:
+    """Export campaign history to JSON file with optional date filtering.
+
+    Args:
+        output_file: Path to output JSON file
+        start_date: Optional start date (YYYY-MM-DD format)
+        end_date: Optional end date (YYYY-MM-DD format)
+
+    Returns:
+        Dict with campaigns list
+    """
+    campaigns = []
+    if ARCHIVE_DIR.exists():
+        for f in sorted(ARCHIVE_DIR.glob("*.json"), reverse=True):
+            campaign = json.loads(f.read_text())
+            completed_at = campaign.get("completed_at", "")
+
+            # Extract date portion (YYYY-MM-DD) from ISO timestamp
+            if completed_at:
+                campaign_date = completed_at[:10]
+            else:
+                campaign_date = ""
+
+            # Apply date filters
+            if start_date and campaign_date < start_date:
+                continue
+            if end_date and campaign_date > end_date:
+                continue
+
+            campaigns.append(campaign)
+
+    result = {"campaigns": campaigns}
+
+    # Write to output file
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(result, indent=2))
+
+    return result
+
+
 def active() -> dict | None:
     """Get active campaign or None.
 
@@ -205,6 +246,12 @@ def main():
     # history command
     subparsers.add_parser("history", help="List archived campaigns")
 
+    # export command
+    exp = subparsers.add_parser("export", help="Export campaign history to file")
+    exp.add_argument("output_file", help="Output JSON file path")
+    exp.add_argument("--start", dest="start", help="Start date (YYYY-MM-DD)")
+    exp.add_argument("--end", dest="end", help="End date (YYYY-MM-DD)")
+
     args = parser.parse_args()
 
     if args.command == "create":
@@ -244,6 +291,10 @@ def main():
 
     elif args.command == "history":
         result = history()
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "export":
+        result = export_history(args.output_file, args.start, args.end)
         print(json.dumps(result, indent=2))
 
     else:

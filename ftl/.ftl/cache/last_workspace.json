@@ -1,27 +1,14 @@
 {
-  "id": "003-history-command",
+  "id": "003-verify-integration",
   "status": "complete",
-  "created_at": "2026-01-14T22:40:21.109522",
-  "completed_at": "2026-01-14T22:48:15.937020",
+  "created_at": "2026-01-15T11:13:09.044875",
+  "completed_at": "2026-01-15T11:16:28.110703",
   "blocked_at": null,
-  "delta": [
-    "lib/campaign.py",
-    "tests/test_campaign.py"
-  ],
-  "verify": "pytest tests/test_campaign.py -k history -v",
-  "budget": 5,
-  "preflight": [
-    "python -m py_compile lib/campaign.py",
-    "python -m py_compile tests/test_campaign.py"
-  ],
-  "delivered": "Fixed archive filename collision and sort order\n- Files: lib/campaign.py\n- Fix 1: complete() uses full microsecond precision in archive filenames\n- Fix 2: history() sorts archives reverse=True for most recent first",
-  "code_context": {
-    "path": "lib/campaign.py",
-    "lines": "1-60",
-    "content": "#!/usr/bin/env python3\n\"\"\"Campaign operations.\"\"\"\n\nfrom pathlib import Path\nfrom datetime import datetime\nimport json\nimport argparse\nimport sys\n\n\nCAMPAIGN_FILE = Path(\".ftl/campaign.json\")\n\n\ndef create(objective: str, framework: str = None) -> dict:\n    \"\"\"Create new campaign.\n\n    Args:\n        objective: Campaign objective\n        framework: Optional framework name\n\n    Returns:\n        Campaign dict\n    \"\"\"\n    campaign = {\n        \"objective\": objective,\n        \"framework\": framework,\n        \"created_at\": datetime.now().isoformat(),\n        \"status\": \"active\",\n        \"tasks\": [],\n    }\n    CAMPAIGN_FILE.parent.mkdir(parents=True, exist_ok=True)\n    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))\n    return campaign\n\n\ndef add_tasks(plan: dict) -> None:\n    \"\"\"Add tasks from planner output.\n\n    Args:\n        plan: Plan dict with tasks[]\n    \"\"\"\n    if not CAMPAIGN_FILE.exists():\n        raise ValueError(\"No active campaign\")\n\n    campaign = json.loads(CAMPAIGN_FILE.read_text())\n    campaign[\"framework\"] = plan.get(\"framework\")\n    campaign[\"tasks\"] = [\n        {\n            \"seq\": t[\"seq\"],\n            \"slug\": t[\"slug\"],\n            \"type\": t.get(\"type\", \"BUILD\"),\n            \"status\": \"pending\"\n        }\n        for t in plan.get(\"tasks\", [])\n    ]\n    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))\n\n\ndef update_task(seq: str, status: str) -> None:\n    \"\"\"Update task status.",
-    "exports": "CAMPAIGN_FILE, create(), add_tasks(), update_task()",
-    "imports": "from pathlib import Path\nfrom datetime import datetime\nimport json\nimport argparse\nimport sys"
-  },
+  "delta": [],
+  "verify": "pytest tests/test_campaign.py -v",
+  "budget": 3,
+  "preflight": [],
+  "delivered": "Integration verification complete\n- All 30 tests passed\n- Campaign CRUD operations verified\n- Archive and history functions verified\n- Task management (add, update, next) verified",
   "prior_knowledge": {
     "failures": [
       {
@@ -30,6 +17,20 @@
         "trigger": "ModuleNotFoundError: No module named foo",
         "fix": "Install foo with pip install foo",
         "match": "No module named.*foo"
+      },
+      {
+        "name": "partial-code-context-budget-exhaustion",
+        "cost": 3000,
+        "trigger": "Budget exhausted before implementation - code_context partial",
+        "fix": "Ensure code_context includes target function lines, or increase budget by 2 for discovery",
+        "match": "Budget.*exhausted.*code_context.*partial|code_context.*lines.*but.*function.*at"
+      },
+      {
+        "name": "spec-impl-mismatch-cli-args",
+        "cost": 3000,
+        "trigger": "AssertionError: Archive directory not created",
+        "fix": "SPEC task should verify CLI signature matches implementation before writing tests",
+        "match": "invalid choice.*choose from|argument.*invalid|Archive directory not created"
       }
     ],
     "patterns": [
@@ -38,6 +39,18 @@
         "saved": 10000,
         "trigger": "Circular import at runtime",
         "insight": "Move import inside function body"
+      },
+      {
+        "name": "blocked-retry-budget-context-fix",
+        "saved": 3000,
+        "trigger": "BUILD task blocked on budget exhaustion with partial code_context",
+        "insight": "Retry with 2x budget AND strategic code_context that includes target function lines; both are needed - budget alone without context wastes reads"
+      },
+      {
+        "name": "verify-function-location-before-build",
+        "saved": 1500,
+        "trigger": "BUILD task targets existing function in large file",
+        "insight": "Planner must locate target function (grep -n function_name file.py) and set code_context to include those lines; partial context forces budget waste on re-reading"
       }
     ]
   }

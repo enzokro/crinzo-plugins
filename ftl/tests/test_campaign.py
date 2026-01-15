@@ -60,6 +60,63 @@ class TestCampaignStatus:
         assert data["status"] == "active"
 
 
+class TestCampaignExportHistory:
+    """Test campaign history export with date range filtering."""
+
+    def test_export_creates_file(self, cli, ftl_dir, tmp_path):
+        """Export history creates JSON file."""
+        cli.campaign("create", "Export test")
+        export_file = tmp_path / "history.json"
+
+        code, out, err = cli.campaign("export", str(export_file))
+        assert code == 0, f"Failed: {err}"
+        assert export_file.exists()
+
+        data = json.loads(export_file.read_text())
+        assert "campaigns" in data
+
+    def test_export_filter_start_date(self, cli, ftl_dir, tmp_path):
+        """Export filters campaigns after start date."""
+        cli.campaign("create", "Filter start test")
+        export_file = tmp_path / "history.json"
+
+        code, out, err = cli.campaign(
+            "export", str(export_file), "--start", "2026-01-01"
+        )
+        assert code == 0, f"Failed: {err}"
+
+        data = json.loads(export_file.read_text())
+        assert "campaigns" in data
+
+    def test_export_filter_end_date(self, cli, ftl_dir, tmp_path):
+        """Export filters campaigns before end date."""
+        cli.campaign("create", "Filter end test")
+        export_file = tmp_path / "history.json"
+
+        code, out, err = cli.campaign(
+            "export", str(export_file), "--end", "2026-12-31"
+        )
+        assert code == 0, f"Failed: {err}"
+
+        data = json.loads(export_file.read_text())
+        assert "campaigns" in data
+
+    def test_export_filter_both_dates(self, cli, ftl_dir, tmp_path):
+        """Export filters campaigns within date range."""
+        cli.campaign("create", "Filter both test")
+        export_file = tmp_path / "history.json"
+
+        code, out, err = cli.campaign(
+            "export", str(export_file),
+            "--start", "2026-01-01",
+            "--end", "2026-12-31"
+        )
+        assert code == 0, f"Failed: {err}"
+
+        data = json.loads(export_file.read_text())
+        assert "campaigns" in data
+
+
 class TestCampaignArchive:
     """Test campaign archival on complete."""
 

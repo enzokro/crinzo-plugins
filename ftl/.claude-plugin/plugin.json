@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "author": {
     "name": "crinzo"
   },
@@ -15,6 +15,15 @@
   "commands": "./commands/",
   "hooks": {
     "SubagentStop": [
+      {
+        "matcher": "ftl:ftl-explorer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh explorer"
+          }
+        ]
+      },
       {
         "matcher": "ftl:ftl-planner",
         "hooks": [

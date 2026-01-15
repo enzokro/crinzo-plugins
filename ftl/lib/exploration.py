@@ -253,6 +253,10 @@ def main():
     agg = subparsers.add_parser("aggregate", help="Aggregate explorer outputs")
     agg.add_argument("--objective", help="Original objective text")
 
+    # aggregate-files command - reads from .ftl/cache/explorer_*.json files
+    aggf = subparsers.add_parser("aggregate-files", help="Aggregate from cache files")
+    aggf.add_argument("--objective", help="Original objective text")
+
     # write command - writes exploration dict from stdin
     w = subparsers.add_parser("write", help="Write exploration.json from stdin")
 
@@ -281,6 +285,19 @@ def main():
                 if parsed is not None:
                     results.append(parsed)
                 # Skip unparseable lines silently
+        exploration = aggregate(results, args.objective)
+        print(json.dumps(exploration, indent=2))
+
+    elif args.command == "aggregate-files":
+        # Read from .ftl/cache/explorer_{mode}.json files
+        results = []
+        cache_dir = Path(".ftl/cache")
+        for mode in ["structure", "pattern", "memory", "delta"]:
+            f = cache_dir / f"explorer_{mode}.json"
+            if f.exists():
+                parsed = extract_json(f.read_text())
+                if parsed is not None:
+                    results.append(parsed)
         exploration = aggregate(results, args.objective)
         print(json.dumps(exploration, indent=2))
 

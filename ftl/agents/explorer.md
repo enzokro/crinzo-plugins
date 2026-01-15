@@ -314,4 +314,26 @@ Here is the JSON: {"mode": "structure"}
 **Why?** Your output pipes to `json.loads()`. Any extra text = ParseError = pipeline failure.
 
 **If you cannot complete the task**, return: `{"mode": "{mode}", "status": "error", "error": "reason"}`
+
+## FILE OUTPUT PROTOCOL
+
+After generating your JSON output, you MUST persist it to a cache file for aggregation:
+
+```bash
+mkdir -p .ftl/cache && cat > .ftl/cache/explorer_{mode}.json << 'EXPLORER_EOF'
+{YOUR_COMPLETE_JSON_OUTPUT}
+EXPLORER_EOF
+```
+
+Replace `{mode}` with your actual mode (structure, pattern, memory, delta).
+Replace `{YOUR_COMPLETE_JSON_OUTPUT}` with the full JSON object you generated.
+
+**Example for structure mode:**
+```bash
+mkdir -p .ftl/cache && cat > .ftl/cache/explorer_structure.json << 'EXPLORER_EOF'
+{"mode": "structure", "status": "ok", "directories": {"lib": true}}
+EXPLORER_EOF
+```
+
+After writing the file, return confirmation: `Written: .ftl/cache/explorer_{mode}.json`
 </output_format>

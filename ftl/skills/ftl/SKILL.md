@@ -36,11 +36,8 @@ version: 2.0.0
    Task(ftl:ftl-explorer) "mode=memory, objective={task}"
    Task(ftl:ftl-explorer) "mode=delta, objective={task}"
 
-3. Aggregate outputs (each agent returns raw JSON):
-   echo '{output1}
-   {output2}
-   {output3}
-   {output4}' | python3 lib/exploration.py aggregate --objective "{task}" | python3 lib/exploration.py write
+3. Aggregate outputs (explorers write to .ftl/cache/explorer_{mode}.json):
+   python3 lib/exploration.py aggregate-files --objective "{task}" | python3 lib/exploration.py write
 
 4. Task(ftl:ftl-planner) with task + exploration.json
    → Returns plan.json
@@ -67,11 +64,8 @@ version: 2.0.0
    Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
    Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
 
-3. Aggregate outputs:
-   echo '{output1}
-   {output2}
-   {output3}
-   {output4}' | python3 lib/exploration.py aggregate --objective "{objective}" | python3 lib/exploration.py write
+3. Aggregate outputs (explorers write to .ftl/cache/explorer_{mode}.json):
+   python3 lib/exploration.py aggregate-files --objective "{objective}" | python3 lib/exploration.py write
 
 4. Task(ftl:ftl-planner) with objective + exploration.json
    → Returns plan.json
@@ -108,37 +102,48 @@ Status: `active` → `complete` | `blocked`
 | **Essential** | Critical | Escalate |
 | **Quality** | Important | Note |
 
-## CLI Reference
+## CLI Reference (Exact Syntax)
 
-```bash
-# Exploration
-python3 lib/exploration.py clear        # remove exploration.json
-python3 lib/exploration.py aggregate --objective "..."  # stdin: JSON lines
-python3 lib/exploration.py write        # stdin: exploration dict
-python3 lib/exploration.py read         # returns exploration.json
-python3 lib/exploration.py get-structure
-python3 lib/exploration.py get-pattern
-python3 lib/exploration.py get-memory
-python3 lib/exploration.py get-delta
+**IMPORTANT**: Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require the flag prefix.
 
-# Memory
-python3 lib/memory.py context --type BUILD
-python3 lib/memory.py add-failure --json '{...}'
-python3 lib/memory.py add-pattern --json '{...}'
-python3 lib/memory.py query "topic"
+### exploration.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| clear | `python3 lib/exploration.py clear` | removes exploration.json |
+| aggregate | `python3 lib/exploration.py aggregate --objective "text"` | stdin: JSON lines |
+| aggregate-files | `python3 lib/exploration.py aggregate-files --objective "text"` | reads .ftl/cache/explorer_*.json |
+| write | `python3 lib/exploration.py write` | stdin: exploration dict |
+| read | `python3 lib/exploration.py read` | returns exploration.json |
+| get-structure | `python3 lib/exploration.py get-structure` | |
+| get-pattern | `python3 lib/exploration.py get-pattern` | |
+| get-memory | `python3 lib/exploration.py get-memory` | |
+| get-delta | `python3 lib/exploration.py get-delta` | |
 
-# Workspace
-python3 lib/workspace.py create --plan plan.json
-python3 lib/workspace.py complete path --delivered "..."
-python3 lib/workspace.py block path --reason "..."
-python3 lib/workspace.py parse path
+### campaign.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| create | `python3 lib/campaign.py create "objective" [--framework NAME]` | `objective` is POS |
+| status | `python3 lib/campaign.py status` | |
+| add-tasks | `cat plan.json \| python3 lib/campaign.py add-tasks` | reads stdin |
+| update-task | `python3 lib/campaign.py update-task SEQ STATUS` | both POS |
+| next-task | `python3 lib/campaign.py next-task` | returns first pending |
+| complete | `python3 lib/campaign.py complete [--summary "text"]` | `--summary` is FLAG (not positional!) |
+| active | `python3 lib/campaign.py active` | returns campaign or null |
+| history | `python3 lib/campaign.py history` | |
+| export | `python3 lib/campaign.py export OUTPUT [--start DATE] [--end DATE]` | `OUTPUT` is POS |
 
-# Campaign
-python3 lib/campaign.py create "objective"
-python3 lib/campaign.py add-tasks  # stdin
-python3 lib/campaign.py update-task SEQ STATUS
-python3 lib/campaign.py next-task   # returns first pending task
-python3 lib/campaign.py status
-python3 lib/campaign.py active      # returns campaign if active, else null
-python3 lib/campaign.py complete
-```
+### workspace.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| create | `python3 lib/workspace.py create --plan PATH [--task SEQ]` | `--plan` REQUIRED |
+| parse | `python3 lib/workspace.py parse PATH` | `PATH` is POS |
+| complete | `python3 lib/workspace.py complete PATH --delivered "text"` | `--delivered` REQUIRED |
+| block | `python3 lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
+
+### memory.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| context | `python3 lib/memory.py context [--type TYPE] [--tags TAGS] [--all]` | |
+| add-failure | `python3 lib/memory.py add-failure --json '{...}'` | `--json` REQUIRED |
+| add-pattern | `python3 lib/memory.py add-pattern --json '{...}'` | `--json` REQUIRED |
+| query | `python3 lib/memory.py query "term"` | `term` is POS |

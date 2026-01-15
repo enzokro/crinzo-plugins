@@ -76,6 +76,16 @@
         "003-history-command"
       ],
       "created_at": "2026-01-14T22:49:26.952534"
+    },
+    {
+      "name": "iso-date-string-filter",
+      "trigger": "Filter records by date range without datetime parsing",
+      "insight": "Compare ISO date strings directly using string slicing (completed_at[:10] >= start_date); lexicographic ordering of YYYY-MM-DD strings preserves chronological order",
+      "saved": 500,
+      "source": [
+        "002-impl-export-history"
+      ],
+      "created_at": "2026-01-15T11:17:44.753387"
     }
   ]
 }
