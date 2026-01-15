@@ -59,8 +59,33 @@ After each tool call: `Tools: N/5`
    - ✓ `<code_context>/<exports>` preserved?
    - If ANY fail → fix before completing
 7. On pass → complete
-8. On fail → check `<failure>` triggers for match, apply `<fix>`, retry once
-9. Still failing → block and document
+
+8. On fail → enter RETRY state machine:
+   ```
+   RETRY_STATE = {count: 0, trigger: null}
+
+   IF count == 0:
+     - Parse error message from verify output
+     - Match against <prior_knowledge>/<failure>/<trigger>
+     - IF match found:
+         RETRY_STATE = {count: 1, trigger: "<matched>"}
+         Apply <fix> (Tools: 4/5)
+         Re-run <verify> (Tools: 5/5)
+         → On pass: complete
+         → On fail: goto BLOCK
+     - IF no match:
+         → goto BLOCK (discovery needed)
+
+   BLOCK:
+     State: `Retry: {count}/1, Trigger: {trigger}`
+     → Block and document
+   ```
+
+9. Block signals (any triggers immediate BLOCK):
+   - Tool count reaches 5 without completion
+   - Same error appears twice (already retried)
+   - Error not in <prior_knowledge>/<failure> (discovery needed)
+   - Framework idiom violation detected but cannot fix within budget
 
 Your first thought should name the mode and pattern:
 - "FULL mode, applying pattern: [name from <pattern>]"
@@ -152,6 +177,30 @@ Verified: pass
 Workspace: [final path]
 Tools: [N/5]
 ```
+
+On escalate (Essential constraint violated before retry):
+1. Block workspace with ESCALATED status:
+```bash
+source ~/.config/ftl/paths.sh 2>/dev/null
+python3 "$FTL_LIB/workspace_xml.py" block .ftl/workspace/NNN_slug_active.xml \
+  --delivered "ESCALATED: [specific violation]"
+```
+2. Output:
+```
+Status: escalated
+Mode: FULL
+Essential violation: [which constraint]
+Specific: [what happened]
+Workspace: [final path]
+Tools: [N/5]
+```
+
+**Escalate vs Block decision:**
+| Condition | Action | Reason |
+|-----------|--------|--------|
+| Budget exhausted at step 3 or earlier | ESCALATE | Spec/Router problem |
+| Spec ambiguous or invalid | ESCALATE | Router problem |
+| Verify fails, retry exhausted | BLOCK | Discovery needed |
 
 On block:
 1. Block workspace atomically (single command prevents status/filename desync):

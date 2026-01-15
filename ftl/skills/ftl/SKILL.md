@@ -31,16 +31,18 @@ DO NOT:
 
 ### Agent Matrix
 
-| Agent | Task | Campaign |
-|-------|------|----------|
-| Router | ✓ | ⊘ (use workspace_from_plan.py) |
-| Builder | ✓ | ✓ |
-| Planner | ⊘ | start only |
-| **Learner** | **✓** | **⊘ NEVER** |
-| **Synthesizer** | ⊘ | **end only** |
+| Agent | Role | Task | Campaign | Tools | Key Constraint |
+|-------|------|------|----------|-------|----------------|
+| Router | Classify tasks | ✓ | ⊘ | 5 | Pass framework context |
+| Builder | Spec → code | ✓ | ✓ | 5 | Framework fidelity |
+| Builder-Verify | VERIFY/DIRECT | ✓ | ✓ | 3 | No file modifications |
+| Planner | Decompose objectives | ⊘ | start | ∞ | Verification coherence |
+| **Learner** | Extract patterns (single) | **✓** | **⊘ NEVER** | 5 | Read-only except findings |
+| **Synthesizer** | Extract meta-patterns | ⊘ | **end only** | 10 | Verify blocks first |
 
-**Router**: TASK mode only. Campaign uses `workspace_from_plan.py` instead.
-**Learner + Synthesizer**: Mutually exclusive by mode.
+**Mode rules:**
+- Router: TASK only. Campaign uses `workspace_from_plan.py` instead.
+- Learner + Synthesizer: Mutually exclusive by mode.
 
 ---
 
@@ -82,55 +84,21 @@ Hooks update `cognition_state.md` via `capture_delta.sh`.
 
 ## Framework Idioms Flow
 
-Framework idioms are **defined in README**, not hardcoded in agents. This makes FTL framework-agnostic.
+Framework idioms are **defined in README**, not hardcoded. This makes FTL framework-agnostic. Fallback idioms exist for FastHTML/FastAPI if README lacks explicit ones.
 
-If README mentions a framework but lacks explicit idioms, Planner uses minimal fallback idioms for common frameworks (FastHTML, FastAPI). Projects should define explicit idioms in README for clarity.
+| Mode | Extraction | Enforcement |
+|------|------------|-------------|
+| TASK | Router reads README → copies to workspace | Builder: **Essential** constraint |
+| CAMPAIGN | Planner → JSON → workspace_from_plan.py | Builder: **Essential** constraint |
 
-| Mode | Flow |
-|------|------|
-| TASK | README → Router (extracts) → Builder (enforces) |
-| CAMPAIGN | README → Planner (extracts to JSON) → workspace_from_plan.py → Builder (enforces) |
-
-### README Structure (project defines)
-
+### README Structure
 ```markdown
 ## Framework Idioms
-Required:
-- [pattern 1 - e.g., "Use @rt decorator for routes"]
-- [pattern 2 - e.g., "Return component trees, not strings"]
-
-Forbidden:
-- [anti-pattern 1 - e.g., "Raw HTML strings with f-strings"]
-- [anti-pattern 2 - e.g., "Manual string concatenation"]
+Required: [patterns to use]
+Forbidden: [anti-patterns to avoid]
 ```
 
-### Extraction (mode-dependent)
-
-**TASK mode (Router)**:
-- Looks for "## Framework Idioms" section in README
-- If found: copies Required/Forbidden lists verbatim to workspace
-- If not found but framework mentioned: infers generic guidance
-- If no framework: omits Framework Idioms section entirely
-
-**CAMPAIGN mode (Planner → workspace_from_plan.py)**:
-- Planner extracts idioms to JSON output
-- workspace_from_plan.py copies idioms to each workspace
-- No Router agent needed
-
-### Builder (enforces)
-
-- Framework Idioms in workspace are **Essential** constraints
-- Required items MUST be used
-- Forbidden items MUST NOT appear
-- Quality checkpoint verifies idiom compliance
-
-### Planner (signals)
-
-```markdown
-### Downstream Impact
-- Framework: [name] (Builder must use idioms)
-- Framework complexity: [low | moderate | high]
-```
+**Builder enforcement:** Required items MUST be used; Forbidden items MUST NOT appear. Quality checkpoint verifies compliance.
 
 ---
 
@@ -187,7 +155,7 @@ Forbidden:
 
 ```
 1. Task(ftl:router) with task description
-   Returns: direct | full | clarify
+   Returns: DIRECT | FULL | CLARIFY
 
 2a. If direct:
     Task(ftl:ftl-builder) with inline spec
@@ -259,7 +227,7 @@ Task(ftl:planner) with prompt:
 
 Planner fetches its own memory (Step 0 in planner.md).
 
-Returns: PROCEED | CONFIRM | CLARIFY
+Returns: PROCEED | VERIFY | CLARIFY
 
 ### Step 3: Create Campaign
 
@@ -492,16 +460,3 @@ Every agent runs a quality checkpoint before completing:
 
 Quality checkpoint catches issues before they propagate.
 
----
-
-## 5 Agents
-
-| Agent | Role | Key Constraint |
-|-------|------|----------------|
-| **router** | Classify tasks (TASK mode only) | Pass framework context to builder |
-| **builder** | Transform workspace spec into code | 5 tools max, framework fidelity |
-| **planner** | Decompose objectives + output JSON specs | Verification coherence |
-| **learner** | Extract patterns from single workspace (TASK) | Read-only except Key Findings |
-| **synthesizer** | Extract meta-patterns from all workspaces (CAMPAIGN) | Verify blocks before extraction |
-
-**Note**: In Campaign mode, `workspace_from_plan.py` replaces Router for workspace generation.

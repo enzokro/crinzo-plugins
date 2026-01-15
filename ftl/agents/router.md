@@ -35,7 +35,20 @@ State: `Type: {TYPE}`
 | Condition | Action |
 |-----------|--------|
 | VERIFY in campaign context | Mode = DIRECT, skip to Phase B.DIRECT |
-| SPEC | Mode = FULL, skip to Step 4 |
+| SPEC | Mode = FULL, skip to Phase B.FULL |
+
+### Step 2.5: Extract variables from task prompt (BUILD only)
+
+Parse task description for required variables:
+
+| Variable | Source | Example |
+|----------|--------|---------|
+| DELTA | File path(s) mentioned in task | `main.py` or `src/routes.py,src/models.py` |
+| TAGS | Type + framework + language | `build,fasthtml,python` |
+
+State: `DELTA={file(s)}, TAGS={csv}`
+
+If DELTA not found in task prompt → ESCALATE (missing file target)
 
 ### Step 3: Mechanical mode check (BUILD only)
 
@@ -51,6 +64,8 @@ FILES=$(echo "$DELTA" | tr ',' '\n' | wc -l | tr -d ' ')
 # Count lines if single file exists
 [ -f "$DELTA" ] && LINES=$(wc -l < "$DELTA") || LINES=999
 ```
+
+State: `Failures={N}, Framework={Y|N}, Files={N}, Lines={N}`
 
 ### Step 4: Apply mode rules
 

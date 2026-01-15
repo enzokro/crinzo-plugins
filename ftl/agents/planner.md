@@ -63,12 +63,14 @@ If no Prior Knowledge: fall back to README-as-spec.
    - BUILD task k depends on k-1
    - Each BUILD uses mutually-exclusive test filter
    - VERIFY depends on final BUILD
+   State: `Ordering: {N} tasks, max_depth={D}`
 
 4. Create pre-flight checks
    - Executable bash commands
    - Scoped to this task's Delta only
    - Good: `python -m py_compile src/handler.py`
    - Bad: `pytest` (not scoped)
+   State: `Preflight: {N} checks across {M} tasks`
 
 5. Output campaign plan
 </instructions>
@@ -195,6 +197,18 @@ When Decision = VERIFY, include exploration section after tasks:
 | 002 | Test file location | `ls tests/` | test_*.py exists |
 
 Run these commands. If results match Expected, proceed with plan.
-If mismatch, return here with results for plan revision.
+If mismatch, return to planner with results for revision.
 ```
+
+### VERIFY Re-entry Protocol
+When exploration results mismatch expectations, human returns with results. Planner actions:
+
+| Result | Action |
+|--------|--------|
+| All match Expected | Proceed with existing plan unchanged |
+| Mismatch on task N | Revise task N only, regenerate JSON for N |
+| Multiple mismatches | Reassess complexity (return to step 1) |
+| New blocker discovered | Upgrade to CLARIFY, output blocking questions |
+
+State: `Re-entry: {N} mismatches → {action: proceed|revise|reassess|clarify}`
 </output_format>

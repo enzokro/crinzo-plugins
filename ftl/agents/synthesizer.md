@@ -51,7 +51,15 @@ Discovery fields (high bar - senior dev would be surprised):
        print('---')
    "
    ```
+
+   Read experience.json (if exists):
+   ```bash
+   [ -f .ftl/cache/experience.json ] && cat .ftl/cache/experience.json
+   ```
+   Experience entries are pre-failures from Builder blocks - convert to failure entries in step 3.
+
    State: `Workspaces found: {complete: N, blocked: M}`
+   State: `Experience entries: {N} (from Builder blocks)`
    State: `Blocked list: [id1, id2, ...]`
 
 2. **VERIFY BLOCKS BEFORE EXTRACTION** (REQUIRED)
@@ -93,10 +101,15 @@ Discovery fields (high bar - senior dev would be surprised):
    - Every VERIFIED blocked workspace produces a failure entry
    State: `Failures to extract: N (from M confirmed blocks)`
 
-4. Check for soft failures (quality issues)
-   - Framework idioms bypassed: check if `<forbidden>` items appear in delivered code
-   - Placeholder sections unfilled: `<delivered status="pending">`
-   - These indicate process drift - extract pattern to prevent recurrence
+4. Check for soft failures in COMPLETED workspaces
+   Source: `*_complete.xml` files only (blocked workspaces handled in steps 2-3)
+
+   Soft failure criteria (mechanical checks):
+   - Forbidden idiom in code: `grep '<forbidden_pattern>' <delivered>`
+   - Placeholder unfilled: `<delivered status="pending">` or `TODO:` in delivered
+   - Sparse documentation: delivered < 100 chars without BLOCKED prefix
+
+   State: `Soft failures: {N} from {M} completed workspaces`
 
 5. Extract with generalization
    - Replace specifics with placeholders (`handler.py` → `<IMPLEMENTATION_FILE>`)
@@ -108,10 +121,19 @@ Discovery fields (high bar - senior dev would be surprised):
    - Senior engineer would not say "obviously"
 
 7. Deduplicate and save
-   - Compare triggers mechanically:
-     - Levenshtein distance < 10 characters: DUPLICATE
-     - OR regex patterns share >80% character classes: DUPLICATE
+   Run deduplication before each add:
+   ```python
+   from difflib import SequenceMatcher
+   def is_duplicate(new_trigger, existing_failures):
+       for entry in existing_failures:
+           ratio = SequenceMatcher(None, new_trigger.lower(),
+                                  entry['trigger'].lower()).ratio()
+           if ratio > 0.85:  # 85% similarity = duplicate
+               return True, entry['name']
+       return False, None
+   ```
    - If duplicate: merge sources, keep higher cost
+   State: `Deduplication: {N} new, {M} merged into existing`
    - Update memory via python script
    State: `Memory updated: +{N} failures, +{M} discoveries`
 </instructions>
