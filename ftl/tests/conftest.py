@@ -1,11 +1,14 @@
-"""Pytest fixtures for FTL tests."""
+"""FTL v2 Test Fixtures."""
 
 import os
-import subprocess
-import tempfile
+import sys
+import json
 import shutil
-import pytest
+import tempfile
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -15,80 +18,133 @@ def lib_path():
 
 
 @pytest.fixture
-def tmpdir():
-    """Create a temporary directory with FTL structure."""
-    tmpdir = tempfile.mkdtemp(prefix="ftl_test_")
-    os.makedirs(f"{tmpdir}/.ftl/campaigns/active", exist_ok=True)
-    os.makedirs(f"{tmpdir}/.ftl/campaigns/complete", exist_ok=True)
-    os.makedirs(f"{tmpdir}/.ftl/workspace", exist_ok=True)
-    yield tmpdir
-    shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-class TestFixture:
-    """Test fixture with temp directory and FTL structure."""
-
-    def __init__(self, lib_path):
-        self.lib_path = lib_path
-        self.tmpdir = None
-
-    def setup(self):
-        """Create temp directory with FTL structure."""
-        self.tmpdir = tempfile.mkdtemp(prefix="ftl_cli_test_")
-        os.makedirs(f"{self.tmpdir}/.ftl/campaigns/active", exist_ok=True)
-        os.makedirs(f"{self.tmpdir}/.ftl/campaigns/complete", exist_ok=True)
-        os.makedirs(f"{self.tmpdir}/.ftl/workspace", exist_ok=True)
-        os.makedirs(f"{self.tmpdir}/.ftl/memory", exist_ok=True)
-        return self.tmpdir
-
-    def teardown(self):
-        """Clean up temp directory."""
-        if self.tmpdir:
-            shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def cmd(self, subcmd, stdin=None):
-        """Run campaign.py subcommand."""
-        result = subprocess.run(
-            f'python3 "{self.lib_path}/campaign.py" -b {self.tmpdir} {subcmd}',
-            shell=True, capture_output=True, text=True, input=stdin
-        )
-        return result.returncode, result.stdout, result.stderr
-
-
-@pytest.fixture
-def fixture(lib_path):
-    """Create TestFixture instance for CLI contract tests."""
-    f = TestFixture(lib_path)
-    f.setup()
-    yield f
-    f.teardown()
-
-
-@pytest.fixture
-def parse(lib_path):
-    """Import and return parse_planner_output function."""
-    import sys
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    from campaign import parse_planner_output
-    return parse_planner_output
-
-
-@pytest.fixture
-def parse_filename(lib_path):
-    """Import and return parse_workspace_filename function."""
-    import sys
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    from memory import parse_workspace_filename
-    return parse_workspace_filename
+def ftl_dir(tmp_path):
+    """Create a temporary .ftl directory structure."""
+    ftl = tmp_path / ".ftl"
+    (ftl / "workspace").mkdir(parents=True)
+    (ftl / "cache").mkdir(parents=True)
+    yield tmp_path
+    # Cleanup handled by tmp_path fixture
 
 
 @pytest.fixture
 def memory_module(lib_path):
     """Import and return memory module."""
-    import sys
     if str(lib_path) not in sys.path:
         sys.path.insert(0, str(lib_path))
+    import importlib
     import memory
+    importlib.reload(memory)  # Fresh import
     return memory
+
+
+@pytest.fixture
+def workspace_module(lib_path):
+    """Import and return workspace module."""
+    if str(lib_path) not in sys.path:
+        sys.path.insert(0, str(lib_path))
+    import importlib
+    import workspace
+    importlib.reload(workspace)
+    return workspace
+
+
+@pytest.fixture
+def campaign_module(lib_path):
+    """Import and return campaign module."""
+    if str(lib_path) not in sys.path:
+        sys.path.insert(0, str(lib_path))
+    import importlib
+    import campaign
+    importlib.reload(campaign)
+    return campaign
+
+
+class CLIRunner:
+    """Run FTL CLI commands in a temp directory."""
+
+    def __init__(self, lib_path: Path, work_dir: Path):
+        self.lib_path = lib_path
+        self.work_dir = work_dir
+
+    def run(self, module: str, *args, stdin: str = None) -> tuple[int, str, str]:
+        """Run a lib module with args. Returns (code, stdout, stderr)."""
+        cmd = ["python3", str(self.lib_path / f"{module}.py")] + list(args)
+        result = subprocess.run(
+            cmd,
+            cwd=self.work_dir,
+            capture_output=True,
+            text=True,
+            input=stdin
+        )
+        return result.returncode, result.stdout, result.stderr
+
+    def memory(self, *args, stdin: str = None):
+        return self.run("memory", *args, stdin=stdin)
+
+    def workspace(self, *args, stdin: str = None):
+        return self.run("workspace", *args, stdin=stdin)
+
+    def campaign(self, *args, stdin: str = None):
+        return self.run("campaign", *args, stdin=stdin)
+
+
+@pytest.fixture
+def cli(lib_path, ftl_dir):
+    """Create CLI runner for testing."""
+    return CLIRunner(lib_path, ftl_dir)
+
+
+@pytest.fixture
+def sample_plan():
+    """Sample plan.json for testing."""
+    return {
+        "campaign": "test-campaign",
+        "framework": "none",
+        "idioms": {"required": [], "forbidden": []},
+        "tasks": [
+            {
+                "seq": "001",
+                "slug": "first-task",
+                "type": "SPEC",
+                "delta": ["test_file.py"],
+                "verify": "pytest test_file.py --collect-only",
+                "budget": 3,
+                "depends": "none"
+            },
+            {
+                "seq": "002",
+                "slug": "second-task",
+                "type": "BUILD",
+                "delta": ["main.py"],
+                "verify": "pytest -v",
+                "budget": 5,
+                "depends": "001",
+                "preflight": ["python -m py_compile main.py"]
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def sample_plan_with_framework():
+    """Sample plan.json with framework idioms."""
+    return {
+        "campaign": "fasthtml-app",
+        "framework": "FastHTML",
+        "idioms": {
+            "required": ["Use @rt decorator", "Return component trees"],
+            "forbidden": ["Raw HTML strings"]
+        },
+        "tasks": [
+            {
+                "seq": "001",
+                "slug": "add-route",
+                "type": "BUILD",
+                "delta": ["main.py"],
+                "verify": "python -c 'import main'",
+                "budget": 5,
+                "depends": "none"
+            }
+        ]
+    }

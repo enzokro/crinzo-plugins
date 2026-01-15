@@ -1,63 +1,25 @@
 {
   "name": "ftl",
-  "description": "Claude Code orchestrators that build knowledge over time.",
-  "version": "1.0.95",
+  "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
+  "version": "2.0.1",
   "author": {
     "name": "crinzo"
   },
   "skills": "./skills/",
   "agents": [
-    "./agents/router.md",
-    "./agents/builder.md",
-    "./agents/builder-verify.md",
-    "./agents/learner.md",
     "./agents/planner.md",
-    "./agents/synthesizer.md"
+    "./agents/builder.md",
+    "./agents/observer.md"
   ],
   "commands": "./commands/",
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/register.sh",
-            "once": true
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_context.sh",
-            "once": true
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // \"\"'); if echo \"$CMD\" | grep -qE 'campaign\\.py|context_graph\\.py'; then echo 'WARNING: Direct FTL CLI call detected. Use /ftl:ftl skill for proper orchestration.' >&2; fi; exit 0"
-          }
-        ]
-      }
-    ],
     "SubagentStop": [
       {
-        "matcher": "ftl:ftl-router",
+        "matcher": "ftl:ftl-planner",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_exploration.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh router"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh planner"
           }
         ]
       },
@@ -66,67 +28,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh builder"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh builder"
           }
         ]
       },
       {
-        "matcher": "ftl:ftl-builder-verify",
+        "matcher": "ftl:ftl-observer",
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh builder-verify"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-learner",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh learner"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-planner",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh planner"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-synthesizer",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/capture_delta.sh"
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/log_agent_type.sh synthesizer"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh observer"
           }
         ]
       }
     ]
-  },
-  "outputStyles": "./output-styles/"
+  }
 }

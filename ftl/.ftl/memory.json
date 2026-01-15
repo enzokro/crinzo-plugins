@@ -1,0 +1,81 @@
+{
+  "failures": [
+    {
+      "name": "test-import-error",
+      "trigger": "ModuleNotFoundError: No module named foo",
+      "fix": "Install foo with pip install foo",
+      "match": "No module named.*foo",
+      "cost": 5000,
+      "source": [
+        "002-block-test",
+        "002-implement-hello"
+      ],
+      "created_at": "2026-01-14T21:43:33.328599"
+    },
+    {
+      "name": "partial-code-context-budget-exhaustion",
+      "trigger": "Budget exhausted before implementation - code_context partial",
+      "fix": "Ensure code_context includes target function lines, or increase budget by 2 for discovery",
+      "match": "Budget.*exhausted.*code_context.*partial|code_context.*lines.*but.*function.*at",
+      "cost": 3000,
+      "source": [
+        "002-archive-on-complete"
+      ],
+      "created_at": "2026-01-14T22:43:35.360771"
+    },
+    {
+      "name": "spec-impl-mismatch-cli-args",
+      "trigger": "AssertionError: Archive directory not created",
+      "fix": "SPEC task should verify CLI signature matches implementation before writing tests",
+      "match": "invalid choice.*choose from|argument.*invalid|Archive directory not created",
+      "cost": 3000,
+      "source": [
+        "002-archive-on-complete"
+      ],
+      "created_at": "2026-01-14T22:43:40.512461"
+    }
+  ],
+  "patterns": [
+    {
+      "name": "lazy-import-pattern",
+      "trigger": "Circular import at runtime",
+      "insight": "Move import inside function body",
+      "saved": 10000,
+      "source": [
+        "001-hello-world"
+      ],
+      "created_at": "2026-01-14T21:43:33.498547"
+    },
+    {
+      "name": "verify-function-location-before-build",
+      "trigger": "BUILD task targets existing function in large file",
+      "insight": "Planner must locate target function (grep -n function_name file.py) and set code_context to include those lines; partial context forces budget waste on re-reading",
+      "saved": 1500,
+      "source": [
+        "002-archive-on-complete"
+      ],
+      "created_at": "2026-01-14T22:43:46.496066"
+    },
+    {
+      "name": "blocked-retry-budget-context-fix",
+      "trigger": "BUILD task blocked on budget exhaustion with partial code_context",
+      "insight": "Retry with 2x budget AND strategic code_context that includes target function lines; both are needed - budget alone without context wastes reads",
+      "saved": 3000,
+      "source": [
+        "002-archive-on-complete",
+        "002b-archive-on-complete-retry"
+      ],
+      "created_at": "2026-01-14T22:49:21.557981"
+    },
+    {
+      "name": "timestamp-filename-collision",
+      "trigger": "Archive or log files written in quick succession have same filename",
+      "insight": "Use microsecond precision in ISO timestamps (datetime.now().isoformat() includes microseconds by default); replace colons with dashes for filename safety",
+      "saved": 500,
+      "source": [
+        "003-history-command"
+      ],
+      "created_at": "2026-01-14T22:49:26.952534"
+    }
+  ]
+}

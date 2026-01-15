@@ -1,0 +1,31 @@
+{
+  "objective": "Add campaign archiving: (1) Archive campaigns to .ftl/archive/{timestamp}.json on complete, (2) Add 'history' command showing archived campaigns with statistics",
+  "framework": "none",
+  "created_at": "2026-01-14T22:38:53.073933",
+  "status": "complete",
+  "tasks": [
+    {
+      "seq": "001",
+      "slug": "archive-tests",
+      "type": "SPEC",
+      "status": "complete",
+      "updated_at": "2026-01-14T22:41:42.665391"
+    },
+    {
+      "seq": "002",
+      "slug": "archive-on-complete",
+      "type": "BUILD",
+      "status": "blocked",
+      "updated_at": "2026-01-14T22:42:53.434971"
+    },
+    {
+      "seq": "003",
+      "slug": "history-command",
+      "type": "BUILD",
+      "status": "complete",
+      "updated_at": "2026-01-14T22:48:30.240567"
+    }
+  ],
+  "completed_at": "2026-01-14T22:49:59.323835",
+  "summary": "Implemented campaign archiving: archive on complete + history CLI. 26 tests pass."
+}
