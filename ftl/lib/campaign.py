@@ -57,19 +57,28 @@ def add_tasks(plan: dict) -> None:
     CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))
 
 
-def update_task(seq: str, status: str) -> None:
+def _normalize_seq(seq) -> int | str:
+    """Normalize seq to int for comparison (handles '001' -> 1)."""
+    try:
+        return int(seq)
+    except (ValueError, TypeError):
+        return seq
+
+
+def update_task(seq: int | str, status: str) -> None:
     """Update task status.
 
     Args:
-        seq: Task sequence number
+        seq: Task sequence number (int or string, e.g., 1, "1", "001")
         status: New status (pending, in_progress, complete, blocked)
     """
     if not CAMPAIGN_FILE.exists():
         raise ValueError("No active campaign")
 
+    seq_normalized = _normalize_seq(seq)
     campaign = json.loads(CAMPAIGN_FILE.read_text())
     for task in campaign["tasks"]:
-        if task["seq"] == seq:
+        if _normalize_seq(task["seq"]) == seq_normalized:
             task["status"] = status
             task["updated_at"] = datetime.now().isoformat()
             break
