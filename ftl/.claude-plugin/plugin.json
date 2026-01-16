@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "author": {
     "name": "crinzo"
   },
@@ -12,7 +12,6 @@
     "./agents/builder.md",
     "./agents/observer.md"
   ],
-  "commands": "./commands/",
   "hooks": {
     "SubagentStop": [
       {
