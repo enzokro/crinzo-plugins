@@ -45,6 +45,10 @@ State: `Exploration: {structure.file_count} files, Framework: {pattern.framework
 
 **Fallback**: If exploration.json missing or has errors, read README.md and memory directly:
 ```bash
+# Semantic retrieval (preferred - returns relevant memories with _relevance scores)
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --max-failures 10
+
+# Or bulk retrieval (all memories, cost-sorted)
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all
 ```
 

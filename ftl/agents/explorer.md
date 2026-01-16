@@ -152,28 +152,26 @@ FastAPI:
 
 ## Mode: MEMORY
 
-**Goal**: Retrieve relevant historical context
+**Goal**: Retrieve semantically relevant historical context
 
 **Steps**:
-1. Query all memory:
+1. Query memory with semantic relevance (uses embeddings when available):
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --max-failures 10 --max-patterns 5
 ```
+
+This returns failures/patterns ranked by semantic similarity to the objective.
+Each entry includes `_relevance` (0-1) and `_score` (hybrid: relevance × log₂(cost)).
 
 2. Check archive for prior campaigns:
 ```bash
 ls .ftl/archive/*.json 2>/dev/null | head -5
 ```
 
-3. If objective provided, extract keywords and filter:
-   - Split objective on spaces
-   - Remove stopwords (the, a, to, in, for, with, and, of, is)
-   - Keep words > 3 chars
-
-4. Score relevance of each failure/pattern:
-   - HIGH: keyword appears in name or trigger
-   - MEDIUM: keyword appears in fix/insight
-   - LOW: no keyword match
+3. Get total counts for context:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({'failures': len(d.get('failures',[])), 'patterns': len(d.get('patterns',[]))}))"
+```
 
 **Output**:
 ```json
@@ -186,7 +184,8 @@ ls .ftl/archive/*.json 2>/dev/null | head -5
       "cost": 3000,
       "trigger": "Budget exhausted before implementation",
       "fix": "Ensure code_context includes target function lines",
-      "relevance": "high"
+      "_relevance": 0.72,
+      "_score": 8.34
     }
   ],
   "patterns": [
@@ -194,15 +193,15 @@ ls .ftl/archive/*.json 2>/dev/null | head -5
       "name": "verify-function-location-before-build",
       "saved": 1500,
       "insight": "Planner must locate target function",
-      "relevance": "medium"
+      "_relevance": 0.65,
+      "_score": 6.89
     }
   ],
   "prior_campaigns": ["add-campaign-archiving"],
   "total_in_memory": {
     "failures": 3,
     "patterns": 4
-  },
-  "keyword_matches": ["campaign", "complete"]
+  }
 }
 ```
 

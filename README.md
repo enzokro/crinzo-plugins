@@ -89,11 +89,12 @@ Four agents with distinct roles:
 **Explorer modes** run in parallel:
 - **structure**: Maps directories, entry points, test patterns, language
 - **pattern**: Detects framework, extracts idioms (required/forbidden)
-- **memory**: Retrieves prior failures and learned patterns
-- **delta**: Identifies candidate files for modification
+- **memory**: Retrieves semantically relevant failures and patterns
+- **delta**: Identifies candidate files and functions for modification
 
 **Constraints:**
 - Explorers write to `.ftl/cache/explorer_{mode}.json` for reliable aggregation
+- Planner validates DAG structure — cyclic dependencies are rejected at registration
 - Builder reads test file (`verify_source`) before implementing to match expectations
 - Builder enforces framework idioms as non-negotiable — blocks even if tests pass
 - Multi-file tasks get code context for all delta files, not just the first
@@ -106,8 +107,8 @@ Four agents with distinct roles:
 | Command | Purpose |
 |---------|---------|
 | `/ftl <task>` | Full pipeline: explore → plan → build → observe |
-| `/ftl campaign "objective"` | Multi-task campaign with learning |
-| `/ftl query "topic"` | Surface relevant precedent from memory |
+| `/ftl campaign "objective"` | Multi-task campaign with DAG parallelization |
+| `/ftl query "topic"` | Surface relevant precedent from memory (semantic ranking) |
 | `/ftl status` | Current campaign and workspace state |
 
 ## Workspace Format
@@ -164,16 +165,48 @@ A unified system capturing what went wrong and what worked:
 
 | File | Purpose |
 |------|---------|
-| `.ftl/memory.json` | Failures and patterns |
+| `.ftl/memory.json` | Failures and patterns with semantic retrieval |
 | `.ftl/exploration.json` | Aggregated explorer outputs |
-| `.ftl/campaign.json` | Active campaign state |
+| `.ftl/campaign.json` | Active campaign state with DAG |
 | `.ftl/archive/` | Completed campaigns |
 
 **Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a regex match pattern (to catch in logs), and a cost estimate. Injected into builder's `prior_knowledge` to prevent repeats.
 
 **Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Score ≥3 gets extracted.
 
+**Semantic retrieval** — Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by `relevance × log₂(cost + 1)` — balancing semantic relevance with historical cost. Falls back to string matching if embeddings unavailable.
+
+**Deduplication** — 85% semantic similarity threshold prevents near-duplicate entries. Sources are merged when duplicates detected.
+
 The Observer verifies blocked workspaces before extracting failures — no learning from false positives.
+
+## DAG Execution
+
+Campaigns support multi-parent task dependencies:
+
+```json
+{
+  "tasks": [
+    {"seq": "001", "slug": "spec-auth", "depends": "none"},
+    {"seq": "002", "slug": "spec-api", "depends": "none"},
+    {"seq": "003", "slug": "impl-auth", "depends": "001"},
+    {"seq": "004", "slug": "impl-api", "depends": "002"},
+    {"seq": "005", "slug": "integrate", "depends": ["003", "004"]}
+  ]
+}
+```
+
+```
+001 (spec-auth) ──→ 003 (impl-auth) ──┐
+                                      ├──→ 005 (integrate)
+002 (spec-api) ──→ 004 (impl-api) ───┘
+```
+
+**Parallel execution**: Tasks with no dependencies or all dependencies complete can run simultaneously. Independent branches (001→003 and 002→004) execute in parallel.
+
+**Cycle detection**: Dependencies are validated at registration. Cyclic graphs are rejected with a clear error showing the cycle path.
+
+**Cascade handling**: When a parent task blocks, child tasks become unreachable. The orchestrator detects stuck campaigns and propagates blocks to unreachable tasks with `blocked_by` references. Campaigns complete gracefully with partial success rather than hanging indefinitely.
 
 ## CLI Tools
 
@@ -182,11 +215,17 @@ The `lib/` directory provides Python utilities for orchestration:
 | Library | Purpose | Key Commands |
 |---------|---------|--------------|
 | `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
-| `campaign.py` | Campaign lifecycle | `create`, `add-tasks`, `ready-tasks`, `status`, `complete` |
+| `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete` |
 | `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
 | `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query` |
+| `embeddings.py` | Semantic similarity | Used internally by memory.py |
+| `atomicfile.py` | Concurrent write safety | Used internally by campaign.py |
 
-**DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution of independent branches.
+**DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution. `cascade-status` detects stuck campaigns. `propagate-blocks` marks unreachable tasks.
+
+**Semantic Memory:** `context --objective "text"` retrieves memories ranked by semantic relevance. `query "topic"` searches with semantic ranking.
+
+**Concurrency:** Campaign updates use file locking for safe parallel DAG execution.
 
 ## Examples
 
@@ -197,7 +236,7 @@ The `lib/` directory provides Python utilities for orchestration:
 # Multi-task campaign
 /ftl campaign "implement OAuth with Google and GitHub"
 
-# Query past patterns
+# Query past patterns (semantic search)
 /ftl query session handling
 
 # Check status

@@ -129,30 +129,34 @@ State: `Patterns scored: {N}, Extractable: {M}`
 
 ---
 
-## Step 5: Deduplicate [COGNITIVE—no tool]
+## Step 5: Deduplicate [AUTOMATIC]
 
-Before adding to memory, check for duplicates:
+Deduplication happens automatically when adding entries via CLI.
 
-**Rule: 85% string similarity on trigger = duplicate**
+**Rule: 85% semantic similarity on trigger = duplicate**
 
-If duplicate found:
-- Merge sources (union of workspace IDs)
-- Keep higher cost/saved value
-- Don't create new entry
+The `add-failure` and `add-pattern` commands use semantic embeddings (sentence-transformers)
+to detect near-duplicates. If a similar entry exists:
+- Sources are merged (union of workspace IDs)
+- Higher cost/saved value is kept
+- No new entry created (returns `merged:{name}`)
 
-State: `Deduplication: {N} new, {M} merged`
+State: `Deduplication: handled by memory.py`
 
 ---
 
 ## Step 6: Update Memory [Tool N+1]
 
-Add new entries:
+Add new entries (semantic deduplication automatic):
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{"name": "...", ...}'
+# Returns: "added" or "merged:{existing_name}"
+
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{"name": "...", ...}'
+# Returns: "added" or "duplicate:{existing_name}"
 ```
 
-State: `Memory updated: +{N} failures, +{M} patterns`
+State: `Memory updated: +{N} failures, +{M} patterns, merged: {K}`
 </instructions>
 
 <constraints>

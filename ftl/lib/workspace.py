@@ -241,9 +241,19 @@ def create(plan: dict, task_seq: str = None) -> list:
 
         try:
             tags = [framework.lower()] if framework and framework != "none" else None
+
+            # Build semantic context from campaign objective, task slug, and delta files
+            # This enables semantic retrieval of relevant memories
+            task_context = " ".join(filter(None, [
+                plan.get("objective", ""),
+                task.get("slug", "").replace("-", " "),
+                " ".join(task.get("delta", [])),
+            ]))
+
             memory_ctx = get_context(
                 task_type=task.get("type", "BUILD"),
                 tags=tags,
+                objective=task_context if task_context.strip() else None,
                 max_failures=5,
                 max_patterns=3
             )

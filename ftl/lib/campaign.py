@@ -7,6 +7,13 @@ import json
 import argparse
 import sys
 
+# Support both standalone execution and module import
+try:
+    from lib.atomicfile import atomic_json_update
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from atomicfile import atomic_json_update
+
 
 CAMPAIGN_FILE = Path(".ftl/campaign.json")
 ARCHIVE_DIR = Path(".ftl/archive")
@@ -39,23 +46,35 @@ def add_tasks(plan: dict) -> None:
 
     Args:
         plan: Plan dict with tasks[]
+
+    Raises:
+        ValueError: If no active campaign or cycle detected in dependencies
     """
     if not CAMPAIGN_FILE.exists():
         raise ValueError("No active campaign")
 
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
-    campaign["framework"] = plan.get("framework")
-    campaign["tasks"] = [
-        {
-            "seq": t["seq"],
-            "slug": t["slug"],
-            "type": t.get("type", "BUILD"),
-            "depends": t.get("depends", "none"),  # Store for DAG scheduling
-            "status": "pending"
-        }
-        for t in plan.get("tasks", [])
-    ]
-    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))
+    tasks = plan.get("tasks", [])
+
+    # Detect cycles before registering
+    cycle = _detect_cycle(tasks)
+    if cycle:
+        cycle_str = " → ".join(str(s) for s in cycle)
+        raise ValueError(f"Cycle detected in task dependencies: {cycle_str}")
+
+    def do_update(campaign):
+        campaign["framework"] = plan.get("framework")
+        campaign["tasks"] = [
+            {
+                "seq": t["seq"],
+                "slug": t["slug"],
+                "type": t.get("type", "BUILD"),
+                "depends": t.get("depends", "none"),  # Store for DAG scheduling
+                "status": "pending"
+            }
+            for t in tasks
+        ]
+
+    atomic_json_update(CAMPAIGN_FILE, do_update)
 
 
 def _normalize_seq(seq) -> int | str:
@@ -64,6 +83,64 @@ def _normalize_seq(seq) -> int | str:
         return int(seq)
     except (ValueError, TypeError):
         return seq
+
+
+def _get_deps(task: dict) -> list:
+    """Extract normalized dependency list from task."""
+    depends = task.get("depends", "none")
+    if depends == "none" or depends is None:
+        return []
+    if isinstance(depends, str):
+        return [_normalize_seq(depends)]
+    return [_normalize_seq(d) for d in depends if d and d != "none"]
+
+
+def _detect_cycle(tasks: list) -> list | None:
+    """Detect cycle in task dependencies using DFS.
+
+    Args:
+        tasks: List of task dicts with seq and depends
+
+    Returns:
+        List of seqs forming cycle, or None if acyclic
+    """
+    # Build adjacency: task -> dependencies
+    task_seqs = {_normalize_seq(t["seq"]) for t in tasks}
+    deps = {_normalize_seq(t["seq"]): _get_deps(t) for t in tasks}
+
+    visited = set()
+    path = []
+    path_set = set()
+
+    def dfs(seq):
+        if seq in path_set:
+            # Found cycle - extract it
+            cycle_start = path.index(seq)
+            return path[cycle_start:] + [seq]
+        if seq in visited:
+            return None
+
+        path.append(seq)
+        path_set.add(seq)
+
+        for dep in deps.get(seq, []):
+            if dep in task_seqs:  # Only check deps within our task set
+                result = dfs(dep)
+                if result:
+                    return result
+
+        path.pop()
+        path_set.remove(seq)
+        visited.add(seq)
+        return None
+
+    for seq in task_seqs:
+        if seq not in visited:
+            result = dfs(seq)
+            if result:
+                return result
+
+    return None
 
 
 def update_task(seq: int | str, status: str) -> None:
@@ -77,13 +154,15 @@ def update_task(seq: int | str, status: str) -> None:
         raise ValueError("No active campaign")
 
     seq_normalized = _normalize_seq(seq)
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
-    for task in campaign["tasks"]:
-        if _normalize_seq(task["seq"]) == seq_normalized:
-            task["status"] = status
-            task["updated_at"] = datetime.now().isoformat()
-            break
-    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))
+
+    def do_update(campaign):
+        for task in campaign["tasks"]:
+            if _normalize_seq(task["seq"]) == seq_normalized:
+                task["status"] = status
+                task["updated_at"] = datetime.now().isoformat()
+                break
+
+    atomic_json_update(CAMPAIGN_FILE, do_update)
 
 
 def next_task() -> dict | None:
@@ -151,6 +230,116 @@ def ready_tasks() -> list[dict]:
     return ready
 
 
+def cascade_status() -> dict:
+    """Detect if campaign is stuck due to blocked parent cascade.
+
+    Returns:
+        {
+            "state": "none" | "complete" | "in_progress" | "stuck" | "all_blocked",
+            "ready": int,
+            "pending": int,
+            "complete": int,
+            "blocked": int,
+            "unreachable": [{"seq": "002", "blocked_by": ["001"]}, ...]
+        }
+    """
+    if not CAMPAIGN_FILE.exists():
+        return {"state": "none"}
+
+    campaign = json.loads(CAMPAIGN_FILE.read_text())
+    tasks = campaign.get("tasks", [])
+
+    if not tasks:
+        return {"state": "complete", "ready": 0, "pending": 0, "complete": 0, "blocked": 0, "unreachable": []}
+
+    # Count by status
+    counts = {
+        "complete": sum(1 for t in tasks if t.get("status") == "complete"),
+        "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
+        "pending": sum(1 for t in tasks if t.get("status") == "pending"),
+    }
+
+    ready = ready_tasks()
+    counts["ready"] = len(ready)
+
+    # If we have ready tasks, we're in progress
+    if ready:
+        return {"state": "in_progress", **counts, "unreachable": []}
+
+    # If no pending tasks, we're complete
+    if counts["pending"] == 0:
+        return {"state": "complete", **counts, "unreachable": []}
+
+    # No ready tasks but pending exist - check for cascade
+    blocked_seqs = {
+        _normalize_seq(t["seq"])
+        for t in tasks
+        if t.get("status") == "blocked"
+    }
+
+    unreachable = []
+    for t in tasks:
+        if t.get("status") != "pending":
+            continue
+
+        deps = _get_deps(t)
+        blocking_parents = [str(d) for d in deps if d in blocked_seqs]
+
+        if blocking_parents:
+            unreachable.append({
+                "seq": t["seq"],
+                "blocked_by": blocking_parents
+            })
+
+    if unreachable:
+        return {"state": "stuck", **counts, "unreachable": unreachable}
+
+    # Pending but not unreachable - shouldn't happen in valid DAG
+    return {"state": "all_blocked", **counts, "unreachable": []}
+
+
+def propagate_blocks() -> list:
+    """Mark all unreachable tasks as blocked due to parent cascade.
+
+    This allows the campaign to complete gracefully when some branches
+    are blocked while others succeed. Loops until full cascade is propagated.
+
+    Returns:
+        List of task seqs that were marked blocked
+    """
+    all_propagated = []
+
+    # Loop until no more unreachable tasks
+    while True:
+        cs = cascade_status()
+        if cs.get("state") != "stuck":
+            break
+
+        unreachable = cs.get("unreachable", [])
+        if not unreachable:
+            break
+
+        propagated = []
+
+        def do_update(campaign):
+            nonlocal propagated
+            for u in unreachable:
+                seq = u["seq"]
+                blocked_by = u["blocked_by"]
+                for task in campaign["tasks"]:
+                    if task["seq"] == seq:
+                        task["status"] = "blocked"
+                        task["blocked_by"] = blocked_by
+                        task["updated_at"] = datetime.now().isoformat()
+                        propagated.append(seq)
+                        break
+
+        atomic_json_update(CAMPAIGN_FILE, do_update)
+        all_propagated.extend(propagated)
+
+    return all_propagated
+
+
 def status() -> dict:
     """Get campaign status.
 
@@ -174,29 +363,36 @@ def complete(summary: str = None) -> dict:
     if not CAMPAIGN_FILE.exists():
         raise ValueError("No active campaign")
 
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
-    campaign["status"] = "complete"
-    campaign["completed_at"] = datetime.now().isoformat()
+    completed_at = datetime.now().isoformat()
+    result_campaign = {}
 
-    # Calculate summary
-    if summary is not None:
-        campaign["summary"] = summary
-    else:
-        tasks = campaign.get("tasks", [])
-        campaign["summary"] = {
-            "total": len(tasks),
-            "complete": sum(1 for t in tasks if t.get("status") == "complete"),
-            "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
-        }
+    def do_update(campaign):
+        nonlocal result_campaign
+        campaign["status"] = "complete"
+        campaign["completed_at"] = completed_at
 
-    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))
+        # Calculate summary
+        if summary is not None:
+            campaign["summary"] = summary
+        else:
+            tasks = campaign.get("tasks", [])
+            campaign["summary"] = {
+                "total": len(tasks),
+                "complete": sum(1 for t in tasks if t.get("status") == "complete"),
+                "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
+            }
+
+        # Store copy for archiving
+        result_campaign = dict(campaign)
+
+    atomic_json_update(CAMPAIGN_FILE, do_update)
 
     # Archive completed campaign
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    safe_ts = campaign["completed_at"].replace(":", "-").replace(".", "-")
-    (ARCHIVE_DIR / f"{safe_ts}.json").write_text(json.dumps(campaign, indent=2))
+    safe_ts = completed_at.replace(":", "-").replace(".", "-")
+    (ARCHIVE_DIR / f"{safe_ts}.json").write_text(json.dumps(result_campaign, indent=2))
 
-    return campaign
+    return result_campaign
 
 
 def history() -> dict:
@@ -295,6 +491,12 @@ def main():
     # ready-tasks command
     subparsers.add_parser("ready-tasks", help="Get all tasks ready for parallel execution")
 
+    # cascade-status command
+    subparsers.add_parser("cascade-status", help="Check if campaign is stuck due to blocked cascade")
+
+    # propagate-blocks command
+    subparsers.add_parser("propagate-blocks", help="Mark unreachable tasks as blocked")
+
     # status command
     subparsers.add_parser("status", help="Get campaign status")
 
@@ -339,6 +541,17 @@ def main():
     elif args.command == "ready-tasks":
         tasks = ready_tasks()
         print(json.dumps(tasks, indent=2))
+
+    elif args.command == "cascade-status":
+        result = cascade_status()
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "propagate-blocks":
+        propagated = propagate_blocks()
+        if propagated:
+            print(f"Propagated blocks to: {', '.join(propagated)}")
+        else:
+            print("No blocks to propagate")
 
     elif args.command == "status":
         result = status()
