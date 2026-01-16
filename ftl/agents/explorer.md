@@ -157,7 +157,7 @@ FastAPI:
 **Steps**:
 1. Query all memory:
 ```bash
-python3 lib/memory.py context --all 2>/dev/null
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null
 ```
 
 2. Check archive for prior campaigns:

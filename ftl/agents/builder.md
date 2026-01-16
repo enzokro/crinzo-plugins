@@ -46,7 +46,7 @@ State after each tool: `Budget: {used}/{total}`
 ## Step 1: Read Workspace [Tool 1]
 
 ```bash
-python3 lib/workspace.py parse .ftl/workspace/NNN_slug_active.xml
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_active.xml
 ```
 
 Extract:
@@ -161,7 +161,7 @@ State: `Quality: {pass|fail} - {details}`
 
 Complete workspace [EXEMPT]:
 ```bash
-python3 lib/workspace.py complete .ftl/workspace/NNN_slug_active.xml \
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete .ftl/workspace/NNN_slug_active.xml \
   --delivered "Implementation summary
 - Files: {delta}
 - Idioms: {required items used}
@@ -205,7 +205,7 @@ State: `Retry: {count}/1, Error: {message}`
 
 Block workspace [EXEMPT]:
 ```bash
-python3 lib/workspace.py block .ftl/workspace/NNN_slug_active.xml \
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block .ftl/workspace/NNN_slug_active.xml \
   --reason "Error: {symptom}
 Tried: {fixes attempted}
 Unknown: {what was unexpected}"

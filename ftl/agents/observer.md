@@ -46,7 +46,7 @@ For each blocked workspace:
 
 ```bash
 # Parse to get verify command
-python3 lib/workspace.py parse .ftl/workspace/NNN_slug_blocked.xml
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_blocked.xml
 ```
 
 Run the verify command from the workspace. Check result:
@@ -95,11 +95,16 @@ Not every completion is worth remembering. Score each:
 | Criterion | Points | Detection |
 |-----------|--------|-----------|
 | Was blocked, then fixed | +3 | Slug appears in both `*_blocked.xml` and `*_complete.xml` |
+| Clean first-try success | +2 | No retry in delivered text, verify passed first attempt |
 | Framework idiom applied | +2 | `<idioms>` section present with required items |
+| Budget efficient | +1 | Used <50% of budget (e.g., 2/5 tools) |
 | Multi-file delta coordinated | +1 | `<delta>` has 2+ files |
 | Novel approach (not in memory) | +1 | Trigger not in existing memory.json |
 
 **Threshold: Score ≥ 3**
+
+**Note**: Clean completions are valuable. A first-try success with budget efficiency (+2 +1 = 3)
+indicates a technique worth remembering for similar future tasks.
 
 Extract pattern:
 ```json
@@ -140,8 +145,8 @@ State: `Deduplication: {N} new, {M} merged`
 
 Add new entries:
 ```bash
-python3 lib/memory.py add-failure --json '{"name": "...", ...}'
-python3 lib/memory.py add-pattern --json '{"name": "...", ...}'
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{"name": "...", ...}'
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{"name": "...", ...}'
 ```
 
 State: `Memory updated: +{N} failures, +{M} patterns`

@@ -29,7 +29,7 @@ Your job is REASONING, not exploration. Use the exploration data.
 
 Read the exploration data gathered by explorer agents:
 ```bash
-python3 lib/exploration.py read
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read
 ```
 
 Extract from exploration.json:
@@ -45,7 +45,7 @@ State: `Exploration: {structure.file_count} files, Framework: {pattern.framework
 
 **Fallback**: If exploration.json missing or has errors, read README.md and memory directly:
 ```bash
-python3 lib/memory.py context --all
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all
 ```
 
 ## Step 2: Calculate Complexity

@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.2.0
+version: 2.3.0
 ---
 
 # FTL Protocol
@@ -12,8 +12,8 @@ version: 2.2.0
 |---------|------|
 | `/ftl <task>` | Explorer (4x) → Planner → Builder → Observer |
 | `/ftl campaign "obj"` | Explorer (4x) → Planner → [Builder]* → Observer |
-| `/ftl query "topic"` | `python3 lib/memory.py query "topic"` |
-| `/ftl status` | `python3 lib/campaign.py status` |
+| `/ftl query "topic"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "topic"` |
+| `/ftl status` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status` |
 
 ## Agents
 
@@ -54,7 +54,7 @@ All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directo
 6. Task(ftl:ftl-builder) with workspace path
    → Returns complete | blocked
 
-7. Task(ftl:ftl-observer) (if blocked OR framework)
+7. Task(ftl:ftl-observer) (always - learns from both success and failure)
    → Updates memory.json
 ```
 
@@ -78,24 +78,28 @@ All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directo
 
 5. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
 
-6. Create all workspaces:
+6. Register tasks (no workspace creation yet):
    cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan plan.json
 
 7. Execute tasks with DAG parallelization:
    WHILE python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks returns non-empty:
      ready = ready-tasks output
      FOR EACH task in ready (launch in PARALLEL):
+       Create workspace ON-DEMAND (parents now complete, lineage populated):
+         echo '{plan.json}' | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
        Task(ftl:ftl-builder) with workspace
        python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
 
-8. Task(ftl:ftl-observer) (analyze all workspaces)
+8. Task(ftl:ftl-observer) (analyze all workspaces - learn from success and failure)
 
 9. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete
 ```
 
 **DAG Parallelization**: Tasks with `depends: ["001", "002"]` wait for both 001 AND 002 to complete.
 Tasks with no dependencies or all dependencies complete can run in parallel.
+
+**On-Demand Workspace Creation**: Workspaces are created AFTER their parent tasks complete.
+This enables proper `<lineage>` population with parent deliveries and sibling failure injection.
 
 ## Workspace Lifecycle
 
