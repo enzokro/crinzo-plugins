@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.4.0
+version: 2.5.0
 ---
 
 # FTL Protocol
@@ -14,6 +14,10 @@ version: 2.4.0
 | `/ftl campaign "obj"` | Explorer (4x) → Planner → [Builder]* → Observer |
 | `/ftl query "topic"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "topic"` (semantic ranking) |
 | `/ftl status` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status` |
+| `/ftl stats` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` |
+| `/ftl prune` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune` |
+| `/ftl related "name"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related "name"` |
+| `/ftl benchmark` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` |
 
 ## Agents
 
@@ -137,8 +141,14 @@ FTL uses semantic embeddings (sentence-transformers) for intelligent memory oper
 | **Retrieval** | `--objective` scores memories by cosine similarity, returns most relevant |
 | **Deduplication** | 85% semantic similarity threshold prevents near-duplicate entries |
 | **Query** | `/ftl query "topic"` ranks results by semantic relevance |
+| **Relationships** | Graph edges between related failures enable multi-hop discovery |
+| **Decay** | Importance = `log₂(value) × age_decay × access_boost` |
 
 **Hybrid Scoring**: `score = relevance × log₂(cost + 1)` balances semantic relevance with failure cost.
+
+**Age Decay**: Entries lose importance over time (half-life: 30 days). Frequently accessed entries resist decay.
+
+**Graph Traversal**: Related entries are discovered via BFS with configurable hop depth (default: 2).
 
 **Fallback**: If sentence-transformers unavailable, falls back to SequenceMatcher string similarity.
 
@@ -192,3 +202,14 @@ FTL uses semantic embeddings (sentence-transformers) for intelligent memory oper
 | add-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{...}'` | `--json` REQUIRED |
 | add-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{...}'` | `--json` REQUIRED |
 | query | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "term"` | `term` is POS, uses semantic ranking |
+| stats | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` | counts, avg_importance, avg_age, relationships |
+| prune | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune [--max-failures N] [--max-patterns N] [--min-importance F] [--half-life D]` | removes low-importance entries |
+| add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern]` | bidirectional graph edge |
+| related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | BFS traversal |
+
+### benchmark.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| report | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` | full benchmark report |
+| run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py run` | JSON results |
+| learning | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py learning` | efficiency simulation |

@@ -157,6 +157,28 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{"name": "...", 
 ```
 
 State: `Memory updated: +{N} failures, +{M} patterns, merged: {K}`
+
+---
+
+## Step 7: Link Related Failures [CAMPAIGN mode only]
+
+When multiple failures occur in the same campaign, they often share root causes.
+Create graph edges between co-occurring failures:
+
+```bash
+# Link failures that appeared in the same campaign
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship "failure-a" "failure-b"
+# Returns: "added" | "exists" | "not_found:{name}"
+```
+
+**Link criteria:**
+- Failures from same campaign (share temporal context)
+- Failures with similar stack traces or error categories
+- Failures in related files (same directory/module)
+
+These edges enable multi-hop discovery: finding `failure-a` surfaces `failure-b` as related.
+
+State: `Relationships: +{N} edges`
 </instructions>
 
 <constraints>
@@ -198,6 +220,7 @@ Quality (note in output):
 - Failures: +{N}
 - Patterns: +{M}
 - Merged: {K}
+- Relationships: +{R}
 
 Budget: {used}/10
 ```

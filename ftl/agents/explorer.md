@@ -163,12 +163,19 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --
 This returns failures/patterns ranked by semantic similarity to the objective.
 Each entry includes `_relevance` (0-1) and `_score` (hybrid: relevance × log₂(cost)).
 
-2. Check archive for prior campaigns:
+2. For high-relevance matches (_relevance > 0.6), fetch graph neighbors:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related "{failure_name}" --max-hops 1
+```
+
+This discovers related failures via graph edges (co-occurrence in campaigns).
+
+3. Check archive for prior campaigns:
 ```bash
 ls .ftl/archive/*.json 2>/dev/null | head -5
 ```
 
-3. Get total counts for context:
+4. Get total counts for context:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps({'failures': len(d.get('failures',[])), 'patterns': len(d.get('patterns',[]))}))"
 ```
@@ -185,7 +192,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null | python3 
       "trigger": "Budget exhausted before implementation",
       "fix": "Ensure code_context includes target function lines",
       "_relevance": 0.72,
-      "_score": 8.34
+      "_score": 8.34,
+      "related": ["missing-fixture-error"]
     }
   ],
   "patterns": [

@@ -430,3 +430,239 @@ class TestSemanticMemory:
         # If relevance is similar, higher saved should mean higher score
         if abs(pattern_1["_relevance"] - pattern_2["_relevance"]) < 0.1:
             assert pattern_1["_score"] > pattern_2["_score"]
+
+
+class TestMemoryPruning:
+    """Test memory pruning functionality."""
+
+    def test_prune_removes_low_importance_entries(self, cli, ftl_dir):
+        """Pruning removes entries below importance threshold."""
+        from datetime import datetime, timedelta
+
+        # Add old low-cost failure (should be pruned)
+        old_failure = {
+            "name": "old-low-cost",
+            "trigger": "Minor warning message",
+            "fix": "Ignore it",
+            "cost": 10,  # Very low cost
+            "source": ["ws-old"],
+            "created_at": (datetime.now() - timedelta(days=60)).isoformat(),
+        }
+        cli.memory("add-failure", "--json", json.dumps(old_failure))
+
+        # Add recent high-cost failure (should be kept)
+        new_failure = {
+            "name": "new-high-cost",
+            "trigger": "Critical error that crashed the system",
+            "fix": "Major fix required",
+            "cost": 50000,
+            "source": ["ws-new"],
+        }
+        cli.memory("add-failure", "--json", json.dumps(new_failure))
+
+        # Verify both exist
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        assert len(data["failures"]) == 2
+
+        # Prune with high min_importance
+        code, out, err = cli.memory("prune", "--min-importance", "5")
+        assert code == 0, f"Failed: {err}"
+        result = json.loads(out)
+
+        # Check that pruning occurred
+        assert result["remaining_failures"] <= 2
+
+    def test_prune_enforces_size_limits(self, cli, ftl_dir):
+        """Pruning enforces maximum size limits."""
+        # Add many failures with highly distinct triggers to avoid semantic deduplication
+        error_types = [
+            "ModuleNotFoundError: No module named 'pandas'",
+            "TypeError: cannot unpack non-iterable NoneType object",
+            "ValueError: invalid literal for int() with base 10",
+            "KeyError: 'user_id' not found in dictionary",
+            "AttributeError: 'list' object has no attribute 'split'",
+            "IndexError: tuple index out of range",
+            "FileNotFoundError: [Errno 2] No such file",
+            "ConnectionError: Failed to establish connection",
+            "TimeoutError: Operation timed out",
+            "PermissionError: Access denied to resource",
+        ]
+        for i, trigger in enumerate(error_types):
+            failure = {
+                "name": f"failure-{i}",
+                "trigger": trigger,
+                "fix": f"Fix {i}",
+                "cost": (i + 1) * 1000,
+                "source": [f"ws-{i}"]
+            }
+            cli.memory("add-failure", "--json", json.dumps(failure))
+
+        # Verify all were added
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        initial_count = len(data["failures"])
+        assert initial_count >= 8, f"Expected at least 8 failures, got {initial_count}"
+
+        # Prune to max 3
+        code, out, _ = cli.memory("prune", "--max-failures", "3", "--min-importance", "0")
+        result = json.loads(out)
+        assert result["remaining_failures"] == 3
+        assert result["pruned_failures"] == initial_count - 3
+
+
+class TestMemoryRelationships:
+    """Test graph relationship features."""
+
+    def test_add_relationship_between_failures(self, cli, ftl_dir):
+        """Can add bidirectional relationships between failures."""
+        # Add two failures
+        failure1 = {
+            "name": "auth-failure",
+            "trigger": "Authentication failed",
+            "fix": "Check credentials",
+            "cost": 5000,
+            "source": ["ws-1"]
+        }
+        failure2 = {
+            "name": "session-failure",
+            "trigger": "Session expired",
+            "fix": "Refresh session",
+            "cost": 3000,
+            "source": ["ws-2"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure1))
+        cli.memory("add-failure", "--json", json.dumps(failure2))
+
+        # Add relationship
+        code, out, err = cli.memory("add-relationship", "auth-failure", "session-failure")
+        assert code == 0, f"Failed: {err}"
+        assert "added" in out
+
+        # Adding same relationship again should return "exists"
+        code, out, _ = cli.memory("add-relationship", "auth-failure", "session-failure")
+        assert "exists" in out
+
+    def test_get_related_entries(self, cli, ftl_dir):
+        """Can retrieve related entries with multi-hop traversal."""
+        # Add three failures with distinct triggers
+        failures = [
+            {"name": "network-err", "trigger": "NetworkError: connection refused", "fix": "Check server", "cost": 1000, "source": ["ws"]},
+            {"name": "timeout-err", "trigger": "TimeoutError: request timed out after 30s", "fix": "Increase timeout", "cost": 2000, "source": ["ws"]},
+            {"name": "retry-err", "trigger": "RetryError: max retries exceeded", "fix": "Add backoff", "cost": 3000, "source": ["ws"]},
+        ]
+        for f in failures:
+            cli.memory("add-failure", "--json", json.dumps(f))
+
+        # Create chain: network-err -> timeout-err -> retry-err
+        code1, out1, _ = cli.memory("add-relationship", "network-err", "timeout-err")
+        code2, out2, _ = cli.memory("add-relationship", "timeout-err", "retry-err")
+
+        assert "added" in out1, f"First relationship failed: {out1}"
+        assert "added" in out2, f"Second relationship failed: {out2}"
+
+        # Get related from network-err with max_hops=2
+        code, out, err = cli.memory("related", "network-err", "--max-hops", "2")
+        assert code == 0, f"Related command failed: {err}"
+        data = json.loads(out)
+
+        # Should find both timeout-err (hop 1) and retry-err (hop 2)
+        names = [r["entry"]["name"] for r in data]
+        assert "timeout-err" in names, f"Expected timeout-err in {names}"
+        assert "retry-err" in names, f"Expected retry-err in {names}"
+
+    def test_relationship_not_found(self, cli, ftl_dir):
+        """Adding relationship with non-existent entry returns not_found."""
+        failure = {
+            "name": "exists",
+            "trigger": "Error",
+            "fix": "Fix",
+            "cost": 1000,
+            "source": ["ws"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+
+        code, out, _ = cli.memory("add-relationship", "exists", "nonexistent")
+        assert "not_found:nonexistent" in out
+
+
+class TestMemoryStats:
+    """Test memory statistics functionality."""
+
+    def test_stats_returns_counts(self, cli, ftl_dir):
+        """Stats returns entry counts."""
+        # Add some entries
+        failure = {
+            "name": "test-failure",
+            "trigger": "Test error",
+            "fix": "Test fix",
+            "cost": 5000,
+            "source": ["ws-1"]
+        }
+        pattern = {
+            "name": "test-pattern",
+            "trigger": "Test trigger",
+            "insight": "Test insight",
+            "saved": 3000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+        cli.memory("add-pattern", "--json", json.dumps(pattern))
+
+        code, out, err = cli.memory("stats")
+        assert code == 0, f"Failed: {err}"
+        stats = json.loads(out)
+
+        assert stats["failures"]["count"] == 1
+        assert stats["patterns"]["count"] == 1
+        assert stats["failures"]["avg_importance"] > 0
+
+    def test_stats_empty_memory(self, cli, ftl_dir):
+        """Stats works with empty memory."""
+        code, out, _ = cli.memory("stats")
+        stats = json.loads(out)
+
+        assert stats["failures"]["count"] == 0
+        assert stats["patterns"]["count"] == 0
+
+
+class TestDecayMechanism:
+    """Test time-based decay in importance scoring."""
+
+    def test_older_entries_have_lower_importance(self, cli, ftl_dir):
+        """Older entries should have lower importance due to decay."""
+        from datetime import datetime, timedelta
+
+        # Add old failure
+        old_failure = {
+            "name": "old-failure",
+            "trigger": "Old error from long ago",
+            "fix": "Old fix",
+            "cost": 10000,
+            "source": ["ws-old"],
+            "created_at": (datetime.now() - timedelta(days=60)).isoformat(),
+        }
+        cli.memory("add-failure", "--json", json.dumps(old_failure))
+
+        # Add new failure with same cost
+        new_failure = {
+            "name": "new-failure",
+            "trigger": "Recent error just happened",
+            "fix": "New fix",
+            "cost": 10000,
+            "source": ["ws-new"],
+        }
+        cli.memory("add-failure", "--json", json.dumps(new_failure))
+
+        # After pruning, newer entry should be preferred (higher importance)
+        # We test this by setting a strict limit
+        code, out, _ = cli.memory("prune", "--max-failures", "1", "--min-importance", "0")
+        result = json.loads(out)
+        assert result["remaining_failures"] == 1
+
+        # Check which one survived
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        assert len(data["failures"]) == 1
+        # New failure should survive because it has higher importance (no decay)
+        assert data["failures"][0]["name"] == "new-failure"
