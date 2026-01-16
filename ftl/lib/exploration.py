@@ -202,23 +202,45 @@ def get_pattern() -> dict:
 def get_memory() -> dict:
     """Get memory section from exploration, with fallback.
 
+    Includes similar campaigns if available.
+
     Returns:
-        Memory dict or empty fallback
+        Memory dict with failures, patterns, and similar_campaigns
     """
     exploration = read()
-    if not exploration:
-        return {
-            "status": "missing",
-            "failures": [],
-            "patterns": [],
-            "total_in_memory": {"failures": 0, "patterns": 0}
-        }
-    return exploration.get("memory", {
+    base = {
         "status": "missing",
         "failures": [],
         "patterns": [],
-        "total_in_memory": {"failures": 0, "patterns": 0}
-    })
+        "total_in_memory": {"failures": 0, "patterns": 0},
+        "similar_campaigns": [],
+    }
+
+    if not exploration:
+        return base
+
+    memory = exploration.get("memory", base)
+
+    # Augment with similar campaigns if not already present
+    if "similar_campaigns" not in memory:
+        try:
+            # Lazy import to avoid circular dependency
+            sys.path.insert(0, str(Path(__file__).parent))
+            from campaign import find_similar
+            similar = find_similar(threshold=0.6, max_results=3)
+            memory["similar_campaigns"] = [
+                {
+                    "objective": s.get("objective", ""),
+                    "similarity": s.get("similarity", 0),
+                    "outcome": s.get("outcome", ""),
+                    "patterns_from": s.get("patterns_from", []),
+                }
+                for s in similar
+            ]
+        except Exception:
+            memory["similar_campaigns"] = []
+
+    return memory
 
 
 def get_delta() -> dict:

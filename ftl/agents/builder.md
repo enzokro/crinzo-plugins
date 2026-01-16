@@ -109,9 +109,12 @@ Write the code. Use Edit for existing files, Write for new files.
 
 **Budget note**: Each Edit/Write call counts separately. Multi-file delta with 2 files = 2 tools.
 
-Apply patterns from `<prior_knowledge>/<pattern>` if relevant.
+Apply patterns from `<prior_knowledge>/<pattern>` if relevant. **Track which prior_knowledge entries you actually use**—this feeds the feedback loop for memory effectiveness.
 
-State: `Budget: {N}/{budget}` (where N = 1 + files_modified)
+If you use a pattern's insight → note its `name` for the utilized list.
+If you avoid a failure because of its `fix` → note its `name` for the utilized list.
+
+State: `Budget: {N}/{budget}, Utilized: [{names of helpful prior_knowledge}]` (where N = 1 + files_modified)
 
 ---
 
@@ -165,8 +168,15 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete .ftl/workspace/NNN_slug_
   --delivered "Implementation summary
 - Files: {delta}
 - Idioms: {required items used}
-- Avoided: {forbidden items avoided}"
+- Avoided: {forbidden items avoided}" \
+  --utilized '[{"name": "pattern-name", "type": "pattern"}, {"name": "failure-name", "type": "failure"}]'
 ```
+
+**Feedback Loop**: The `--utilized` parameter records which prior_knowledge entries helped you succeed. This feeds the memory effectiveness system:
+- Helpful memories persist longer (1.5x importance)
+- Unhelpful memories decay faster (0.5x importance)
+
+Only include entries you **actually used** (applied the insight, avoided the trigger). Prior_knowledge that was injected but ignored should NOT be listed.
 
 Output completion report and STOP.
 
@@ -241,6 +251,10 @@ Budget: {used}/{total}
 ## Idioms
 - Required: {items used}
 - Forbidden: {items avoided}
+
+## Prior Knowledge Utilized
+- Patterns: {list of pattern names that helped}
+- Failures avoided: {list of failure names whose fix was applied}
 
 ## Verified
 {verify command}: PASS

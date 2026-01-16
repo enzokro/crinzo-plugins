@@ -272,10 +272,13 @@ def create(plan: dict, task_seq: str = None) -> list:
             pk = ET.SubElement(root, "prior_knowledge")
 
             for f in all_failures:
+                # Mark memory-sourced entries as injected for feedback tracking
+                is_sibling = f.get("name", "").startswith("sibling-")
                 failure = ET.SubElement(
                     pk, "failure",
                     name=f.get("name", ""),
-                    cost=str(f.get("cost", 0))
+                    cost=str(f.get("cost", 0)),
+                    injected="true" if not is_sibling else "false"
                 )
                 ET.SubElement(failure, "trigger").text = f.get("trigger", "")
                 ET.SubElement(failure, "fix").text = f.get("fix", "")
@@ -286,7 +289,8 @@ def create(plan: dict, task_seq: str = None) -> list:
                 pattern = ET.SubElement(
                     pk, "pattern",
                     name=p.get("name", ""),
-                    saved=str(p.get("saved", 0))
+                    saved=str(p.get("saved", 0)),
+                    injected="true"
                 )
                 ET.SubElement(pattern, "trigger").text = p.get("trigger", "")
                 ET.SubElement(pattern, "insight").text = p.get("insight", "")
@@ -323,12 +327,13 @@ def create(plan: dict, task_seq: str = None) -> list:
     return paths
 
 
-def complete(path: Path, delivered: str) -> Path:
+def complete(path: Path, delivered: str, utilized_memories: list = None) -> Path:
     """Mark workspace complete.
 
     Args:
         path: Path to active workspace XML
         delivered: Summary of what was delivered
+        utilized_memories: List of {"name": str, "type": "failure"|"pattern"} that were helpful
 
     Returns:
         New path (with _complete suffix)
@@ -343,6 +348,16 @@ def complete(path: Path, delivered: str) -> Path:
     if delivered_elem is None:
         delivered_elem = ET.SubElement(root, "delivered")
     delivered_elem.text = delivered
+
+    # Track utilized memories for feedback loop
+    if utilized_memories:
+        utilization = ET.SubElement(root, "memory_utilization")
+        for mem in utilized_memories:
+            ET.SubElement(
+                utilization, "utilized",
+                name=mem.get("name", ""),
+                type=mem.get("type", "failure")
+            )
 
     new_path = path.parent / path.name.replace("_active.xml", "_complete.xml")
     tree.write(new_path, encoding="unicode", xml_declaration=True)
@@ -447,6 +462,7 @@ def parse(path: Path) -> dict:
                     "trigger": f.findtext("trigger", ""),
                     "fix": f.findtext("fix", ""),
                     "match": f.findtext("match"),
+                    "injected": f.get("injected") == "true",
                 }
                 for f in pk.findall("failure")
             ],
@@ -456,10 +472,22 @@ def parse(path: Path) -> dict:
                     "saved": int(p.get("saved", 0)),
                     "trigger": p.findtext("trigger", ""),
                     "insight": p.findtext("insight", ""),
+                    "injected": p.get("injected") == "true",
                 }
                 for p in pk.findall("pattern")
             ],
         }
+
+    # Memory utilization (for feedback loop)
+    utilization = root.find("memory_utilization")
+    if utilization is not None:
+        result["utilized_memories"] = [
+            {
+                "name": u.get("name"),
+                "type": u.get("type", "failure"),
+            }
+            for u in utilization.findall("utilized")
+        ]
 
     # Lineage - supports multiple parents (DAG dependencies)
     lineage = root.find("lineage")
@@ -510,6 +538,7 @@ def main():
     comp = subparsers.add_parser("complete", help="Mark workspace complete")
     comp.add_argument("path", help="Path to active workspace XML")
     comp.add_argument("--delivered", required=True, help="Delivery summary")
+    comp.add_argument("--utilized", help="JSON array of utilized memories [{name, type}]")
 
     # block command
     b = subparsers.add_parser("block", help="Mark workspace blocked")
@@ -532,7 +561,8 @@ def main():
             print(f"Created: {p}")
 
     elif args.command == "complete":
-        new_path = complete(Path(args.path), args.delivered)
+        utilized = json.loads(args.utilized) if args.utilized else None
+        new_path = complete(Path(args.path), args.delivered, utilized)
         print(f"Completed: {new_path}")
 
     elif args.command == "block":

@@ -17,6 +17,7 @@ except ImportError:
 
 CAMPAIGN_FILE = Path(".ftl/campaign.json")
 ARCHIVE_DIR = Path(".ftl/archive")
+EXPLORATION_FILE = Path(".ftl/exploration.json")
 
 
 def create(objective: str, framework: str = None) -> dict:
@@ -351,14 +352,15 @@ def status() -> dict:
     return json.loads(CAMPAIGN_FILE.read_text())
 
 
-def complete(summary: str = None) -> dict:
+def complete(summary: str = None, patterns_extracted: list = None) -> dict:
     """Complete campaign.
 
     Args:
         summary: Optional summary text (if None, computes dict summary)
+        patterns_extracted: Optional list of pattern names extracted during this campaign
 
     Returns:
-        Final campaign dict with summary
+        Final campaign dict with summary and fingerprint
     """
     if not CAMPAIGN_FILE.exists():
         raise ValueError("No active campaign")
@@ -381,6 +383,13 @@ def complete(summary: str = None) -> dict:
                 "complete": sum(1 for t in tasks if t.get("status") == "complete"),
                 "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
             }
+
+        # Generate and store fingerprint for similarity matching
+        campaign["fingerprint"] = fingerprint(campaign)
+
+        # Store patterns extracted during this campaign (for transfer learning)
+        if patterns_extracted:
+            campaign["patterns_extracted"] = patterns_extracted
 
         # Store copy for archiving
         result_campaign = dict(campaign)
@@ -468,6 +477,183 @@ def active() -> dict | None:
     return None
 
 
+def fingerprint(campaign: dict = None) -> dict:
+    """Generate a fingerprint for campaign similarity matching.
+
+    Fingerprint includes:
+    - framework: The detected framework
+    - task_count: Number of tasks
+    - task_types: Set of task types (SPEC, BUILD)
+    - delta_files: Sorted list of files being modified
+    - objective_hash: Short hash of objective for quick comparison
+
+    Args:
+        campaign: Campaign dict (if None, loads active campaign)
+
+    Returns:
+        Fingerprint dict
+    """
+    if campaign is None:
+        campaign = status()
+        if campaign.get("status") == "none":
+            return {}
+
+    tasks = campaign.get("tasks", [])
+
+    # Collect delta files from exploration if available
+    delta_files = []
+    if EXPLORATION_FILE.exists():
+        try:
+            exploration = json.loads(EXPLORATION_FILE.read_text())
+            delta = exploration.get("delta", {})
+            candidates = delta.get("candidates", [])
+            delta_files = sorted(set(c.get("file", "") for c in candidates if c.get("file")))
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Hash objective for quick comparison
+    import hashlib
+    objective = campaign.get("objective", "")
+    obj_hash = hashlib.md5(objective.encode()).hexdigest()[:8]
+
+    return {
+        "framework": campaign.get("framework", "none"),
+        "task_count": len(tasks),
+        "task_types": sorted(set(t.get("type", "BUILD") for t in tasks)),
+        "delta_files": delta_files[:20],  # Limit to 20 files
+        "objective_hash": obj_hash,
+        "objective_preview": objective[:100],
+    }
+
+
+def _embed_text(text: str) -> tuple | None:
+    """Get embedding for text (lazy import)."""
+    try:
+        from embeddings import embed
+        return embed(text)
+    except ImportError:
+        return None
+
+
+def _cosine_similarity(vec1: tuple, vec2: tuple) -> float:
+    """Compute cosine similarity between two vectors."""
+    if not vec1 or not vec2:
+        return 0.0
+    try:
+        import numpy as np
+        v1, v2 = np.array(vec1), np.array(vec2)
+        return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+    except ImportError:
+        return 0.0
+
+
+def find_similar(
+    current_fingerprint: dict = None,
+    threshold: float = 0.6,
+    max_results: int = 5
+) -> list:
+    """Find campaigns similar to the current one.
+
+    Similarity is based on:
+    - Framework match (required)
+    - Objective embedding similarity
+    - Delta file overlap
+
+    Args:
+        current_fingerprint: Fingerprint to compare (if None, uses active campaign)
+        threshold: Minimum similarity score (0.0-1.0)
+        max_results: Maximum number of results
+
+    Returns:
+        List of {"archive": str, "similarity": float, "fingerprint": dict, "outcome": str}
+    """
+    if current_fingerprint is None:
+        current_fingerprint = fingerprint()
+
+    if not current_fingerprint:
+        return []
+
+    current_framework = current_fingerprint.get("framework", "none")
+    current_objective = current_fingerprint.get("objective_preview", "")
+    current_delta = set(current_fingerprint.get("delta_files", []))
+    current_embedding = _embed_text(current_objective)
+
+    results = []
+
+    if not ARCHIVE_DIR.exists():
+        return []
+
+    for archive_path in ARCHIVE_DIR.glob("*.json"):
+        try:
+            archived = json.loads(archive_path.read_text())
+        except (json.JSONDecodeError, IOError):
+            continue
+
+        arch_fingerprint = archived.get("fingerprint", {})
+        if not arch_fingerprint:
+            # Legacy archive without fingerprint - generate one
+            arch_fingerprint = {
+                "framework": archived.get("framework", "none"),
+                "task_count": len(archived.get("tasks", [])),
+                "objective_preview": archived.get("objective", "")[:100],
+            }
+
+        # Framework must match (or both be "none")
+        arch_framework = arch_fingerprint.get("framework", "none")
+        if current_framework != "none" and arch_framework != current_framework:
+            continue
+
+        # Calculate similarity
+        similarity = 0.0
+
+        # Objective embedding similarity (weight: 0.6)
+        arch_objective = arch_fingerprint.get("objective_preview", archived.get("objective", "")[:100])
+        if current_embedding:
+            arch_embedding = _embed_text(arch_objective)
+            if arch_embedding:
+                similarity += 0.6 * _cosine_similarity(current_embedding, arch_embedding)
+        else:
+            # Fallback to string comparison
+            from difflib import SequenceMatcher
+            similarity += 0.6 * SequenceMatcher(None, current_objective.lower(), arch_objective.lower()).ratio()
+
+        # Delta file overlap (weight: 0.3)
+        arch_delta = set(arch_fingerprint.get("delta_files", []))
+        if current_delta and arch_delta:
+            overlap = len(current_delta & arch_delta) / max(len(current_delta | arch_delta), 1)
+            similarity += 0.3 * overlap
+
+        # Task count similarity (weight: 0.1)
+        current_tasks = current_fingerprint.get("task_count", 0)
+        arch_tasks = arch_fingerprint.get("task_count", 0)
+        if current_tasks > 0 and arch_tasks > 0:
+            task_sim = 1.0 - abs(current_tasks - arch_tasks) / max(current_tasks, arch_tasks)
+            similarity += 0.1 * task_sim
+
+        if similarity >= threshold:
+            # Determine outcome
+            summary = archived.get("summary", {})
+            if isinstance(summary, dict):
+                total = summary.get("total", 0)
+                complete = summary.get("complete", 0)
+                outcome = "complete" if complete == total else "partial"
+            else:
+                outcome = "complete"
+
+            results.append({
+                "archive": archive_path.stem,
+                "similarity": round(similarity, 3),
+                "fingerprint": arch_fingerprint,
+                "outcome": outcome,
+                "objective": archived.get("objective", "")[:100],
+                "patterns_from": archived.get("patterns_extracted", []),
+            })
+
+    # Sort by similarity descending
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+    return results[:max_results]
+
+
 def main():
     parser = argparse.ArgumentParser(description="FTL campaign operations")
     subparsers = parser.add_subparsers(dest="command")
@@ -515,6 +701,14 @@ def main():
     exp.add_argument("output_file", help="Output JSON file path")
     exp.add_argument("--start", dest="start", help="Start date (YYYY-MM-DD)")
     exp.add_argument("--end", dest="end", help="End date (YYYY-MM-DD)")
+
+    # fingerprint command
+    subparsers.add_parser("fingerprint", help="Generate fingerprint for current campaign")
+
+    # find-similar command
+    sim = subparsers.add_parser("find-similar", help="Find similar archived campaigns")
+    sim.add_argument("--threshold", type=float, default=0.6, help="Similarity threshold (0.0-1.0)")
+    sim.add_argument("--max", type=int, default=5, help="Maximum results")
 
     args = parser.parse_args()
 
@@ -574,6 +768,14 @@ def main():
 
     elif args.command == "export":
         result = export_history(args.output_file, args.start, args.end)
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "fingerprint":
+        result = fingerprint()
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "find-similar":
+        result = find_similar(threshold=args.threshold, max_results=args.max)
         print(json.dumps(result, indent=2))
 
     else:

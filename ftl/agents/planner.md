@@ -39,9 +39,15 @@ Extract from exploration.json:
 - `pattern.idioms`: required and forbidden patterns
 - `memory.failures`: relevant failures with costs
 - `memory.patterns`: relevant patterns with insights
+- `memory.similar_campaigns`: past campaigns with matching objectives (for transfer learning)
 - `delta.candidates`: target files with function locations
 
-State: `Exploration: {structure.file_count} files, Framework: {pattern.framework}, Prior: {memory.total_in_memory.failures} failures`
+**Similar Campaign Transfer**: If `memory.similar_campaigns` has entries:
+- Check `patterns_from` - these patterns worked for similar objectives
+- Note `outcome` - did the similar campaign complete or block?
+- Consider similar task structures if `similarity` > 0.7
+
+State: `Exploration: {structure.file_count} files, Framework: {pattern.framework}, Prior: {memory.total_in_memory.failures} failures, Similar: {memory.similar_campaigns.length} campaigns`
 
 **Fallback**: If exploration.json missing or has errors, read README.md and memory directly:
 ```bash

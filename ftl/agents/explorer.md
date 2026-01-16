@@ -152,7 +152,7 @@ FastAPI:
 
 ## Mode: MEMORY
 
-**Goal**: Retrieve semantically relevant historical context
+**Goal**: Retrieve semantically relevant historical context + similar campaign insights
 
 **Steps**:
 1. Query memory with semantic relevance (uses embeddings when available):
@@ -170,10 +170,15 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related "{failure_name}" --max-hops 
 
 This discovers related failures via graph edges (co-occurrence in campaigns).
 
-3. Check archive for prior campaigns:
+3. Find similar past campaigns for transfer learning:
 ```bash
-ls .ftl/archive/*.json 2>/dev/null | head -5
+python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar --threshold 0.5 --max 3
 ```
+
+Similar campaigns provide:
+- Patterns that worked for similar objectives
+- Failures to proactively avoid
+- Framework/approach hints
 
 4. Get total counts for context:
 ```bash
@@ -205,7 +210,14 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all 2>/dev/null | python3 
       "_score": 6.89
     }
   ],
-  "prior_campaigns": ["add-campaign-archiving"],
+  "similar_campaigns": [
+    {
+      "objective": "Add export functionality...",
+      "similarity": 0.78,
+      "outcome": "complete",
+      "patterns_from": ["streaming-file-response"]
+    }
+  ],
   "total_in_memory": {
     "failures": 3,
     "patterns": 4

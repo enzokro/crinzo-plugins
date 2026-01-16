@@ -37,10 +37,13 @@ class Failure:
     match: str          # regex for log matching
     cost: int           # tokens spent
     source: list        # workspace IDs
-    # New fields for decay and graph relationships
+    # Decay and graph relationships
     access_count: int = 0       # How many times this was retrieved
     last_accessed: str = ""     # ISO timestamp of last retrieval
     related: list = field(default_factory=list)  # Names of related entries
+    # Feedback tracking
+    times_helped: int = 0       # Times this memory led to success
+    times_failed: int = 0       # Times this memory was injected but didn't help
 
 
 @dataclass
@@ -50,10 +53,13 @@ class Pattern:
     insight: str        # the non-obvious thing
     saved: int          # tokens saved
     source: list        # workspace IDs
-    # New fields for decay and graph relationships
+    # Decay and graph relationships
     access_count: int = 0       # How many times this was retrieved
     last_accessed: str = ""     # ISO timestamp of last retrieval
     related: list = field(default_factory=list)  # Names of related entries
+    # Feedback tracking
+    times_helped: int = 0       # Times this memory led to success
+    times_failed: int = 0       # Times this memory was injected but didn't help
 
 
 def load_memory(path: Path = MEMORY_FILE) -> dict:
@@ -108,27 +114,47 @@ def _calculate_age_decay(created_at: str, half_life_days: float = DEFAULT_DECAY_
         return 1.0
 
 
+def _calculate_effectiveness(entry: dict) -> float:
+    """Calculate effectiveness factor based on feedback.
+
+    Returns value between 0.5 (unhelpful) and 1.5 (very helpful).
+    Neutral (no feedback) returns 1.0.
+    """
+    helped = entry.get("times_helped", 0)
+    failed = entry.get("times_failed", 0)
+    total = helped + failed
+
+    if total == 0:
+        return 1.0
+
+    # Effectiveness ratio: 0.5 to 1.5 based on help/fail ratio
+    ratio = helped / total
+    return 0.5 + ratio  # Maps [0, 1] -> [0.5, 1.5]
+
+
 def _calculate_importance(
     entry: dict,
     value_key: str = "cost",
     half_life_days: float = DEFAULT_DECAY_HALF_LIFE_DAYS
 ) -> float:
-    """Calculate importance score combining value, access frequency, and recency.
+    """Calculate importance score combining value, access frequency, recency, and effectiveness.
 
-    Importance = log₂(value + 1) × age_decay × (1 + 0.1 × access_count)
+    Importance = log₂(value + 1) × age_decay × access_boost × effectiveness
 
     This balances:
     - Base value (cost or saved tokens)
     - Time decay (older entries matter less)
     - Access frequency boost (frequently used entries are important)
+    - Effectiveness (helpful entries persist, unhelpful decay faster)
     """
     value = entry.get(value_key, 0)
     base_score = math.log2(value + 1)
 
     age_decay = _calculate_age_decay(entry.get("created_at", ""), half_life_days)
     access_boost = 1 + 0.1 * entry.get("access_count", 0)
+    effectiveness = _calculate_effectiveness(entry)
 
-    return base_score * age_decay * access_boost
+    return base_score * age_decay * access_boost * effectiveness
 
 
 def _hybrid_score(relevance: float, value: int) -> float:
@@ -349,6 +375,71 @@ def track_access(entry_names: list, entry_type: str = "failure", path: Path = ME
         return None
 
     atomic_json_update(path, _update)
+
+
+def record_feedback(
+    entry_name: str,
+    entry_type: str = "failure",
+    helped: bool = True,
+    path: Path = MEMORY_FILE
+) -> str:
+    """Record whether an injected memory was helpful.
+
+    Args:
+        entry_name: Name of the memory entry
+        entry_type: "failure" or "pattern"
+        helped: True if memory contributed to success, False if it didn't help
+        path: Path to memory file
+
+    Returns: "updated" | "not_found"
+    """
+    _ensure_memory_file(path)
+
+    def _update(memory: dict) -> str:
+        key = "failures" if entry_type == "failure" else "patterns"
+
+        for entry in memory.get(key, []):
+            if entry.get("name") == entry_name:
+                if helped:
+                    entry["times_helped"] = entry.get("times_helped", 0) + 1
+                else:
+                    entry["times_failed"] = entry.get("times_failed", 0) + 1
+                return "updated"
+
+        return "not_found"
+
+    return atomic_json_update(path, _update)
+
+
+def record_feedback_batch(
+    utilized: list,
+    injected: list,
+    path: Path = MEMORY_FILE
+) -> dict:
+    """Record feedback for a batch of memories.
+
+    Args:
+        utilized: List of {"name": str, "type": "failure"|"pattern"} that helped
+        injected: List of {"name": str, "type": "failure"|"pattern"} that were injected
+        path: Path to memory file
+
+    Returns: {"helped": N, "not_helped": M}
+    """
+    utilized_set = {(m["name"], m["type"]) for m in utilized}
+    injected_set = {(m["name"], m["type"]) for m in injected}
+
+    result = {"helped": 0, "not_helped": 0}
+
+    for name, entry_type in injected_set:
+        helped = (name, entry_type) in utilized_set
+        status = record_feedback(name, entry_type, helped, path)
+        if status == "updated":
+            if helped:
+                result["helped"] += 1
+            else:
+                result["not_helped"] += 1
+
+    return result
 
 
 def get_context(
@@ -607,6 +698,13 @@ def main():
     # stats command
     stats = subparsers.add_parser("stats", help="Get memory statistics")
 
+    # feedback command
+    fb = subparsers.add_parser("feedback", help="Record feedback for a memory entry")
+    fb.add_argument("name", help="Entry name")
+    fb.add_argument("--type", default="failure", help="Entry type: failure or pattern")
+    fb.add_argument("--helped", action="store_true", help="Memory was helpful")
+    fb.add_argument("--failed", action="store_true", help="Memory didn't help")
+
     args = parser.parse_args()
 
     if args.command == "context":
@@ -657,6 +755,16 @@ def main():
     elif args.command == "stats":
         result = get_stats()
         print(json.dumps(result, indent=2))
+
+    elif args.command == "feedback":
+        if args.helped:
+            result = record_feedback(args.name, args.type, helped=True)
+        elif args.failed:
+            result = record_feedback(args.name, args.type, helped=False)
+        else:
+            print("Must specify --helped or --failed")
+            sys.exit(1)
+        print(result)
 
     else:
         parser.print_help()

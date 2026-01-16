@@ -17,6 +17,8 @@ version: 2.5.0
 | `/ftl stats` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` |
 | `/ftl prune` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune` |
 | `/ftl related "name"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related "name"` |
+| `/ftl similar` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar` |
+| `/ftl observe` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py analyze` |
 | `/ftl benchmark` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` |
 
 ## Agents
@@ -142,13 +144,18 @@ FTL uses semantic embeddings (sentence-transformers) for intelligent memory oper
 | **Deduplication** | 85% semantic similarity threshold prevents near-duplicate entries |
 | **Query** | `/ftl query "topic"` ranks results by semantic relevance |
 | **Relationships** | Graph edges between related failures enable multi-hop discovery |
-| **Decay** | Importance = `log₂(value) × age_decay × access_boost` |
+| **Decay** | Importance = `log₂(value) × age_decay × access_boost × effectiveness` |
+| **Feedback** | Tracks `times_helped` / `times_failed` for injected memories |
 
 **Hybrid Scoring**: `score = relevance × log₂(cost + 1)` balances semantic relevance with failure cost.
 
 **Age Decay**: Entries lose importance over time (half-life: 30 days). Frequently accessed entries resist decay.
 
+**Effectiveness**: Memories that help tasks succeed persist longer (1.5x). Unhelpful memories decay faster (0.5x).
+
 **Graph Traversal**: Related entries are discovered via BFS with configurable hop depth (default: 2).
+
+**Similar Campaigns**: `/ftl similar` finds past campaigns with matching objectives/frameworks for transfer learning.
 
 **Fallback**: If sentence-transformers unavailable, falls back to SequenceMatcher string similarity.
 
@@ -186,13 +193,15 @@ FTL uses semantic embeddings (sentence-transformers) for intelligent memory oper
 | active | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py active` | returns campaign or null |
 | history | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py history` | |
 | export | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py export OUTPUT [--start DATE] [--end DATE]` | `OUTPUT` is POS |
+| fingerprint | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py fingerprint` | generates similarity fingerprint for current campaign |
+| find-similar | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar [--threshold F] [--max N]` | finds similar archived campaigns |
 
 ### workspace.py
 | Command | Syntax | Notes |
 |---------|--------|-------|
 | create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan PATH [--task SEQ]` | `--plan` REQUIRED |
 | parse | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse PATH` | `PATH` is POS |
-| complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete PATH --delivered "text"` | `--delivered` REQUIRED |
+| complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete PATH --delivered "text" [--utilized JSON]` | `--utilized` tracks helpful memories |
 | block | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
 
 ### memory.py
@@ -206,6 +215,15 @@ FTL uses semantic embeddings (sentence-transformers) for intelligent memory oper
 | prune | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune [--max-failures N] [--max-patterns N] [--min-importance F] [--half-life D]` | removes low-importance entries |
 | add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern]` | bidirectional graph edge |
 | related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | BFS traversal |
+| feedback | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback NAME --helped\|--failed [--type TYPE]` | records if memory was useful |
+
+### observer.py
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| analyze | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py analyze [--workspace-dir PATH] [--no-verify]` | full extraction pipeline |
+| verify-blocks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py verify-blocks [--workspace-dir PATH]` | verify all blocked workspaces |
+| score | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py score PATH` | score single workspace |
+| extract-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py extract-failure PATH` | extract failure from blocked workspace |
 
 ### benchmark.py
 | Command | Syntax | Notes |
