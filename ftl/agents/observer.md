@@ -18,6 +18,9 @@ Input modes:
 
 Output: Updated memory.json with new failures and patterns
 
+**Philosophy**: Learn from everything. Failures teach what to avoid. Clean successes teach what works.
+A first-try completion with budget efficiency is valuable knowledge for similar future tasks.
+
 You have 10 tools. Use them to verify, then extract.
 </context>
 
