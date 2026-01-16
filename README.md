@@ -56,9 +56,9 @@ Or from inside of Claude Code:
 │  Decompose → Verify → Budget → Order│
 └─────────────────────────────────────┘
     │
-    ▼ plan.json → workspace XMLs
+    ▼ plan.json (DAG with dependencies)
 ┌─────────────────────────────────────┐
-│  BUILDER (per task)                 │
+│  BUILDER (parallel where possible)  │
 │  Read spec → Implement → Verify     │
 └─────────────────────────────────────┘
     │
@@ -71,7 +71,7 @@ Or from inside of Claude Code:
     ▼ memory.json
 ```
 
-**Explorers** gather codebase context in parallel. **Planner** decomposes work into verifiable tasks. **Builder** implements each task within strict budgets. **Observer** extracts patterns from outcomes — both successes and failures become future knowledge.
+**Explorers** gather codebase context in parallel. **Planner** decomposes work into a task DAG with dependencies. **Builders** execute tasks in parallel where dependencies allow. **Observer** extracts patterns from outcomes — both successes and failures become future knowledge.
 
 Each completed task makes the system smarter. Patterns emerge over time to influence future work.
 
@@ -94,7 +94,10 @@ Four agents with distinct roles:
 
 **Constraints:**
 - Explorers write to `.ftl/cache/explorer_{mode}.json` for reliable aggregation
+- Builder reads test file (`verify_source`) before implementing to match expectations
 - Builder enforces framework idioms as non-negotiable — blocks even if tests pass
+- Multi-file tasks get code context for all delta files, not just the first
+- Blocked sibling tasks inject failures into subsequent workspaces (intra-campaign learning)
 - Observer verifies blocked workspaces before extracting failures (prevents false positives)
 - Blocking is success — informed handoff, not failure
 
@@ -112,36 +115,46 @@ Four agents with distinct roles:
 Tasks produce XML workspace files in `.ftl/workspace/`. Each workspace is a contract between planner and builder — what to do, how to verify, and what to watch out for.
 
 ```xml
-<workspace id="003-routes-crud" type="BUILD" status="active">
+<workspace id="003-routes-crud" status="active">
+  <objective>Add CRUD routes for user management</objective>
   <implementation>
     <delta>src/routes.py</delta>
     <verify>pytest routes/test_*.py -v</verify>
+    <verify_source>routes/test_crud.py</verify_source>
     <budget>5</budget>
-    <target_lines>45-120</target_lines>
   </implementation>
-  <code_context>
-    <file path="src/routes.py" lines="45-120">
-      <content language="python">...</content>
-    </file>
+  <code_context path="src/routes.py" lines="45-120">
+    <content>...</content>
+    <exports>get_user(), create_user()</exports>
   </code_context>
-  <framework_idioms framework="FastHTML">
-    <required><idiom>use @rt decorator for routes</idiom></required>
-    <forbidden><idiom>raw HTML string construction</idiom></forbidden>
-  </framework_idioms>
+  <idioms framework="FastHTML">
+    <required>use @rt decorator for routes</required>
+    <forbidden>raw HTML string construction</forbidden>
+  </idioms>
   <prior_knowledge>
     <pattern name="stubs-in-first-build" saved="2293760000">...</pattern>
     <failure name="import-order" cost="2500">...</failure>
   </prior_knowledge>
-  <preflight>
-    <check>python -m py_compile src/routes.py</check>
-  </preflight>
-  <delivered status="pending">...</delivered>
+  <lineage>
+    <parent seq="001" workspace="001_spec-routes_complete">
+      <prior_delivery>Test stubs created</prior_delivery>
+    </parent>
+    <parent seq="002" workspace="002_impl-models_complete">
+      <prior_delivery>User model implemented</prior_delivery>
+    </parent>
+  </lineage>
+  <delivered></delivered>
 </workspace>
 ```
 
 **Naming:** `NNN_task-slug_status.xml`
 - `NNN` — 3-digit sequence (001, 002, 003)
 - `status` — `active`, `complete`, or `blocked`
+
+**Key fields:**
+- `objective` — WHY this task exists (the user's original intent)
+- `verify_source` — Test file to read before implementing
+- `lineage` — Deliveries from parent tasks (supports multiple parents for DAG convergence)
 
 The workspace is the builder's single source of truth. Framework idioms are non-negotiable. If something goes wrong that isn't in prior knowledge, the builder blocks — discovery is needed, not more debugging.
 
@@ -169,9 +182,11 @@ The `lib/` directory provides Python utilities for orchestration:
 | Library | Purpose | Key Commands |
 |---------|---------|--------------|
 | `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
-| `campaign.py` | Campaign lifecycle | `create`, `add-tasks`, `status`, `complete`, `export` |
+| `campaign.py` | Campaign lifecycle | `create`, `add-tasks`, `ready-tasks`, `status`, `complete` |
 | `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
 | `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query` |
+
+**DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution of independent branches.
 
 ## Examples
 
