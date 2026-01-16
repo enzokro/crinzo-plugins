@@ -70,9 +70,18 @@ def load_memory(path: Path = MEMORY_FILE) -> dict:
 
 
 def save_memory(memory: dict, path: Path = MEMORY_FILE) -> None:
-    """Save memory to disk."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(memory, indent=2))
+    """Save memory to disk with atomic write.
+
+    Uses file locking to prevent concurrent write corruption.
+    """
+    _ensure_memory_file(path)
+
+    def _update(existing: dict) -> None:
+        existing.clear()
+        existing.update(memory)
+        return None
+
+    atomic_json_update(path, _update)
 
 
 def _ensure_memory_file(path: Path = MEMORY_FILE) -> None:

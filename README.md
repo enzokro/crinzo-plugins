@@ -174,17 +174,63 @@ A unified system capturing what went wrong and what worked:
 
 **Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Score ≥3 gets extracted.
 
-**Semantic retrieval** — Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by `relevance × log₂(cost + 1)` — balancing semantic relevance with historical cost. Falls back to string matching if embeddings unavailable.
+**Semantic retrieval** — Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by hybrid relevance:
+
+```
+score = relevance × log₂(cost + 1)
+```
+
+This balances "how relevant is this to my current task?" with "how expensive was this to discover?" — ensuring you don't repeat expensive mistakes while avoiding irrelevant-but-costly noise.
 
 **Deduplication** — 85% semantic similarity threshold prevents near-duplicate entries. Sources are merged when duplicates detected.
 
-The Observer verifies blocked workspaces before extracting failures — no learning from false positives.
+### Memory Feedback Loop
 
-**Architecture note:** FTL operates on two layers:
-1. **Automated Python code** — Semantic retrieval, deduplication, DAG scheduling, file locking. These run deterministically.
-2. **Agent instructions** — Observer verification, pattern scoring (≥3 points), idiom enforcement. These guide Claude agent behavior but depend on agent judgment.
+Memories that help persist longer; memories that don't decay faster:
 
-The automated layer (sibling failure injection, 85% deduplication, hybrid scoring) provides reliable intra-campaign learning. The instruction layer (observer.md, builder.md) documents best practices for agents to follow.
+```python
+# Builder reports which memories were actually used
+complete(..., utilized_memories=["import-error", "jwt-refresh"])
+
+# Observer records feedback
+record_feedback("import-error", "failure", helped=True)   # → 1.5× persistence
+record_feedback("jwt-refresh", "pattern", helped=False)   # → 0.5× decay
+```
+
+Importance scoring combines multiple factors:
+
+```
+importance = log₂(value + 1) × age_decay × access_boost × effectiveness
+```
+
+- **value**: cost (failures) or saved tokens (patterns)
+- **age_decay**: exponential decay with 30-day half-life
+- **access_boost**: 1 + 0.1 × access_count
+- **effectiveness**: 0.5 (unhelpful) to 1.5 (very helpful) based on feedback
+
+### Graph Relationships
+
+Failures and patterns can be linked:
+
+```bash
+python3 lib/memory.py add-relationship auth-timeout database-connection --type failure
+
+# Later retrieval with multi-hop traversal
+python3 lib/memory.py related auth-timeout --max-hops 2
+# Returns: database-connection (1 hop), connection-retry (2 hops)
+```
+
+This enables discovery across related issues: "I'm seeing auth timeouts — what caused those, and what fixed the cause?"
+
+### Pruning
+
+Memory self-manages through importance-based pruning:
+
+```bash
+python3 lib/memory.py prune --max-failures 500 --max-patterns 200 --min-importance 0.1
+```
+
+Low-importance entries (old, unused, ineffective) are pruned first. The system maintains bounded size while preserving high-value knowledge.
 
 ## DAG Execution
 
@@ -214,16 +260,41 @@ Campaigns support multi-parent task dependencies:
 
 **Cascade handling**: When a parent task blocks, child tasks become unreachable. The orchestrator detects stuck campaigns and propagates blocks to unreachable tasks with `blocked_by` references. Campaigns complete gracefully with partial success rather than hanging indefinitely.
 
+### Sibling Failure Injection
+
+When a task blocks, its failure is injected into subsequent tasks *before* the Observer runs:
+
+```xml
+<prior_knowledge>
+  <sibling_failure seq="002" slug="auth-impl">
+    <trigger>ImportError: fasthtml.core not found</trigger>
+    <reason>Wrong import path for FastHTML 0.7+</reason>
+  </sibling_failure>
+</prior_knowledge>
+```
+
+This enables intra-campaign learning — later tasks benefit from earlier failures immediately, without waiting for the Observer to extract patterns.
+
+### Campaign Fingerprinting
+
+Similar past campaigns are discovered through semantic fingerprinting:
+
+```bash
+python3 lib/exploration.py similar-campaigns "implement OAuth flow"
+```
+
+Returns campaigns with similar objectives, providing context on what worked (and what didn't) for comparable requests.
+
 ## CLI Tools
 
 The `lib/` directory provides Python utilities for orchestration:
 
 | Library | Purpose | Key Commands |
 |---------|---------|--------------|
-| `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
+| `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear`, `similar-campaigns` |
 | `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete` |
 | `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
-| `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query` |
+| `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query`, `prune`, `feedback`, `add-relationship`, `related`, `stats` |
 | `embeddings.py` | Semantic similarity | Used internally by memory.py |
 | `atomicfile.py` | Concurrent write safety | Used internally by campaign.py, memory.py |
 
@@ -249,15 +320,72 @@ The `lib/` directory provides Python utilities for orchestration:
 /ftl status
 ```
 
+## What's Automated vs. What's Documented
+
+FTL operates on two layers:
+
+| Layer | How It Works | Reliability |
+|-------|--------------|-------------|
+| **Python Infrastructure** | Deterministic code | Guaranteed |
+| **Agent Instructions** | Claude following markdown specs | Probabilistic |
+
+**Automated (100% reliable):**
+- Semantic memory retrieval and hybrid scoring
+- DAG scheduling and cycle detection
+- Cascade handling for blocked parents
+- Sibling failure injection
+- Block verification in Observer
+- Pattern/failure deduplication (85% threshold)
+- Memory feedback recording
+- File locking for concurrent safety
+- Pruning based on importance scores
+
+**Documented (agent judgment):**
+- Cross-workspace synthesis and relationship discovery
+- Idiom compliance checking (Builder follows spec)
+- Pattern scoring (≥3 points threshold)
+- Override of false positives in Observer
+
+The automated layer provides reliable intra-campaign learning. The instruction layer documents best practices for agents to follow — more powerful than pure automation for complex synthesis, but dependent on agent judgment.
+
 ## When to Use
 
 **Use ftl when:**
 - Work should persist as precedent and compound over time
 - You want bounded, reviewable scope
 - Knowledge should build and evolve over sessions
-- Complex objectives that need coordination
+- Complex objectives need coordination across multiple tasks
+- Framework-specific development (FastHTML, FastAPI) with idiom enforcement
+- Repetitive patterns where past failures inform future work
 
 **Skip ftl when:**
 - Exploratory prototyping where you want the models to wander
 - Quick one-offs with no future value
 - Simple queries you'd ask Claude directly
+- Team collaboration (single-user design)
+- Novel frameworks without idiom definitions
+
+## Architecture
+
+| Module | Lines | Purpose | Status |
+|--------|-------|---------|--------|
+| `lib/memory.py` | 776 | Semantic memory with decay, pruning, graph | Production |
+| `lib/campaign.py` | 788 | DAG scheduling, cycle detection, cascade handling | Production |
+| `lib/workspace.py` | 583 | XML workspace lifecycle, lineage, sibling injection | Production |
+| `lib/exploration.py` | 364 | Multi-mode aggregation with similar campaigns | Production |
+| `lib/observer.py` | 410 | Automated pattern/failure extraction | Production |
+| `lib/embeddings.py` | 51 | Semantic similarity with graceful fallback | Production |
+| `lib/atomicfile.py` | 38 | fcntl locking for concurrent JSON | Production |
+| `agents/explorer.md` | ~250 | 4-mode exploration spec | — |
+| `agents/planner.md` | ~350 | Task decomposition spec | — |
+| `agents/builder.md` | ~280 | Implementation spec | — |
+| `agents/observer.md` | ~265 | Learning extraction spec | — |
+
+**Total**: ~3,000 lines production Python, ~1,100 lines agent specs, 7 test modules.
+
+## What FTL Is Not
+
+- A production autonomous agent system (no SLA guarantees)
+- A multi-user or team collaboration tool (file-based, single-user)
+- A model-agnostic orchestration framework (Claude-only by design)
+- A GUI-based tool (CLI power users only)
