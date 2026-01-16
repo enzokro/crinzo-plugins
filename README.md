@@ -180,6 +180,12 @@ A unified system capturing what went wrong and what worked:
 
 The Observer verifies blocked workspaces before extracting failures — no learning from false positives.
 
+**Architecture note:** FTL operates on two layers:
+1. **Automated Python code** — Semantic retrieval, deduplication, DAG scheduling, file locking. These run deterministically.
+2. **Agent instructions** — Observer verification, pattern scoring (≥3 points), idiom enforcement. These guide Claude agent behavior but depend on agent judgment.
+
+The automated layer (sibling failure injection, 85% deduplication, hybrid scoring) provides reliable intra-campaign learning. The instruction layer (observer.md, builder.md) documents best practices for agents to follow.
+
 ## DAG Execution
 
 Campaigns support multi-parent task dependencies:
@@ -219,13 +225,13 @@ The `lib/` directory provides Python utilities for orchestration:
 | `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
 | `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query` |
 | `embeddings.py` | Semantic similarity | Used internally by memory.py |
-| `atomicfile.py` | Concurrent write safety | Used internally by campaign.py |
+| `atomicfile.py` | Concurrent write safety | Used internally by campaign.py, memory.py |
 
 **DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution. `cascade-status` detects stuck campaigns. `propagate-blocks` marks unreachable tasks.
 
 **Semantic Memory:** `context --objective "text"` retrieves memories ranked by semantic relevance. `query "topic"` searches with semantic ranking.
 
-**Concurrency:** Campaign updates use file locking for safe parallel DAG execution.
+**Concurrency:** Campaign and memory updates use file locking (`fcntl.LOCK_EX`) for safe parallel execution.
 
 ## Examples
 

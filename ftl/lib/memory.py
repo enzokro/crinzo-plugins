@@ -11,9 +11,11 @@ import sys
 # Support both standalone execution and module import
 try:
     from lib.embeddings import similarity as semantic_similarity
+    from lib.atomicfile import atomic_json_update
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from embeddings import similarity as semantic_similarity
+    from atomicfile import atomic_json_update
 
 
 MEMORY_FILE = Path(".ftl/memory.json")
@@ -49,6 +51,13 @@ def save_memory(memory: dict, path: Path = MEMORY_FILE) -> None:
     """Save memory to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(memory, indent=2))
+
+
+def _ensure_memory_file(path: Path = MEMORY_FILE) -> None:
+    """Ensure memory file exists for atomic operations."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(json.dumps({"failures": [], "patterns": []}, indent=2))
 
 
 def is_duplicate(trigger: str, existing: list, threshold: float = 0.85) -> tuple:
@@ -193,51 +202,54 @@ def get_context(
     return {"failures": failures, "patterns": patterns}
 
 
-def add_failure(failure: dict) -> str:
-    """Add failure entry with deduplication.
+def add_failure(failure: dict, path: Path = MEMORY_FILE) -> str:
+    """Add failure entry with deduplication using atomic file operations.
 
     Returns: "added" | "merged:{name}"
     """
-    memory = load_memory()
-    existing = memory.get("failures", [])
+    _ensure_memory_file(path)
 
-    is_dup, existing_name = is_duplicate(failure.get("trigger", ""), existing)
+    def _update(memory: dict) -> str:
+        existing = memory.get("failures", [])
+        is_dup, existing_name = is_duplicate(failure.get("trigger", ""), existing)
 
-    if is_dup:
-        # Merge: combine sources, keep higher cost
-        for f in existing:
-            if f.get("name") == existing_name:
-                f["source"] = list(set(
-                    f.get("source", []) + failure.get("source", [])
-                ))
-                f["cost"] = max(f.get("cost", 0), failure.get("cost", 0))
-                break
-        save_memory(memory)
-        return f"merged:{existing_name}"
-    else:
-        failure["created_at"] = datetime.now().isoformat()
-        memory.setdefault("failures", []).append(failure)
-        save_memory(memory)
-        return "added"
+        if is_dup:
+            # Merge: combine sources, keep higher cost
+            for f in existing:
+                if f.get("name") == existing_name:
+                    f["source"] = list(set(
+                        f.get("source", []) + failure.get("source", [])
+                    ))
+                    f["cost"] = max(f.get("cost", 0), failure.get("cost", 0))
+                    break
+            return f"merged:{existing_name}"
+        else:
+            failure["created_at"] = datetime.now().isoformat()
+            memory.setdefault("failures", []).append(failure)
+            return "added"
+
+    return atomic_json_update(path, _update)
 
 
-def add_pattern(pattern: dict) -> str:
-    """Add pattern entry with deduplication.
+def add_pattern(pattern: dict, path: Path = MEMORY_FILE) -> str:
+    """Add pattern entry with deduplication using atomic file operations.
 
     Returns: "added" | "duplicate:{name}"
     """
-    memory = load_memory()
-    existing = memory.get("patterns", [])
+    _ensure_memory_file(path)
 
-    is_dup, existing_name = is_duplicate(pattern.get("trigger", ""), existing)
+    def _update(memory: dict) -> str:
+        existing = memory.get("patterns", [])
+        is_dup, existing_name = is_duplicate(pattern.get("trigger", ""), existing)
 
-    if is_dup:
-        return f"duplicate:{existing_name}"
-    else:
-        pattern["created_at"] = datetime.now().isoformat()
-        memory.setdefault("patterns", []).append(pattern)
-        save_memory(memory)
-        return "added"
+        if is_dup:
+            return f"duplicate:{existing_name}"
+        else:
+            pattern["created_at"] = datetime.now().isoformat()
+            memory.setdefault("patterns", []).append(pattern)
+            return "added"
+
+    return atomic_json_update(path, _update)
 
 
 def query(topic: str, threshold: float = 0.3) -> list:

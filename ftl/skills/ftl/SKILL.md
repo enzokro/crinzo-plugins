@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.3.0
+version: 2.4.0
 ---
 
 # FTL Protocol
