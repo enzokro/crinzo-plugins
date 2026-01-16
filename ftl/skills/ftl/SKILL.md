@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.0.7
+version: 2.2.0
 ---
 
 # FTL Protocol
@@ -74,7 +74,7 @@ All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directo
    python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
 
 4. Task(ftl:ftl-planner) with objective + exploration.json
-   → Returns plan.json
+   → Returns plan.json (with DAG dependencies)
 
 5. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
 
@@ -82,14 +82,20 @@ All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directo
    cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
    python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan plan.json
 
-7. For each task:
-   Task(ftl:ftl-builder) with workspace
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
+7. Execute tasks with DAG parallelization:
+   WHILE python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks returns non-empty:
+     ready = ready-tasks output
+     FOR EACH task in ready (launch in PARALLEL):
+       Task(ftl:ftl-builder) with workspace
+       python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
 
 8. Task(ftl:ftl-observer) (analyze all workspaces)
 
 9. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete
 ```
+
+**DAG Parallelization**: Tasks with `depends: ["001", "002"]` wait for both 001 AND 002 to complete.
+Tasks with no dependencies or all dependencies complete can run in parallel.
 
 ## Workspace Lifecycle
 
@@ -135,6 +141,7 @@ Status: `active` → `complete` | `blocked`
 | add-tasks | `cat plan.json \| python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks` | reads stdin |
 | update-task | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ STATUS` | both POS |
 | next-task | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py next-task` | returns first pending |
+| ready-tasks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks` | returns all tasks ready for parallel execution |
 | complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete [--summary "text"]` | `--summary` is FLAG (not positional!) |
 | active | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py active` | returns campaign or null |
 | history | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py history` | |

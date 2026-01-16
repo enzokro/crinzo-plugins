@@ -100,9 +100,16 @@ Each task needs:
 - `type`: SPEC | BUILD | VERIFY
 - `delta`: files this task touches (specific paths, not globs)
 - `verify`: executable command that proves success
-- `depends`: seq of prerequisite or "none"
+- `depends`: seq of prerequisite, array of seqs for multi-parent, or "none"
+  - Single: `"depends": "001"` - task depends on 001
+  - Multi: `"depends": ["001", "002"]` - task depends on BOTH 001 AND 002
+  - None: `"depends": "none"` - task has no dependencies
 
-State: `Ordering: {N} tasks, max_depth={D}`
+**DAG Parallelization**: Tasks with no dependencies or whose dependencies are all complete can run in parallel. Design task graphs to maximize parallelism:
+- Independent branches (e.g., separate features) should not depend on each other
+- Convergence tasks (integration, final verify) depend on multiple branches
+
+State: `Ordering: {N} tasks, max_depth={D}, parallel_branches={B}`
 
 ## Step 5: Locate Target Functions (BUILD tasks only)
 
@@ -194,6 +201,7 @@ Quality (note in output if violated):
 
 ```json
 {
+  "objective": "The original user objective (WHY we're doing this)",
   "campaign": "kebab-slug",
   "framework": "FastHTML | FastAPI | none",
   "idioms": {
@@ -203,28 +211,73 @@ Quality (note in output if violated):
   "tasks": [
     {
       "seq": "001",
-      "slug": "task-slug",
+      "slug": "spec-auth",
       "type": "SPEC",
-      "delta": ["test_file.py"],
-      "verify": "pytest --collect-only -q test_file.py",
+      "delta": ["tests/test_auth.py"],
+      "verify": "pytest --collect-only -q tests/test_auth.py",
       "budget": 3,
       "depends": "none",
-      "preflight": ["python -m py_compile test_file.py"]
+      "preflight": ["python -m py_compile tests/test_auth.py"]
     },
     {
       "seq": "002",
-      "slug": "impl-slug",
+      "slug": "spec-api",
+      "type": "SPEC",
+      "delta": ["tests/test_api.py"],
+      "verify": "pytest --collect-only -q tests/test_api.py",
+      "budget": 3,
+      "depends": "none",
+      "preflight": ["python -m py_compile tests/test_api.py"]
+    },
+    {
+      "seq": "003",
+      "slug": "impl-auth",
       "type": "BUILD",
-      "delta": ["lib/module.py"],
-      "verify": "pytest tests/test_module.py -v",
+      "delta": ["lib/auth.py"],
+      "verify": "pytest tests/test_auth.py -v",
+      "verify_source": "tests/test_auth.py",
       "budget": 5,
       "depends": "001",
-      "preflight": ["python -m py_compile lib/module.py"],
-      "target_lines": {"lib/module.py": "45-80"}
+      "preflight": ["python -m py_compile lib/auth.py"],
+      "target_lines": {"lib/auth.py": "1-50"}
+    },
+    {
+      "seq": "004",
+      "slug": "impl-api",
+      "type": "BUILD",
+      "delta": ["lib/api.py"],
+      "verify": "pytest tests/test_api.py -v",
+      "verify_source": "tests/test_api.py",
+      "budget": 5,
+      "depends": "002",
+      "preflight": ["python -m py_compile lib/api.py"],
+      "target_lines": {"lib/api.py": "1-60"}
+    },
+    {
+      "seq": "005",
+      "slug": "integrate",
+      "type": "BUILD",
+      "delta": ["lib/main.py"],
+      "verify": "pytest tests/ -v",
+      "budget": 5,
+      "depends": ["003", "004"],
+      "preflight": ["python -m py_compile lib/main.py"]
     }
   ]
 }
 ```
+
+**Task Graph** (001 and 002 run in parallel, 003 and 004 run in parallel after their specs, 005 waits for both):
+```
+001 (spec-auth) ──→ 003 (impl-auth) ──┐
+                                      ├──→ 005 (integrate)
+002 (spec-api) ──→ 004 (impl-api) ───┘
+```
+
+**Key fields**:
+- `objective`: Include the original user objective so builders understand WHY they're doing the task
+- `verify_source`: For BUILD tasks, explicitly specify the test file so builders can read it before implementing
+- `depends`: String for single parent, array for multi-parent (DAG convergence points)
 
 ---
 

@@ -225,3 +225,101 @@ class TestWorkspaceLifecycle:
         blocked_files = list((ftl_dir / ".ftl/workspace").glob("*_blocked.xml"))
         assert len(active_files) == 1
         assert len(blocked_files) == 1
+
+
+class TestWorkspaceDAGLineage:
+    """Test workspace multi-parent lineage for DAG dependencies."""
+
+    def test_single_parent_lineage(self, cli, ftl_dir, sample_plan):
+        """Single parent lineage works with backwards compatibility."""
+        plan_json = json.dumps(sample_plan)
+        cli.workspace("create", "--plan", "-", stdin=plan_json)
+
+        # Complete first task
+        ws_001 = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
+        cli.workspace("complete", str(ws_001), "--delivered", "First task done")
+
+        # Now create workspace for second task (depends on 001)
+        cli.workspace("create", "--plan", "-", "--task", "002", stdin=plan_json)
+
+        # Parse second workspace
+        ws_002 = ftl_dir / ".ftl/workspace/002_second-task_active.xml"
+        code, out, _ = cli.workspace("parse", str(ws_002))
+        data = json.loads(out)
+
+        # Should have lineage with backwards compatible fields
+        assert "lineage" in data
+        assert "parent" in data["lineage"]
+        assert "prior_delivery" in data["lineage"]
+        assert "001_first-task_complete" in data["lineage"]["parent"]
+        assert "First task done" in data["lineage"]["prior_delivery"]
+
+        # Should also have new 'parents' list
+        assert "parents" in data["lineage"]
+        assert len(data["lineage"]["parents"]) == 1
+
+    def test_multi_parent_lineage(self, cli, ftl_dir, sample_dag_plan):
+        """Multi-parent lineage includes all parent deliveries."""
+        plan_json = json.dumps(sample_dag_plan)
+        cli.workspace("create", "--plan", "-", stdin=plan_json)
+
+        # Complete tasks 003 and 004
+        ws_003 = ftl_dir / ".ftl/workspace/003_impl-auth_active.xml"
+        ws_004 = ftl_dir / ".ftl/workspace/004_impl-api_active.xml"
+        cli.workspace("complete", str(ws_003), "--delivered", "Auth implemented with JWT")
+        cli.workspace("complete", str(ws_004), "--delivered", "API with REST endpoints")
+
+        # Now create workspace for task 005 (depends on ["003", "004"])
+        cli.workspace("create", "--plan", "-", "--task", "005", stdin=plan_json)
+
+        # Parse task 005 workspace
+        ws_005 = ftl_dir / ".ftl/workspace/005_integrate_active.xml"
+        code, out, _ = cli.workspace("parse", str(ws_005))
+        data = json.loads(out)
+
+        # Should have lineage with multiple parents
+        assert "lineage" in data
+        assert "parents" in data["lineage"]
+        parents = data["lineage"]["parents"]
+
+        assert len(parents) == 2
+
+        # Check both parents are present
+        seqs = [p["seq"] for p in parents]
+        assert "003" in seqs
+        assert "004" in seqs
+
+        # Check deliveries are captured
+        deliveries = [p["prior_delivery"] for p in parents]
+        assert any("Auth" in d or "JWT" in d for d in deliveries)
+        assert any("API" in d or "REST" in d for d in deliveries)
+
+        # Backwards compatibility: first parent in old format
+        assert "parent" in data["lineage"]
+        assert "prior_delivery" in data["lineage"]
+
+    def test_multi_parent_partial_complete(self, cli, ftl_dir, sample_dag_plan):
+        """Multi-parent lineage only includes completed parents."""
+        plan_json = json.dumps(sample_dag_plan)
+        cli.workspace("create", "--plan", "-", stdin=plan_json)
+
+        # Complete only task 003, leave 004 pending
+        ws_003 = ftl_dir / ".ftl/workspace/003_impl-auth_active.xml"
+        cli.workspace("complete", str(ws_003), "--delivered", "Auth done")
+
+        # Create workspace for task 005 (some deps not complete)
+        cli.workspace("create", "--plan", "-", "--task", "005", stdin=plan_json)
+
+        # Parse task 005 workspace
+        ws_005 = ftl_dir / ".ftl/workspace/005_integrate_active.xml"
+        code, out, _ = cli.workspace("parse", str(ws_005))
+        data = json.loads(out)
+
+        # Should have lineage with only completed parent
+        assert "lineage" in data
+        assert "parents" in data["lineage"]
+        parents = data["lineage"]["parents"]
+
+        # Only 003 is complete, so only one parent in lineage
+        assert len(parents) == 1
+        assert parents[0]["seq"] == "003"

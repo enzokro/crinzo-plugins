@@ -151,3 +151,60 @@ def sample_plan_with_framework():
             }
         ]
     }
+
+
+@pytest.fixture
+def sample_dag_plan():
+    """Sample plan.json with DAG dependencies (multi-parent)."""
+    return {
+        "campaign": "dag-campaign",
+        "framework": "none",
+        "idioms": {"required": [], "forbidden": []},
+        "tasks": [
+            {
+                "seq": "001",
+                "slug": "spec-auth",
+                "type": "SPEC",
+                "delta": ["tests/test_auth.py"],
+                "verify": "pytest --collect-only tests/test_auth.py",
+                "budget": 3,
+                "depends": "none"
+            },
+            {
+                "seq": "002",
+                "slug": "spec-api",
+                "type": "SPEC",
+                "delta": ["tests/test_api.py"],
+                "verify": "pytest --collect-only tests/test_api.py",
+                "budget": 3,
+                "depends": "none"
+            },
+            {
+                "seq": "003",
+                "slug": "impl-auth",
+                "type": "BUILD",
+                "delta": ["lib/auth.py"],
+                "verify": "pytest tests/test_auth.py",
+                "budget": 5,
+                "depends": "001"
+            },
+            {
+                "seq": "004",
+                "slug": "impl-api",
+                "type": "BUILD",
+                "delta": ["lib/api.py"],
+                "verify": "pytest tests/test_api.py",
+                "budget": 5,
+                "depends": "002"
+            },
+            {
+                "seq": "005",
+                "slug": "integrate",
+                "type": "BUILD",
+                "delta": ["lib/main.py"],
+                "verify": "pytest tests/",
+                "budget": 5,
+                "depends": ["003", "004"]  # Multi-parent dependency
+            }
+        ]
+    }

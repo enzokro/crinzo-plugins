@@ -50,6 +50,7 @@ def add_tasks(plan: dict) -> None:
             "seq": t["seq"],
             "slug": t["slug"],
             "type": t.get("type", "BUILD"),
+            "depends": t.get("depends", "none"),  # Store for DAG scheduling
             "status": "pending"
         }
         for t in plan.get("tasks", [])
@@ -99,6 +100,55 @@ def next_task() -> dict | None:
         if task.get("status") == "pending":
             return task
     return None
+
+
+def ready_tasks() -> list[dict]:
+    """Get all tasks ready for execution (pending with all dependencies complete).
+
+    This enables DAG-based parallel execution: tasks whose dependencies are
+    all complete can run simultaneously.
+
+    Returns:
+        List of task dicts ready for parallel execution
+    """
+    if not CAMPAIGN_FILE.exists():
+        return []
+
+    campaign = json.loads(CAMPAIGN_FILE.read_text())
+    tasks = campaign.get("tasks", [])
+
+    # Build set of completed task seqs (normalized to int for comparison)
+    completed_seqs = {
+        _normalize_seq(t["seq"])
+        for t in tasks
+        if t.get("status") == "complete"
+    }
+
+    ready = []
+    for task in tasks:
+        if task.get("status") != "pending":
+            continue
+
+        depends = task.get("depends", "none")
+
+        # Normalize depends to list
+        if depends == "none" or depends is None:
+            deps_list = []
+        elif isinstance(depends, str):
+            deps_list = [depends]
+        else:
+            deps_list = depends
+
+        # Check if all dependencies are complete
+        all_deps_complete = all(
+            _normalize_seq(dep) in completed_seqs
+            for dep in deps_list
+        )
+
+        if all_deps_complete:
+            ready.append(task)
+
+    return ready
 
 
 def status() -> dict:
@@ -242,6 +292,9 @@ def main():
     # next-task command
     subparsers.add_parser("next-task", help="Get next pending task")
 
+    # ready-tasks command
+    subparsers.add_parser("ready-tasks", help="Get all tasks ready for parallel execution")
+
     # status command
     subparsers.add_parser("status", help="Get campaign status")
 
@@ -282,6 +335,10 @@ def main():
             print(json.dumps(task, indent=2))
         else:
             print("null")
+
+    elif args.command == "ready-tasks":
+        tasks = ready_tasks()
+        print(json.dumps(tasks, indent=2))
 
     elif args.command == "status":
         result = status()

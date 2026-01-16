@@ -50,16 +50,42 @@ python3 lib/workspace.py parse .ftl/workspace/NNN_slug_active.xml
 ```
 
 Extract:
+- `objective`: WHY this task exists (the user's original intent)
 - `delta`: files to create/modify
 - `verify`: command that proves success
+- `verify_source`: test file to read for requirements (if present)
 - `budget`: your tool limit
 - `code_context`: current file contents (if present)
 - `idioms.required`: patterns you MUST use
 - `idioms.forbidden`: patterns you MUST NOT use
-- `prior_knowledge.failures`: errors to avoid
+- `prior_knowledge.failures`: errors to avoid (includes sibling failures!)
 - `prior_knowledge.patterns`: techniques that work
 
 State: `Budget: 1/{budget}, Delta: {files}, Framework: {name or none}`
+
+---
+
+## Step 1.5: Read Verify Source [OPTIONAL Tool]
+
+**If `verify_source` exists AND points to a test file:**
+
+Read the test file BEFORE implementing to understand what the tests expect:
+
+```bash
+# Read verify_source to understand test expectations
+cat {verify_source}
+```
+
+Extract from test assertions:
+- Expected function signatures
+- Expected behavior and return values
+- Edge cases the tests check for
+
+This prevents implementing something that doesn't match what tests expect.
+
+**Cost**: Counts as 1 tool. Skip if budget is tight and code_context is sufficient.
+
+State: `Budget: 2/{budget}, Verify requirements: {summary}`
 
 ---
 

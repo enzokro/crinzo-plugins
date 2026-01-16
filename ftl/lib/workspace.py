@@ -15,6 +15,53 @@ sys.path.insert(0, str(Path(__file__).parent))
 WORKSPACE_DIR = Path(".ftl/workspace")
 
 
+def extract_error_from_delivered(delivered: str) -> str:
+    """Extract error message from BLOCKED: delivered text.
+
+    Args:
+        delivered: The delivered field containing "BLOCKED: ..." text
+
+    Returns:
+        The first line of the error/reason
+    """
+    if "BLOCKED:" in delivered:
+        reason = delivered.split("BLOCKED:", 1)[1].strip()
+        # Take first line as trigger
+        return reason.split('\n')[0].strip()
+    return delivered[:100]
+
+
+def get_sibling_failures(workspace_dir: Path) -> list[dict]:
+    """Get failures from blocked sibling workspaces for intra-campaign learning.
+
+    Args:
+        workspace_dir: Path to workspace directory
+
+    Returns:
+        List of failure dicts from blocked siblings
+    """
+    failures = []
+    if not workspace_dir.exists():
+        return failures
+
+    for blocked_path in workspace_dir.glob("*_blocked.xml"):
+        try:
+            blocked_data = parse(blocked_path)
+            delivered = blocked_data.get("delivered", "")
+            if delivered and "BLOCKED:" in delivered:
+                failures.append({
+                    "name": f"sibling-{blocked_path.stem}",
+                    "trigger": extract_error_from_delivered(delivered),
+                    "fix": "See blocked workspace for attempted fixes",
+                    "cost": 1000,  # Default cost for sibling failures
+                    "source": [blocked_path.stem],
+                })
+        except Exception:
+            pass  # Skip malformed workspaces
+
+    return failures
+
+
 def extract_code_context(
     file_path: Path,
     max_lines: int = 60,
@@ -123,18 +170,37 @@ def create(plan: dict, task_seq: str = None) -> list:
         root = ET.Element("workspace", id=ws_id, status="active")
         root.set("created_at", datetime.now().isoformat())
 
+        # Objective (from plan, so builder knows the WHY not just the WHAT)
+        objective = plan.get("objective", "")
+        if objective:
+            ET.SubElement(root, "objective").text = objective
+
         # Implementation
         impl = ET.SubElement(root, "implementation")
         for delta in task.get("delta", []):
             ET.SubElement(impl, "delta").text = delta
         ET.SubElement(impl, "verify").text = task.get("verify", "")
+
+        # verify_source: test file that builder should read BEFORE implementing
+        # Either explicit from planner, or derived from verify command
+        verify_source = task.get("verify_source")
+        if not verify_source:
+            # Try to extract test file from verify command (e.g., "pytest tests/test_foo.py")
+            verify_cmd = task.get("verify", "")
+            if "pytest" in verify_cmd or "test" in verify_cmd:
+                for word in verify_cmd.split():
+                    if word.endswith(".py") and ("test" in word.lower() or word.startswith("tests/")):
+                        verify_source = word
+                        break
+        if verify_source:
+            ET.SubElement(impl, "verify_source").text = verify_source
         ET.SubElement(impl, "budget").text = str(task.get("budget", 5))
 
         # Preflight checks
         for pf in task.get("preflight", []):
             ET.SubElement(impl, "preflight").text = pf
 
-        # Code context (first existing delta file)
+        # Code context for ALL delta files (not just first)
         # Use target_lines from plan if available (set by planner for BUILD tasks)
         task_type = task.get("type", "BUILD")
         target_lines_map = task.get("target_lines", {})
@@ -158,7 +224,7 @@ def create(plan: dict, task_seq: str = None) -> list:
                     content_elem.text = ctx["content"]
                     ET.SubElement(code_ctx, "exports").text = ctx["exports"]
                     ET.SubElement(code_ctx, "imports").text = ctx["imports"]
-                break
+                # No break - process ALL delta files
 
         # Framework idioms
         framework = plan.get("framework")
@@ -169,7 +235,10 @@ def create(plan: dict, task_seq: str = None) -> list:
             for forb in plan.get("idioms", {}).get("forbidden", []):
                 ET.SubElement(idioms_elem, "forbidden").text = forb
 
-        # Prior knowledge from memory
+        # Prior knowledge from memory + blocked siblings (intra-campaign learning)
+        memory_failures = []
+        memory_patterns = []
+
         try:
             tags = [framework.lower()] if framework and framework != "none" else None
             memory_ctx = get_context(
@@ -178,42 +247,59 @@ def create(plan: dict, task_seq: str = None) -> list:
                 max_failures=5,
                 max_patterns=3
             )
-
-            if memory_ctx.get("failures") or memory_ctx.get("patterns"):
-                pk = ET.SubElement(root, "prior_knowledge")
-
-                for f in memory_ctx.get("failures", []):
-                    failure = ET.SubElement(
-                        pk, "failure",
-                        name=f.get("name", ""),
-                        cost=str(f.get("cost", 0))
-                    )
-                    ET.SubElement(failure, "trigger").text = f.get("trigger", "")
-                    ET.SubElement(failure, "fix").text = f.get("fix", "")
-                    if f.get("match"):
-                        ET.SubElement(failure, "match").text = f["match"]
-
-                for p in memory_ctx.get("patterns", []):
-                    pattern = ET.SubElement(
-                        pk, "pattern",
-                        name=p.get("name", ""),
-                        saved=str(p.get("saved", 0))
-                    )
-                    ET.SubElement(pattern, "trigger").text = p.get("trigger", "")
-                    ET.SubElement(pattern, "insight").text = p.get("insight", "")
+            memory_failures = memory_ctx.get("failures", [])
+            memory_patterns = memory_ctx.get("patterns", [])
         except ImportError:
-            pass  # Memory not available, skip prior knowledge
+            pass  # Memory not available
 
-        # Lineage (from depends)
+        # Add failures from blocked siblings (intra-campaign learning)
+        sibling_failures = get_sibling_failures(WORKSPACE_DIR)
+
+        all_failures = memory_failures + sibling_failures
+        all_patterns = memory_patterns
+
+        if all_failures or all_patterns:
+            pk = ET.SubElement(root, "prior_knowledge")
+
+            for f in all_failures:
+                failure = ET.SubElement(
+                    pk, "failure",
+                    name=f.get("name", ""),
+                    cost=str(f.get("cost", 0))
+                )
+                ET.SubElement(failure, "trigger").text = f.get("trigger", "")
+                ET.SubElement(failure, "fix").text = f.get("fix", "")
+                if f.get("match"):
+                    ET.SubElement(failure, "match").text = f["match"]
+
+            for p in all_patterns:
+                pattern = ET.SubElement(
+                    pk, "pattern",
+                    name=p.get("name", ""),
+                    saved=str(p.get("saved", 0))
+                )
+                ET.SubElement(pattern, "trigger").text = p.get("trigger", "")
+                ET.SubElement(pattern, "insight").text = p.get("insight", "")
+
+        # Lineage (from depends) - supports both single string and array of dependencies
         depends = task.get("depends")
         if depends and depends != "none":
-            parent_ws = list(WORKSPACE_DIR.glob(f"{depends}_*_complete.xml"))
-            if parent_ws:
-                parent_data = parse(parent_ws[0])
+            # Normalize to list for DAG support
+            if isinstance(depends, str):
+                depends_list = [depends]
+            else:
+                depends_list = [d for d in depends if d and d != "none"]
+
+            if depends_list:
                 lineage = ET.SubElement(root, "lineage")
-                ET.SubElement(lineage, "parent").text = parent_ws[0].stem
-                delivered = parent_data.get("delivered", "")[:200]
-                ET.SubElement(lineage, "prior_delivery").text = delivered
+                for dep in depends_list:
+                    parent_ws = list(WORKSPACE_DIR.glob(f"{dep}_*_complete.xml"))
+                    if parent_ws:
+                        parent_data = parse(parent_ws[0])
+                        parent_elem = ET.SubElement(lineage, "parent", seq=dep)
+                        parent_elem.set("workspace", parent_ws[0].stem)
+                        delivered = parent_data.get("delivered", "")
+                        ET.SubElement(parent_elem, "prior_delivery").text = delivered
 
         # Delivered (empty initially)
         ET.SubElement(root, "delivered")
@@ -294,23 +380,42 @@ def parse(path: Path) -> dict:
         "created_at": root.get("created_at"),
         "completed_at": root.get("completed_at"),
         "blocked_at": root.get("blocked_at"),
+        "objective": root.findtext("objective", ""),
         "delta": [d.text for d in root.findall(".//implementation/delta")],
         "verify": root.findtext(".//implementation/verify", ""),
+        "verify_source": root.findtext(".//implementation/verify_source", ""),
         "budget": int(root.findtext(".//implementation/budget", "5")),
         "preflight": [p.text for p in root.findall(".//implementation/preflight")],
         "delivered": root.findtext("delivered", ""),
     }
 
-    # Code context
-    code_ctx = root.find("code_context")
-    if code_ctx is not None:
-        result["code_context"] = {
-            "path": code_ctx.get("path"),
-            "lines": code_ctx.get("lines"),
-            "content": code_ctx.findtext("content", ""),
-            "exports": code_ctx.findtext("exports", ""),
-            "imports": code_ctx.findtext("imports", ""),
-        }
+    # Code context(s) - now supports multiple for multi-file delta
+    code_contexts = root.findall("code_context")
+    if code_contexts:
+        if len(code_contexts) == 1:
+            # Single context (backwards compatible)
+            code_ctx = code_contexts[0]
+            result["code_context"] = {
+                "path": code_ctx.get("path"),
+                "lines": code_ctx.get("lines"),
+                "content": code_ctx.findtext("content", ""),
+                "exports": code_ctx.findtext("exports", ""),
+                "imports": code_ctx.findtext("imports", ""),
+            }
+        else:
+            # Multiple contexts
+            result["code_contexts"] = [
+                {
+                    "path": ctx.get("path"),
+                    "lines": ctx.get("lines"),
+                    "content": ctx.findtext("content", ""),
+                    "exports": ctx.findtext("exports", ""),
+                    "imports": ctx.findtext("imports", ""),
+                }
+                for ctx in code_contexts
+            ]
+            # Also keep first as code_context for backwards compatibility
+            result["code_context"] = result["code_contexts"][0]
 
     # Idioms
     idioms = root.find("idioms")
@@ -346,13 +451,38 @@ def parse(path: Path) -> dict:
             ],
         }
 
-    # Lineage
+    # Lineage - supports multiple parents (DAG dependencies)
     lineage = root.find("lineage")
     if lineage is not None:
-        result["lineage"] = {
-            "parent": lineage.findtext("parent", ""),
-            "prior_delivery": lineage.findtext("prior_delivery", ""),
-        }
+        parents = lineage.findall("parent")
+        if parents and parents[0].get("seq"):
+            # New multi-parent format: <parent seq="001" workspace="..."><prior_delivery>...</prior_delivery></parent>
+            result["lineage"] = {
+                "parents": [
+                    {
+                        "seq": p.get("seq"),
+                        "workspace": p.get("workspace"),
+                        "prior_delivery": p.findtext("prior_delivery", ""),
+                    }
+                    for p in parents
+                ],
+            }
+            # Backwards compatibility: expose first parent in old format
+            if result["lineage"]["parents"]:
+                first = result["lineage"]["parents"][0]
+                result["lineage"]["parent"] = first["workspace"]
+                result["lineage"]["prior_delivery"] = first["prior_delivery"]
+        else:
+            # Legacy single-parent format: <parent>...</parent><prior_delivery>...</prior_delivery>
+            result["lineage"] = {
+                "parent": lineage.findtext("parent", ""),
+                "prior_delivery": lineage.findtext("prior_delivery", ""),
+                "parents": [{
+                    "seq": None,
+                    "workspace": lineage.findtext("parent", ""),
+                    "prior_delivery": lineage.findtext("prior_delivery", ""),
+                }],
+            }
 
     return result
 

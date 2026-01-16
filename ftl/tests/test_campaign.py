@@ -382,3 +382,110 @@ class TestCampaignComplete:
         """Complete fails without active campaign."""
         code, out, err = cli.campaign("complete")
         assert code != 0
+
+
+class TestCampaignReadyTasks:
+    """Test ready-tasks for DAG-based parallel execution."""
+
+    def test_ready_tasks_returns_no_deps(self, cli, ftl_dir, sample_dag_plan):
+        """Ready tasks returns tasks with no dependencies initially."""
+        cli.campaign("create", "DAG test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        code, out, err = cli.campaign("ready-tasks")
+        assert code == 0, f"Failed: {err}"
+
+        tasks = json.loads(out)
+        # Initially, only tasks 001 and 002 should be ready (no deps)
+        seqs = [t["seq"] for t in tasks]
+        assert "001" in seqs
+        assert "002" in seqs
+        assert len(tasks) == 2  # Only the two independent spec tasks
+
+    def test_ready_tasks_after_one_complete(self, cli, ftl_dir, sample_dag_plan):
+        """Ready tasks includes dependent task after parent completes."""
+        cli.campaign("create", "DAG test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete task 001
+        cli.campaign("update-task", "001", "complete")
+
+        code, out, _ = cli.campaign("ready-tasks")
+        tasks = json.loads(out)
+        seqs = [t["seq"] for t in tasks]
+
+        # Now 002 (still pending) and 003 (depends on 001 which is complete)
+        assert "002" in seqs
+        assert "003" in seqs
+        assert "001" not in seqs  # Already complete
+        assert "004" not in seqs  # Depends on 002 which is pending
+        assert "005" not in seqs  # Depends on both 003 and 004
+
+    def test_ready_tasks_multi_parent(self, cli, ftl_dir, sample_dag_plan):
+        """Ready tasks handles multi-parent dependencies correctly."""
+        cli.campaign("create", "DAG multi-parent test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete both branches
+        cli.campaign("update-task", "001", "complete")
+        cli.campaign("update-task", "002", "complete")
+        cli.campaign("update-task", "003", "complete")
+        cli.campaign("update-task", "004", "complete")
+
+        code, out, _ = cli.campaign("ready-tasks")
+        tasks = json.loads(out)
+        seqs = [t["seq"] for t in tasks]
+
+        # Now task 005 should be ready (depends on both 003 and 004, both complete)
+        assert "005" in seqs
+        assert len(tasks) == 1
+
+    def test_ready_tasks_multi_parent_partial(self, cli, ftl_dir, sample_dag_plan):
+        """Ready tasks waits for ALL parents in multi-parent deps."""
+        cli.campaign("create", "DAG partial test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete only one branch (003 depends on 001)
+        cli.campaign("update-task", "001", "complete")
+        cli.campaign("update-task", "003", "complete")
+        # Leave 002 and 004 pending
+
+        code, out, _ = cli.campaign("ready-tasks")
+        tasks = json.loads(out)
+        seqs = [t["seq"] for t in tasks]
+
+        # 005 should NOT be ready (needs both 003 AND 004)
+        assert "005" not in seqs
+        # 002 should be ready (no deps)
+        assert "002" in seqs
+        # 004 should NOT be ready (depends on 002 which is pending)
+        assert "004" not in seqs
+
+    def test_ready_tasks_empty_when_done(self, cli, ftl_dir, sample_dag_plan):
+        """Ready tasks returns empty when all tasks complete."""
+        cli.campaign("create", "DAG complete test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete all tasks
+        for seq in ["001", "002", "003", "004", "005"]:
+            cli.campaign("update-task", seq, "complete")
+
+        code, out, _ = cli.campaign("ready-tasks")
+        tasks = json.loads(out)
+
+        assert tasks == []
+
+    def test_add_tasks_stores_depends(self, cli, ftl_dir, sample_dag_plan):
+        """Add tasks stores depends field for DAG scheduling."""
+        cli.campaign("create", "DAG depends test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        code, out, _ = cli.campaign("status")
+        data = json.loads(out)
+
+        # Check that depends is stored
+        task_005 = next(t for t in data["tasks"] if t["seq"] == "005")
+        assert task_005["depends"] == ["003", "004"]
+
+        task_001 = next(t for t in data["tasks"] if t["seq"] == "001")
+        assert task_001["depends"] == "none"
