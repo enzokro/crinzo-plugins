@@ -31,7 +31,7 @@ Your job is REASONING, not exploration. Use the exploration data.
 
 Read the exploration data gathered by explorer agents:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read
+python3 "$(cat .ftl/plugin_root)/lib/exploration.py" read
 ```
 
 Extract from exploration.json:
@@ -48,7 +48,7 @@ State: `Exploration: {structure.file_count} files, Framework: {pattern.framework
 
 **Fallback**: If exploration.json missing or has errors:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --max-failures 10
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10
 ```
 
 ---

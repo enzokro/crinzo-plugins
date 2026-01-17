@@ -31,7 +31,7 @@ Framework idioms are non-negotiable. Using f-strings for HTML when idioms forbid
 
 ```
 STATE: READ [Tool 1]
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_path}
+  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}
   EXTRACT: objective, delta, verify, verify_source, budget, code_context, idioms, prior_knowledge
   SET: utilized = []
   EMIT: "Budget: 1/{budget}, Delta: {files}, Framework: {name or none}"
@@ -89,14 +89,14 @@ STATE: RETRY [Tool +1]
   IF: No match → GOTO BLOCK (discovery needed)
 
 STATE: COMPLETE [EXEMPT]
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete {path} \
+  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {path} \
         --delivered "{summary}" \
         --utilized '{utilized_json}'
   EMIT: Completion report
   STOP
 
 STATE: BLOCK [EXEMPT]
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block {path} \
+  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {path} \
         --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
   EMIT: Block report
   STOP

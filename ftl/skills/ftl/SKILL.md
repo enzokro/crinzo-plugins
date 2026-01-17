@@ -42,6 +42,7 @@ See [CLI_REFERENCE.md](CLI_REFERENCE.md) for complete syntax.
 ```
 STATE: INIT
   EMIT: STATE_ENTRY state=INIT
+  DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
   EMIT: PHASE_TRANSITION from=init to=explore
   GOTO: EXPLORE
@@ -85,6 +86,7 @@ STATE: OBSERVE
 ```
 STATE: INIT
   EMIT: STATE_ENTRY state=INIT mode=campaign
+  DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
   EMIT: PHASE_TRANSITION from=init to=explore
   GOTO: EXPLORE

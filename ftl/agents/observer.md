@@ -116,7 +116,7 @@ RETURN selected
 Run the automated extraction pipeline:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py analyze
+python3 "$(cat .ftl/plugin_root)/lib/observer.py" analyze
 ```
 
 This returns structured results with quality indicators:
@@ -152,8 +152,8 @@ The automation marks blocks as CONFIRMED or FALSE_POSITIVE.
 
 **Override if needed:**
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py extract-failure .ftl/workspace/NNN_slug_blocked.xml
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{...}'
+python3 "$(cat .ftl/plugin_root)/lib/observer.py" extract-failure .ftl/workspace/NNN_slug_blocked.xml
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-failure --json '{...}'
 ```
 
 ### 2b. Pattern Scoring Review
@@ -167,7 +167,7 @@ Automation scores >= 3 to extract. But scores miss context:
 
 **Override if needed:**
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{
   "name": "descriptive-name",
   "trigger": "when this applies",
   "insight": "the non-obvious technique",
@@ -187,8 +187,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{
 Read 1-3 workspaces using selection criteria above:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_complete.xml
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/MMM_other_blocked.xml
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse .ftl/workspace/NNN_slug_complete.xml
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse .ftl/workspace/MMM_other_blocked.xml
 ```
 
 **Synthesize:**
@@ -201,7 +201,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/MMM_other_bl
 Check if similar campaigns offer transferable insights:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar
+python3 "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar
 ```
 
 **Questions to ask:**
@@ -214,7 +214,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar
 Beyond automation's co-occurrence linking, find deeper relationships:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship "failure-a" "related-pattern" --type pattern
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-relationship "failure-a" "related-pattern" --type pattern
 ```
 
 **Link criteria:**
@@ -233,10 +233,10 @@ Record whether injected memories were helpful:
 
 ```bash
 # Memory was helpful
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback "failure-name" --helped
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" feedback "failure-name" --helped
 
 # Memory was present but didn't help
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback "failure-name" --failed
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" feedback "failure-name" --failed
 ```
 
 This feedback loop improves future retrieval—helpful memories persist, unhelpful ones decay.

@@ -138,22 +138,22 @@ grep -r "@pytest\|import pytest" --include="*.py" | head -5
 **Steps** (BATCHED for efficiency):
 1. Query memory with semantic relevance AND get related entries in one call:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --max-failures 10 --max-patterns 5
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10 --max-patterns 5
 ```
 
 2. For high-relevance matches (_relevance > 0.6), fetch graph neighbors:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related "{failure_name}" --max-hops 1
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" related "{failure_name}" --max-hops 1
 ```
 
 3. Find similar past campaigns:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar --threshold 0.5 --max 3
+python3 "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar --threshold 0.5 --max 3
 ```
 
 4. Get total counts:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats
+python3 "$(cat .ftl/plugin_root)/lib/memory.py" stats
 ```
 
 **Output**:
