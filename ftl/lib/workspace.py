@@ -7,12 +7,51 @@ import json
 import argparse
 import sys
 import xml.etree.ElementTree as ET
+import tempfile
+import os
 
 # Add lib directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
 
 WORKSPACE_DIR = Path(".ftl/workspace")
+
+
+def _atomic_xml_write(tree: ET.ElementTree, path: Path) -> None:
+    """Write XML tree atomically using temp-file + rename pattern.
+
+    This prevents partial writes if the process crashes during tree.write().
+    The rename operation is atomic on POSIX systems.
+
+    Args:
+        tree: ElementTree to write
+        path: Destination path
+    """
+    # Ensure parent directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create temp file in same directory (required for atomic rename)
+    fd, temp_path = tempfile.mkstemp(
+        suffix='.xml.tmp',
+        prefix=path.stem + '_',
+        dir=path.parent
+    )
+    try:
+        # Write to temp file
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            # Write XML declaration manually for control
+            f.write('<?xml version="1.0" encoding="utf-8"?>\n')
+            tree.write(f, encoding='unicode', xml_declaration=False)
+
+        # Atomic rename (POSIX guarantees atomicity)
+        os.replace(temp_path, path)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
 # Required fields for workspace validation
 REQUIRED_WORKSPACE_FIELDS = ["id", "status", "delta", "verify"]
@@ -233,6 +272,7 @@ def create(plan: dict, task_seq: str = None) -> list:
         path = WORKSPACE_DIR / filename
 
         root = ET.Element("workspace", id=ws_id, status="active")
+        root.set("_schema_version", "1.0")
         root.set("created_at", datetime.now().isoformat())
 
         # Objective (from plan, so builder knows the WHY not just the WHAT)
@@ -378,10 +418,9 @@ def create(plan: dict, task_seq: str = None) -> list:
         # Delivered (empty initially)
         ET.SubElement(root, "delivered")
 
-        # Write
-        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write atomically (prevents partial files on crash)
         tree = ET.ElementTree(root)
-        tree.write(path, encoding="unicode", xml_declaration=True)
+        _atomic_xml_write(tree, path)
         paths.append(path)
 
     return paths
@@ -420,7 +459,7 @@ def complete(path: Path, delivered: str, utilized_memories: list = None) -> Path
             )
 
     new_path = path.parent / path.name.replace("_active.xml", "_complete.xml")
-    tree.write(new_path, encoding="unicode", xml_declaration=True)
+    _atomic_xml_write(tree, new_path)
     path.unlink()
 
     return new_path
@@ -448,7 +487,7 @@ def block(path: Path, reason: str) -> Path:
     delivered_elem.text = f"BLOCKED: {reason}"
 
     new_path = path.parent / path.name.replace("_active.xml", "_blocked.xml")
-    tree.write(new_path, encoding="unicode", xml_declaration=True)
+    _atomic_xml_write(tree, new_path)
     path.unlink()
 
     return new_path

@@ -49,15 +49,17 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 
 | Command | Syntax | Notes |
 |---------|--------|-------|
-| context | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context [--type TYPE] [--tags TAGS] [--objective TEXT] [--max-failures N] [--max-patterns N] [--all]` | `--objective` enables semantic retrieval |
+| context | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context [--type TYPE] [--tags TAGS] [--objective TEXT] [--max-failures N] [--max-patterns N] [--all] [--include-tiers]` | `--objective` enables semantic retrieval, `--include-tiers` adds tier classification |
 | add-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{...}'` | `--json` REQUIRED |
 | add-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{...}'` | `--json` REQUIRED |
 | query | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "term"` | `term` is POS, semantic ranking |
 | stats | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` | counts, avg_importance, relationships |
 | prune | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune [--max-failures N] [--max-patterns N] [--min-importance F] [--half-life D]` | removes low-importance entries |
 | add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern]` | bidirectional graph edge |
-| related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | BFS traversal |
+| related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | weighted BFS traversal |
 | feedback | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback NAME --helped\|--failed [--type TYPE]` | records if memory was useful |
+| add-cross-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-cross-relationship FAILURE PATTERN [--type solves\|causes]` | links failure to solving pattern |
+| get-solutions | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py get-solutions FAILURE` | patterns that solve a failure |
 
 ## observer.py
 

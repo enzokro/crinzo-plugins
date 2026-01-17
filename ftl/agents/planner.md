@@ -27,6 +27,8 @@ Your job is REASONING, not exploration. Use the exploration data.
 <instructions>
 ## Step 1: Read Exploration Context
 
+**EMIT**: `"Step: exploration, Status: reading context"`
+
 Read the exploration data gathered by explorer agents:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read
@@ -53,6 +55,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --
 
 ## Step 2: Calculate Complexity → Task Count
 
+**EMIT**: `"Step: complexity, Status: calculating C={score}"`
+
 **Decision Table: Complexity to Task Count**
 
 | Sections | Failure Cost (K) | Framework | → Complexity | → Tasks |
@@ -62,7 +66,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --
 | 3-4 | 15-30K | moderate | 15-24 | 4-5 |
 | 5+ | > 30K | high | >= 25 | 5-7 |
 
-**Formula**: `C = (sections * 2) + (failure_cost_k / 50) + (framework_level * 3)`
+**Formula**: `C = (sections * 2) + (failure_cost_k / 5) + (framework_level * 3)`
 
 | Framework | Level |
 |-----------|-------|
@@ -76,6 +80,8 @@ State: `Complexity: C={score} → {task_count} tasks`
 ---
 
 ## Step 3: Coherence Check → Decision
+
+**EMIT**: `"Step: coherence, Status: {PROCEED|VERIFY|CLARIFY}"`
 
 For each task, answer: **"Can I write a verify command using only its Delta?"**
 
@@ -101,6 +107,8 @@ State: `Decision: {PROCEED|VERIFY|CLARIFY}`
 ---
 
 ## Step 4: Design Task Sequence
+
+**EMIT**: `"Step: ordering, Status: {N} tasks, depth={D}"`
 
 Order tasks by dependency:
 1. **SPEC tasks**: Create tests first, depend on nothing
@@ -144,15 +152,15 @@ State: `Targets: {function_name}@{line} for each BUILD task`
 
 ## Step 6: Set Tool Budgets
 
-**Decision Table: Budget Assignment**
+See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) for complete budget rules.
 
+**Quick Reference**:
 | Condition | Budget |
 |-----------|--------|
 | VERIFY type | 3 |
 | Single file, no framework | 3 |
 | Multi-file OR framework | 5 |
 | Prior failures on similar task | 7 |
-| Delta file >100 lines with partial context | +2 |
 
 ---
 
@@ -162,13 +170,24 @@ State: `Targets: {function_name}@{line} for each BUILD task`
 - `pattern.idioms.required`: patterns Builder MUST use
 - `pattern.idioms.forbidden`: patterns Builder MUST NOT use
 
-**Fallback** (if exploration.pattern missing):
+**Fallback**: See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for default idiom requirements by framework.
 
-| Framework | Required | Forbidden |
-|-----------|----------|-----------|
-| FastHTML | @rt decorator, Component trees | Raw HTML strings |
-| FastAPI | @app decorators, Pydantic models | Sync ops in async |
-| none | (empty) | (empty) |
+---
+
+## Sibling Failures (Intra-Campaign Learning)
+
+When a campaign has multiple parallel task branches, failures from one branch can inform other branches.
+
+**Injection Timing**: Sibling failures are injected at **workspace creation time**, not during planning.
+
+| When | What Happens |
+|------|--------------|
+| Planner runs | Creates plan.json with task dependencies |
+| Builder starts task 001 | Workspace created with memory-only failures |
+| Task 001 blocks | Failure recorded in workspace |
+| Builder starts task 002 | Workspace created with memory failures + sibling failures from 001 |
+
+**Why Not During Planning?**: The planner runs once before any building starts. Sibling failures only exist after builders encounter them. The `workspace.py create` function handles this by scanning for `*_blocked.xml` siblings at creation time.
 
 ---
 

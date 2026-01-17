@@ -43,53 +43,75 @@ Budget: 10 tools. Spend them on cognition, not mechanics.
 <budget_allocation>
 ## Tool Budget Allocation
 
+See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) for general budget rules.
+
 | Phase | Tools | Purpose |
 |-------|-------|---------|
 | Foundation | 1 | Automated analysis pipeline |
-| Validation | 2 | Override false positives, enhance extractions |
-| Synthesis | 3 | Cross-workspace analysis, similar campaigns |
-| Feedback | 2 | Record memory effectiveness |
-| Discretionary | 2 | Additional investigation as needed |
+| Validation | 2 | Override false positives |
+| Synthesis | 3 | Cross-workspace analysis |
+| Feedback | 2 | Memory effectiveness |
+| Discretionary | 2 | Additional investigation |
 
 **Total**: 10 tools
 </budget_allocation>
 
 <workspace_selection>
-## Workspace Selection Criteria
+## Workspace Selection Decision Tables
 
-When analyzing multiple workspaces, select 2-3 for deep reading using these criteria:
+When analyzing multiple workspaces, select 1-3 for deep reading.
 
-| Priority | Criteria | Rationale |
-|----------|----------|-----------|
-| 1 | Highest-scoring complete | Best pattern source |
-| 2 | First blocked | Original failure discovery |
-| 3 | Blocked-then-fixed (if exists) | Recovery pattern |
+### Selection Priority Matrix
 
-**Selection Algorithm**:
+| Priority | Category | Selection Criterion | Why Read |
+|----------|----------|---------------------|----------|
+| 1 | COMPLETE | Highest `score_workspace(w)` | Best pattern source |
+| 2 | BLOCKED | Lowest sequence number (first blocked) | Original failure |
+| 3 | RECOVERY | Complete where seq exists in blocked | Recovery pattern |
+
+### Workspace Scoring Decision Table
+
+| Factor | Score | Condition |
+|--------|-------|-----------|
+| Tests passing | +2 | verify command returned 0 |
+| Under budget | +1 | tools_used < budget |
+| Used prior knowledge | +1 | utilized_memories.length > 0 |
+| Framework compliance | +1 | idioms.required all present |
+| Multi-file delta | +1 | delta.length > 1 |
+| **Threshold** | **>= 3** | **Extract pattern** |
+
+### Override Decision Table
+
+| Condition | Automated Decision | Override When |
+|-----------|-------------------|---------------|
+| Score >= 3 | EXTRACT pattern | Score via luck, not technique |
+| Score < 3 | SKIP extraction | Novel approach worth capturing |
+| CONFIRMED block | Extract failure | Flaky test caused false positive |
+| FALSE_POSITIVE | Skip extraction | Builder was actually right |
+
+### Selection Algorithm
+
 ```
-workspaces = list_workspaces()
-selected = []
+INPUT: workspaces (complete[], blocked[])
+OUTPUT: selected[] (max 3)
 
-# 1. Highest-scoring complete
-if workspaces.complete:
-    scored = [(score_workspace(w), w) for w in workspaces.complete]
-    selected.append(max(scored, key=lambda x: x[0]))
+1. IF complete[] not empty:
+     → SELECT max(score_workspace(w)) → selected[0]
 
-# 2. First blocked (by sequence number)
-if workspaces.blocked:
-    selected.append(min(workspaces.blocked, key=lambda w: w.name[:3]))
+2. IF blocked[] not empty:
+     → SELECT min(seq) → selected[1]
 
-# 3. Blocked-then-fixed (same seq in both blocked and complete)
-blocked_seqs = {w.name[:3] for w in workspaces.blocked}
-for w in workspaces.complete:
-    if w.name[:3] in blocked_seqs:
-        selected.append(w)
-        break
+3. IF complete[].seq ∩ blocked[].seq not empty:
+     → SELECT first match → selected[2]
+
+RETURN selected
 ```
 </workspace_selection>
 
 <instructions>
 ## Phase 1: Automated Foundation [Tool 1]
+
+**EMIT**: `"Phase: foundation, Status: running automated analysis"`
 
 Run the automated extraction pipeline:
 
@@ -114,6 +136,8 @@ State: `Foundation: {complete} complete, {blocked} blocked, {failures} failures,
 ---
 
 ## Phase 2: Cognitive Validation [Tools 2-3]
+
+**EMIT**: `"Phase: validation, Status: reviewing {confirmed} blocks, {patterns} patterns"`
 
 Apply judgment to automation results:
 
@@ -156,9 +180,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{
 
 ## Phase 3: Cognitive Synthesis [Tools 4-6]
 
+**EMIT**: `"Phase: synthesis, Status: analyzing {N} workspaces"`
+
 ### 3a. Cross-Workspace Analysis
 
-Read 2-3 workspaces using selection criteria above:
+Read 1-3 workspaces using selection criteria above:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_complete.xml
@@ -200,6 +226,9 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship "failure-a" "relate
 
 ## Phase 4: Memory Feedback [Tools 7-8]
 
+**TRIGGER**: After reading `workspace.utilized` from completed workspaces
+**EMIT**: `"Phase: feedback, Status: recording {N} utilization events"`
+
 Record whether injected memories were helpful:
 
 ```bash
@@ -239,44 +268,14 @@ Quality:
 </constraints>
 
 <output_format>
-```
-## Observation Complete
+See [OUTPUT_TEMPLATES.md](shared/OUTPUT_TEMPLATES.md) for complete format specification.
 
-### Mode: TASK | CAMPAIGN
-
-### Automated Foundation
-- Workspaces: {complete} complete, {blocked} blocked
-- Verified: {confirmed} confirmed, {false_positive} false positives
-- Extracted: {failures} failures, {patterns} patterns
-- Relationships: {N} auto-linked
-
-### Cognitive Validation
-| Decision | Automated | Override | Rationale |
-|----------|-----------|----------|-----------|
-| Block NNN | CONFIRMED | - | Correct |
-| Block MMM | FALSE_POSITIVE | CONFIRMED | Flaky test; Builder was right |
-| Pattern NNN | score=2 | EXTRACTED | Novel approach to new problem |
-
-### Cognitive Synthesis
-
-**Cross-Workspace Insight:**
-{What the successful/failed workspaces reveal together}
-
-**Systemic Observation:**
-{Recurring theme or process issue}
-
-**Knowledge Gap Identified:**
-{What memory should contain but doesn't}
-
-### Memory State
-- Failures: +{N} (automated) +{M} (cognitive override)
-- Patterns: +{N} (automated) +{M} (cognitive override)
-- Relationships: +{N} (automated) +{M} (cognitive discovery)
-- Feedback recorded: {N} helped, {M} failed
-
-### Prediction
-{What will likely cause problems in similar future work}
-
-Budget: {used}/10
-```
+**Required Sections**:
+- Mode (TASK | CAMPAIGN)
+- Automated Foundation (workspaces, verified, extracted, relationships)
+- Cognitive Validation (override decisions with rationale)
+- Cognitive Synthesis (cross-workspace insight, systemic observation, knowledge gap)
+- Memory State (failures, patterns, relationships, feedback)
+- Prediction (likely future issues)
+- Budget: {used}/10
 </output_format>

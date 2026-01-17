@@ -12,12 +12,12 @@ import sys
 # Support both standalone execution and module import
 try:
     from lib.workspace import parse, WORKSPACE_DIR
-    from lib.memory import load_memory, add_failure, add_pattern, add_relationship
+    from lib.memory import load_memory, add_failure, add_pattern, add_relationship, add_cross_relationship
     from lib.embeddings import similarity as semantic_similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from workspace import parse, WORKSPACE_DIR
-    from memory import load_memory, add_failure, add_pattern, add_relationship
+    from memory import load_memory, add_failure, add_pattern, add_relationship, add_cross_relationship
     from embeddings import similarity as semantic_similarity
 
 
@@ -401,6 +401,22 @@ def analyze(
                 "breakdown": score_data["breakdown"],
                 "result": add_result,
             })
+
+            # Cross-type relationship: If this was blocked-then-fixed,
+            # link the pattern to the failure it solved
+            if "blocked_then_fixed" in score_data["breakdown"] and add_result == "added":
+                # Find the corresponding blocked failure
+                seq = score_data["workspace"].get("id", "").split("-")[0]
+                for failure_info in result["failures_extracted"]:
+                    if failure_info["name"].startswith(seq) or seq in failure_info.get("name", ""):
+                        cross_result = add_cross_relationship(
+                            failure_info["name"],
+                            pattern["name"],
+                            "solves"
+                        )
+                        if cross_result == "added":
+                            result["relationships_added"] += 1
+                        break
 
     # Link co-occurring failures
     for i, f1 in enumerate(campaign_failures):

@@ -85,6 +85,7 @@ def create(objective: str, framework: str = None) -> dict:
         Campaign dict
     """
     campaign = {
+        "_schema_version": "1.0",
         "objective": objective,
         "framework": framework,
         "created_at": datetime.now().isoformat(),

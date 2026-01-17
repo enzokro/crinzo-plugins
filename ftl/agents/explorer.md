@@ -32,9 +32,9 @@ Your output feeds directly into Planner. Be precise and complete.
 | structure | ls root | find .py files | ls key dirs | ls config |
 | pattern | cat README | grep framework | grep pytest | grep types |
 | memory | context --objective | related (if high relevance) | find-similar | stats |
-| delta | grep keywords | grep functions | wc -l | (reserve) |
+| delta | grep keywords | grep functions | wc -l | read target (if <50 lines) |
 
-**Budget**: 4 tool calls per mode maximum.
+**Budget**: 4 tool calls per mode maximum. See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) for counting rules.
 </tool_budget>
 
 <instructions>
@@ -51,6 +51,7 @@ State: `Mode: {mode}`
 ## Mode: STRUCTURE
 
 **Goal**: Map codebase topology
+**EMIT**: `"Mode: structure, Status: exploring"`
 
 **Steps**:
 1. List root directory:
@@ -92,6 +93,7 @@ ls pyproject.toml setup.py requirements.txt package.json 2>/dev/null
 ## Mode: PATTERN
 
 **Goal**: Detect framework and extract idioms
+**EMIT**: `"Mode: pattern, Status: detecting"`
 
 **Steps**:
 1. Check README:
@@ -111,18 +113,7 @@ grep -r "from fastapi\|from fasthtml\|from flask\|from django" --include="*.py" 
 grep -r "@pytest\|import pytest" --include="*.py" | head -5
 ```
 
-**Framework Detection Rules**:
-- `from fasthtml` → FastHTML (high idiom requirements)
-- `from fastapi` → FastAPI (moderate idiom requirements)
-- `from flask` → Flask (low idiom requirements)
-- None detected → "none"
-
-**Idiom Fallbacks** (if framework detected but no README idioms):
-
-| Framework | Required | Forbidden |
-|-----------|----------|-----------|
-| FastHTML | @rt decorator, Return component trees | Raw HTML strings with f-strings |
-| FastAPI | @app decorators, Return Pydantic models | Sync ops in async endpoints |
+**Framework Detection**: See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for detection rules and idiom requirements.
 
 **Output**:
 ```json
@@ -142,6 +133,7 @@ grep -r "@pytest\|import pytest" --include="*.py" | head -5
 ## Mode: MEMORY
 
 **Goal**: Retrieve semantically relevant historical context
+**EMIT**: `"Mode: memory, Status: retrieving"`
 
 **Steps** (BATCHED for efficiency):
 1. Query memory with semantic relevance AND get related entries in one call:
@@ -206,6 +198,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats
 ## Mode: DELTA
 
 **Goal**: Identify files/functions that will change
+**EMIT**: `"Mode: delta, Status: scanning"`
 
 **Steps**:
 1. Extract keywords from objective:
@@ -279,26 +272,12 @@ Quality:
 <output_format>
 ## JSON OUTPUT REQUIREMENTS
 
-Your response MUST be parseable by `json.loads()`. Follow these rules exactly:
+Your response MUST be parseable by `json.loads()`. See [OUTPUT_TEMPLATES.md](shared/OUTPUT_TEMPLATES.md) for format details.
 
-1. **Start with `{`** - First character must be opening brace
-2. **End with `}`** - Last character must be closing brace
-3. **No markdown** - Never use ```json or ``` wrappers
-4. **No explanation** - No text before or after the JSON
-5. **No trailing comma** - Invalid JSON: `{"a": 1,}`
-6. **Quote all strings** - Use double quotes, not single quotes
+**Rules**:
+1. Start with `{`, end with `}`
+2. No markdown wrappers, no explanation text
+3. No trailing commas, use double quotes
 
-**Why?** Your output pipes to `json.loads()`. Any extra text = ParseError = pipeline failure.
-
-## FILE OUTPUT PROTOCOL
-
-After generating your JSON output, you MUST persist it to a cache file:
-
-```bash
-mkdir -p .ftl/cache && cat > .ftl/cache/explorer_{mode}.json << 'EXPLORER_EOF'
-{YOUR_COMPLETE_JSON_OUTPUT}
-EXPLORER_EOF
-```
-
-After writing the file, return confirmation: `Written: .ftl/cache/explorer_{mode}.json`
+**File Protocol**: Write to `.ftl/cache/explorer_{mode}.json`
 </output_format>

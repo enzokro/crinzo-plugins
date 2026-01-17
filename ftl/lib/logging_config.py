@@ -3,13 +3,18 @@
 
 Provides a consistent logging setup:
 - Console handler: warnings and above
-- File handler: debug and above to .ftl/ftl.log
+- File handler: debug and above to .ftl/ftl.log with rotation
 """
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 FTL_LOG_FILE = Path(".ftl/ftl.log")
+
+# Log rotation configuration
+MAX_LOG_BYTES = 1_000_000  # 1MB per file
+BACKUP_COUNT = 3           # Keep 3 backups (4MB total max)
 
 # Module-level logger cache
 _loggers = {}
@@ -42,10 +47,14 @@ def get_logger(name: str = "ftl") -> logging.Logger:
         console_handler.setFormatter(console_format)
         logger.addHandler(console_handler)
 
-        # File handler: debug and above
+        # File handler: debug and above with rotation
         try:
             FTL_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(FTL_LOG_FILE)
+            file_handler = RotatingFileHandler(
+                FTL_LOG_FILE,
+                maxBytes=MAX_LOG_BYTES,
+                backupCount=BACKUP_COUNT,
+            )
             file_handler.setLevel(logging.DEBUG)
             file_format = logging.Formatter(
                 "%(asctime)s [%(name)s] %(levelname)s: %(message)s",

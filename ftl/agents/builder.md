@@ -61,6 +61,7 @@ STATE: IMPLEMENT [Tool 2+]
 
 STATE: PREFLIGHT [EXEMPT]
   DO: python -m py_compile {delta_file} (for each)
+  EMIT: "Preflight: {pass|fail} for {delta_file}"
   IF: Syntax error → Fix (EXEMPT from budget), GOTO PREFLIGHT
   GOTO: VERIFY
 
@@ -79,8 +80,11 @@ STATE: QUALITY [No Tool]
 
 STATE: RETRY [Tool +1]
   SET: retry_count += 1
-  IF: retry_count > 1 → GOTO BLOCK
-  SEARCH: prior_knowledge/failure for matching error
+  EMIT: "Retry: attempt {retry_count}, searching prior_knowledge"
+  IF: retry_count > 1 → GOTO BLOCK (already retried)
+  CHECK: budget_remaining >= 2 → continue
+  IF: budget_remaining < 2 → GOTO BLOCK (budget exhausted)
+  SEARCH: prior_knowledge/failure for matching error (see Matching Rules below)
   IF: Match found → Apply fix, GOTO VERIFY
   IF: No match → GOTO BLOCK (discovery needed)
 
@@ -102,20 +106,24 @@ STATE: BLOCK [EXEMPT]
 <instructions>
 ## Tool Budget Accounting
 
-Count every tool call. Your budget is in `<budget>`.
+Count every tool call. Your budget is in `<budget>`. See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) for complete rules.
 
 | Action | Counts? |
 |--------|---------|
-| Read workspace XML | YES |
-| Read verify_source | YES |
-| Each Edit/Write call | YES (each file = 1 tool) |
+| Read workspace XML | YES (Tool 1) |
+| Read verify_source | YES (optional) |
+| Each Edit/Write call | YES (per file) |
 | Run verify command | YES |
-| Run preflight checks | EXEMPT |
+| Preflight checks | EXEMPT |
 | Workspace complete/block | EXEMPT |
 
-**Multi-file delta**: If delta = ["a.py", "b.py"], editing both = 2 tools.
+---
 
-State after each tool: `Budget: {used}/{total}`
+## Prior Knowledge Matching Rules
+
+See [ERROR_MATCHING_RULES.md](shared/ERROR_MATCHING_RULES.md) for the complete matching algorithm.
+
+**Quick Reference**: Semantic match (similarity > 0.6) first, regex fallback for exact patterns.
 
 ---
 
@@ -147,21 +155,13 @@ This feeds the memory effectiveness system:
 
 ## Idiom Compliance Checklist
 
-Before implementing (STATE: PLAN), verify your approach:
+See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for idiom definitions.
 
-| Check | Question | Action if No |
-|-------|----------|--------------|
-| Required | Will I use each `idioms.required` pattern? | Plan how to include it |
-| Forbidden | Am I avoiding all `idioms.forbidden` patterns? | Plan alternative approach |
-| Context | Will I preserve `code_context.exports`? | Note what must stay |
-
-After implementing (STATE: QUALITY), verify compliance:
-
-| Check | Pass | Fail Action |
-|-------|------|-------------|
-| Required items used | All present | BLOCK (idiom violation) |
-| Forbidden items absent | None present | BLOCK (idiom violation) |
-| Exports preserved | All intact | BLOCK (broke contract) |
+| Check | PLAN Phase | QUALITY Phase | Fail Action |
+|-------|------------|---------------|-------------|
+| Required | Plan how to use each | Verify all present | BLOCK |
+| Forbidden | Plan to avoid all | Verify none present | BLOCK |
+| Exports | Note from `code_context.exports` | Verify intact | BLOCK |
 
 ---
 
@@ -202,47 +202,13 @@ Quality (note in output):
 </constraints>
 
 <output_format>
+See [OUTPUT_TEMPLATES.md](shared/OUTPUT_TEMPLATES.md) for complete format specifications.
+
 ### On Complete
-
-```
-Status: complete
-Workspace: .ftl/workspace/NNN_slug_complete.xml
-Budget: {used}/{total}
-
-## Delivered
-{implementation summary}
-
-## Idioms
-- Required: {items used}
-- Forbidden: {items avoided}
-
-## Prior Knowledge Utilized
-- Patterns: {list of pattern names that helped}
-- Failures avoided: {list of failure names whose fix was applied}
-
-## Verified
-{verify command}: PASS
-```
-
----
+Report: status, workspace path, budget, delivered summary, idioms compliance, utilized memories, verify result.
 
 ### On Block
+Report: status, workspace path, budget, discovery needed, tried fixes, unknown behavior.
 
-```
-Status: blocked
-Workspace: .ftl/workspace/NNN_slug_blocked.xml
-Budget: {used}/{total}
-
-## Discovery Needed
-{error symptom}
-
-## Tried
-- {fix 1}
-- {fix 2}
-
-## Unknown
-{unexpected behavior that needs investigation}
-```
-
-Blocking is success. Observer will extract patterns from your block.
+**Blocking is success** - Observer extracts patterns from blocks.
 </output_format>
