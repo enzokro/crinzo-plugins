@@ -48,7 +48,7 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
     # Export paths so all ftl Python scripts use the venv
     echo "export FTL_ROOT='$FTL_ROOT'" >> "$CLAUDE_ENV_FILE"
     echo "export FTL_VENV='$VENV_PATH'" >> "$CLAUDE_ENV_FILE"
-    echo "export PATH='$VENV_PATH/bin:\$PATH'" >> "$CLAUDE_ENV_FILE"
+    echo "export PATH='$VENV_PATH/bin:$PATH'" >> "$CLAUDE_ENV_FILE"
 fi
 
 exit 0
