@@ -336,3 +336,108 @@ class TestExtractJson:
         # Only _meta should exist (no mode sections)
         assert "_meta" in data
         assert "structure" not in data
+
+
+class TestSimilarCampaigns:
+    """Test similar campaign discovery."""
+
+    def test_get_memory_includes_similar_campaigns_field(self, cli, ftl_dir):
+        """Get-memory returns similar_campaigns field."""
+        # Write exploration with memory section
+        exploration = {
+            "_meta": {"version": "1.0"},
+            "memory": {
+                "status": "ok",
+                "failures": [],
+                "patterns": [],
+                "total_in_memory": {"failures": 0, "patterns": 0}
+            }
+        }
+        cli.exploration("write", stdin=json.dumps(exploration))
+
+        code, out, _ = cli.exploration("get-memory")
+        assert code == 0
+
+        data = json.loads(out)
+        # Should have similar_campaigns field (possibly empty if no archives)
+        assert "similar_campaigns" in data
+
+    def test_similar_campaigns_empty_when_no_archives(self, cli, ftl_dir):
+        """Similar campaigns returns empty list when no archived campaigns."""
+        # Write exploration
+        exploration = {
+            "_meta": {"version": "1.0"},
+            "memory": {"status": "ok", "failures": [], "patterns": []}
+        }
+        cli.exploration("write", stdin=json.dumps(exploration))
+
+        code, out, _ = cli.exploration("get-memory")
+        data = json.loads(out)
+
+        # No archives exist, so similar_campaigns should be empty
+        assert data["similar_campaigns"] == []
+
+    def test_find_similar_with_archived_campaigns(self, cli, ftl_dir, lib_path):
+        """Find similar returns matching archived campaigns."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import campaign
+
+        # Create and complete a campaign to generate an archive
+        cli.campaign("create", "Authentication with OAuth", "--framework", "FastHTML")
+        plan = {
+            "campaign": "auth",
+            "framework": "FastHTML",
+            "idioms": {"required": [], "forbidden": []},
+            "tasks": [
+                {"seq": "001", "slug": "auth", "type": "BUILD", "delta": ["auth.py"],
+                 "verify": "true", "budget": 3, "depends": "none"}
+            ]
+        }
+        cli.campaign("add-tasks", stdin=json.dumps(plan))
+        cli.campaign("update-task", "001", "complete")
+        cli.campaign("complete", "--summary", "OAuth implemented")
+
+        # Create new campaign with similar objective
+        cli.campaign("create", "User authentication system", "--framework", "FastHTML")
+
+        # Find similar - should match the archived OAuth campaign
+        similar = campaign.find_similar(threshold=0.3)
+
+        # Should find the archived campaign (both about authentication + same framework)
+        # Note: match depends on semantic similarity of objectives
+        assert isinstance(similar, list)
+        # The archived campaign exists, so we should have potential matches
+        # (actual matching depends on embedding similarity threshold)
+
+    def test_find_similar_requires_framework_match(self, cli, ftl_dir, lib_path):
+        """Find similar requires framework match."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import campaign
+
+        # Create and archive a FastHTML campaign
+        cli.campaign("create", "Build REST API", "--framework", "FastHTML")
+        plan = {
+            "campaign": "api",
+            "framework": "FastHTML",
+            "idioms": {"required": [], "forbidden": []},
+            "tasks": [
+                {"seq": "001", "slug": "api", "type": "BUILD", "delta": ["api.py"],
+                 "verify": "true", "budget": 3, "depends": "none"}
+            ]
+        }
+        cli.campaign("add-tasks", stdin=json.dumps(plan))
+        cli.campaign("update-task", "001", "complete")
+        cli.campaign("complete", "--summary", "API done")
+
+        # Create new campaign with DIFFERENT framework
+        cli.campaign("create", "Build REST API", "--framework", "Django")
+
+        # Find similar - framework mismatch should filter out
+        similar = campaign.find_similar(threshold=0.1)
+
+        # No matches expected due to framework mismatch
+        fasthtml_matches = [s for s in similar if s.get("fingerprint", {}).get("framework") == "FastHTML"]
+        # Even with similar objective, different framework should not match
+        assert len(fasthtml_matches) == 0

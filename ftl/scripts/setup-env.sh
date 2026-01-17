@@ -18,8 +18,11 @@ if [ ! -d "$VENV_PATH" ]; then
     python3 -m venv "$VENV_PATH"
 
     echo "[ftl] Installing dependencies..."
-    "$VENV_PATH/bin/pip" install --upgrade pip --quiet
-    "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS" --quiet
+    # Upgrade pip: quiet but show errors
+    "$VENV_PATH/bin/pip" install --upgrade pip --quiet --progress-bar off 2>&1 | grep -v "already satisfied" || true
+
+    # Install requirements: quiet progress bar but show errors
+    "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS" --progress-bar off 2>&1
 
     echo "[ftl] Environment ready (sentence-transformers installed)"
 fi

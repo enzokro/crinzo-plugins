@@ -14,6 +14,71 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 WORKSPACE_DIR = Path(".ftl/workspace")
 
+# Required fields for workspace validation
+REQUIRED_WORKSPACE_FIELDS = ["id", "status", "delta", "verify"]
+
+
+def validate_workspace(workspace: dict) -> tuple[bool, list[str]]:
+    """Validate a workspace has required fields.
+
+    Args:
+        workspace: Parsed workspace dict
+
+    Returns:
+        (is_valid, list of missing fields)
+    """
+    missing = []
+    for field in REQUIRED_WORKSPACE_FIELDS:
+        if field not in workspace or workspace[field] is None:
+            missing.append(field)
+        elif field == "delta" and not workspace[field]:
+            missing.append(f"{field} (empty)")
+
+    return len(missing) == 0, missing
+
+
+def extract_verify_source(verify_cmd: str) -> str | None:
+    """Extract test file path from verify command with robust regex.
+
+    Handles various command formats:
+    - pytest tests/test_foo.py
+    - pytest "tests/test foo.py"
+    - pytest 'tests/test_foo.py' -v
+    - python -m pytest tests/test_foo.py
+    - pytest tests/test_*.py (returns None - glob patterns not supported)
+
+    Args:
+        verify_cmd: The verify command string
+
+    Returns:
+        Test file path or None if not extractable
+    """
+    import re
+
+    if not verify_cmd:
+        return None
+
+    # Skip glob patterns
+    if "*" in verify_cmd:
+        return None
+
+    # Match quoted paths first (handles spaces in paths)
+    quoted_pattern = r'["\']([^"\']+\.py)["\']'
+    quoted_match = re.search(quoted_pattern, verify_cmd)
+    if quoted_match:
+        path = quoted_match.group(1)
+        if "test" in path.lower() or path.startswith("tests/"):
+            return path
+
+    # Match unquoted paths
+    unquoted_pattern = r'(?:^|\s)((?:tests?/)?[\w/.-]+\.py)(?:\s|$)'
+    for match in re.finditer(unquoted_pattern, verify_cmd):
+        path = match.group(1)
+        if "test" in path.lower() or path.startswith("tests/"):
+            return path
+
+    return None
+
 
 def extract_error_from_delivered(delivered: str) -> str:
     """Extract error message from BLOCKED: delivered text.
@@ -185,13 +250,8 @@ def create(plan: dict, task_seq: str = None) -> list:
         # Either explicit from planner, or derived from verify command
         verify_source = task.get("verify_source")
         if not verify_source:
-            # Try to extract test file from verify command (e.g., "pytest tests/test_foo.py")
-            verify_cmd = task.get("verify", "")
-            if "pytest" in verify_cmd or "test" in verify_cmd:
-                for word in verify_cmd.split():
-                    if word.endswith(".py") and ("test" in word.lower() or word.startswith("tests/")):
-                        verify_source = word
-                        break
+            # Use robust extraction from verify command
+            verify_source = extract_verify_source(task.get("verify", ""))
         if verify_source:
             ET.SubElement(impl, "verify_source").text = verify_source
         ET.SubElement(impl, "budget").text = str(task.get("budget", 5))

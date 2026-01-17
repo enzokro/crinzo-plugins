@@ -12,8 +12,11 @@ import re
 
 EXPLORATION_FILE = Path(".ftl/exploration.json")
 
+# Maximum JSON size to parse (1MB) - prevents memory issues with malformed output
+MAX_JSON_SIZE = 1024 * 1024
 
-def extract_json(text: str) -> dict | None:
+
+def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
     """Extract JSON from text that may contain extra content.
 
     Handles common LLM output issues:
@@ -23,11 +26,19 @@ def extract_json(text: str) -> dict | None:
 
     Args:
         text: Raw text that should contain JSON
+        max_size: Maximum text size to process (default: 1MB)
 
     Returns:
-        Parsed dict or None if no valid JSON found
+        Parsed dict or None if no valid JSON found or text too large
     """
+    if not text:
+        return None
+
     text = text.strip()
+
+    # Enforce size limit to prevent memory issues
+    if len(text) > max_size:
+        return None
 
     # Try direct parse first (fastest path)
     try:
@@ -92,7 +103,7 @@ def validate_result(result: dict) -> tuple[bool, str]:
 
 
 def aggregate(results: list[dict], objective: str = None) -> dict:
-    """Combine explorer outputs into single exploration dict.
+    """Combine explorer outputs into single exploration dict with deduplication.
 
     Args:
         results: List of explorer output dicts (each has 'mode' key)
@@ -100,6 +111,10 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
 
     Returns:
         Combined exploration dict with _meta and mode sections
+
+    Deduplication:
+        - Tracks seen modes, keeps first successful result per mode
+        - Prefers "ok" status over "partial" over "error"
     """
     # Get git sha if available
     try:
@@ -121,6 +136,12 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
         }
     }
 
+    # Track seen modes for deduplication
+    seen_modes = set()
+
+    # Status priority: ok > partial > error
+    status_priority = {"ok": 3, "partial": 2, "error": 1, "unknown": 0}
+
     for r in results:
         is_valid, error = validate_result(r)
         if not is_valid:
@@ -129,6 +150,15 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
 
         mode = r["mode"]
         status = r.get("status", "unknown")
+
+        # Deduplication: keep first successful result per mode
+        if mode in seen_modes:
+            # Check if this result is better than existing
+            existing_status = exploration.get(mode, {}).get("status", "unknown")
+            if status_priority.get(status, 0) <= status_priority.get(existing_status, 0):
+                continue  # Existing is same or better, skip
+
+        seen_modes.add(mode)
 
         if status in ["ok", "partial"]:
             exploration[mode] = r

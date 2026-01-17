@@ -489,3 +489,196 @@ class TestCampaignReadyTasks:
 
         task_001 = next(t for t in data["tasks"] if t["seq"] == "001")
         assert task_001["depends"] == "none"
+
+
+class TestCycleDetection:
+    """Test DAG cycle detection."""
+
+    def test_cyclic_plan_rejected(self, cli, ftl_dir):
+        """Plans with cyclic dependencies are rejected."""
+        cyclic_plan = {
+            "campaign": "cyclic",
+            "framework": "none",
+            "idioms": {"required": [], "forbidden": []},
+            "tasks": [
+                {"seq": "001", "slug": "a", "type": "BUILD", "delta": ["a.py"],
+                 "verify": "true", "budget": 3, "depends": "002"},  # A depends on B
+                {"seq": "002", "slug": "b", "type": "BUILD", "delta": ["b.py"],
+                 "verify": "true", "budget": 3, "depends": "001"},  # B depends on A
+            ]
+        }
+
+        cli.campaign("create", "Cycle test")
+        code, out, err = cli.campaign("add-tasks", stdin=json.dumps(cyclic_plan))
+
+        # Should fail with cycle error
+        assert code != 0
+        assert "cycle" in (out + err).lower()
+
+    def test_self_referential_rejected(self, cli, ftl_dir):
+        """Task depending on itself is rejected."""
+        self_ref_plan = {
+            "campaign": "self-ref",
+            "framework": "none",
+            "idioms": {"required": [], "forbidden": []},
+            "tasks": [
+                {"seq": "001", "slug": "self", "type": "BUILD", "delta": ["a.py"],
+                 "verify": "true", "budget": 3, "depends": "001"},  # Depends on itself
+            ]
+        }
+
+        cli.campaign("create", "Self-ref test")
+        code, out, err = cli.campaign("add-tasks", stdin=json.dumps(self_ref_plan))
+
+        assert code != 0
+        assert "cycle" in (out + err).lower()
+
+    def test_multi_hop_cycle_rejected(self, cli, ftl_dir):
+        """Multi-hop cycles (A->B->C->A) are detected."""
+        multi_hop_plan = {
+            "campaign": "multi-hop",
+            "framework": "none",
+            "idioms": {"required": [], "forbidden": []},
+            "tasks": [
+                {"seq": "001", "slug": "a", "type": "BUILD", "delta": ["a.py"],
+                 "verify": "true", "budget": 3, "depends": "003"},  # A depends on C
+                {"seq": "002", "slug": "b", "type": "BUILD", "delta": ["b.py"],
+                 "verify": "true", "budget": 3, "depends": "001"},  # B depends on A
+                {"seq": "003", "slug": "c", "type": "BUILD", "delta": ["c.py"],
+                 "verify": "true", "budget": 3, "depends": "002"},  # C depends on B
+            ]
+        }
+
+        cli.campaign("create", "Multi-hop cycle test")
+        code, out, err = cli.campaign("add-tasks", stdin=json.dumps(multi_hop_plan))
+
+        assert code != 0
+        assert "cycle" in (out + err).lower()
+
+    def test_acyclic_dag_accepted(self, cli, ftl_dir, sample_dag_plan):
+        """Valid DAG without cycles is accepted."""
+        cli.campaign("create", "Acyclic test")
+        code, out, err = cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        assert code == 0, f"Failed: {err}"
+
+
+class TestCascadeHandling:
+    """Test cascade status detection and block propagation."""
+
+    def test_cascade_status_no_campaign(self, cli, ftl_dir):
+        """Cascade status returns none when no campaign."""
+        code, out, _ = cli.campaign("cascade-status")
+        assert code == 0
+
+        data = json.loads(out)
+        assert data["state"] == "none"
+
+    def test_cascade_status_in_progress(self, cli, ftl_dir, sample_dag_plan):
+        """Cascade status shows in_progress when tasks are ready."""
+        cli.campaign("create", "Cascade test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        code, out, _ = cli.campaign("cascade-status")
+        data = json.loads(out)
+
+        assert data["state"] == "in_progress"
+        assert data["ready"] >= 1  # At least one task ready (001 or 002)
+        assert data["pending"] >= 1
+
+    def test_cascade_status_stuck(self, cli, ftl_dir, sample_dag_plan):
+        """Cascade status detects stuck campaign when ALL root tasks are blocked."""
+        cli.campaign("create", "Stuck test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Block BOTH root tasks - this makes ALL children unreachable
+        # (blocking only 001 leaves 002 ready, so campaign isn't stuck)
+        cli.campaign("update-task", "001", "blocked")
+        cli.campaign("update-task", "002", "blocked")
+
+        code, out, _ = cli.campaign("cascade-status")
+        data = json.loads(out)
+
+        assert data["state"] == "stuck"
+        assert data["blocked"] == 2
+        assert len(data["unreachable"]) >= 1
+
+        # Tasks 003, 004 should be unreachable (depend on blocked parents)
+        unreachable_seqs = [u["seq"] for u in data["unreachable"]]
+        assert "003" in unreachable_seqs or "004" in unreachable_seqs
+
+    def test_cascade_status_complete(self, cli, ftl_dir, sample_dag_plan):
+        """Cascade status shows complete when all tasks done."""
+        cli.campaign("create", "Complete cascade test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete all tasks
+        for seq in ["001", "002", "003", "004", "005"]:
+            cli.campaign("update-task", seq, "complete")
+
+        code, out, _ = cli.campaign("cascade-status")
+        data = json.loads(out)
+
+        assert data["state"] == "complete"
+        assert data["pending"] == 0
+        assert data["complete"] == 5
+
+    def test_propagate_blocks_marks_unreachable(self, cli, ftl_dir, sample_dag_plan):
+        """Propagate blocks marks unreachable tasks as blocked."""
+        cli.campaign("create", "Propagate test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Block BOTH root tasks to make campaign stuck (no ready tasks)
+        # Propagation only works when campaign is in "stuck" state
+        cli.campaign("update-task", "001", "blocked")
+        cli.campaign("update-task", "002", "blocked")
+
+        # Propagate blocks
+        code, out, _ = cli.campaign("propagate-blocks")
+        assert code == 0
+
+        # Check that propagation occurred
+        assert "003" in out or "004" in out or "Propagated" in out
+
+        # Verify tasks are now blocked
+        code, status_out, _ = cli.campaign("status")
+        data = json.loads(status_out)
+
+        task_003 = next(t for t in data["tasks"] if t["seq"] == "003")
+        assert task_003["status"] == "blocked"
+        assert "blocked_by" in task_003
+
+    def test_propagate_blocks_cascades_fully(self, cli, ftl_dir, sample_dag_plan):
+        """Propagate blocks handles multi-level cascades."""
+        cli.campaign("create", "Multi-cascade test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Block BOTH root tasks to trigger cascade propagation
+        # (blocking only one leaves the other branch ready)
+        cli.campaign("update-task", "001", "blocked")
+        cli.campaign("update-task", "002", "blocked")
+
+        # Propagate should handle full cascade: 001,002 blocked -> 003,004 unreachable -> 005 unreachable
+        cli.campaign("propagate-blocks")
+
+        # Check that all dependent tasks are now blocked
+        task_statuses = {}
+        status_code, status_out, _ = cli.campaign("status")
+        for t in json.loads(status_out)["tasks"]:
+            task_statuses[t["seq"]] = t["status"]
+
+        assert task_statuses["001"] == "blocked"
+        assert task_statuses["002"] == "blocked"
+        assert task_statuses["003"] == "blocked"
+        assert task_statuses["004"] == "blocked"
+        assert task_statuses["005"] == "blocked"  # Cascaded from both parents
+
+    def test_propagate_blocks_no_action_when_not_stuck(self, cli, ftl_dir, sample_dag_plan):
+        """Propagate blocks does nothing when campaign not stuck."""
+        cli.campaign("create", "No propagate test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Don't block anything - just run propagate
+        code, out, _ = cli.campaign("propagate-blocks")
+        assert code == 0
+        assert "No blocks to propagate" in out

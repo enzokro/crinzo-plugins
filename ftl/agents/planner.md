@@ -39,63 +39,66 @@ Extract from exploration.json:
 - `pattern.idioms`: required and forbidden patterns
 - `memory.failures`: relevant failures with costs
 - `memory.patterns`: relevant patterns with insights
-- `memory.similar_campaigns`: past campaigns with matching objectives (for transfer learning)
+- `memory.similar_campaigns`: past campaigns with matching objectives
 - `delta.candidates`: target files with function locations
-
-**Similar Campaign Transfer**: If `memory.similar_campaigns` has entries:
-- Check `patterns_from` - these patterns worked for similar objectives
-- Note `outcome` - did the similar campaign complete or block?
-- Consider similar task structures if `similarity` > 0.7
 
 State: `Exploration: {structure.file_count} files, Framework: {pattern.framework}, Prior: {memory.total_in_memory.failures} failures, Similar: {memory.similar_campaigns.length} campaigns`
 
-**Fallback**: If exploration.json missing or has errors, read README.md and memory directly:
+**Fallback**: If exploration.json missing or has errors:
 ```bash
-# Semantic retrieval (preferred - returns relevant memories with _relevance scores)
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --objective "{objective}" --max-failures 10
-
-# Or bulk retrieval (all memories, cost-sorted)
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context --all
 ```
 
-## Step 2: Calculate Complexity
+---
 
-Formula: `C = (sections × 2) + (failure_cost_k / 50) + (framework_level × 3)`
+## Step 2: Calculate Complexity → Task Count
 
-Where:
-- **sections**: `pattern.readme_sections` from exploration (or count `##` headers in objective)
-- **failure_cost_k**: `sum(memory.failures[].cost) / 1000` from exploration
-- **framework_level**: from `pattern.framework` in exploration
+**Decision Table: Complexity to Task Count**
 
-| Framework Level | Value |
-|-----------------|-------|
+| Sections | Failure Cost (K) | Framework | → Complexity | → Tasks |
+|----------|------------------|-----------|--------------|---------|
+| 1-2 | < 5K | none | < 8 | 2 |
+| 2-3 | 5-15K | simple | 8-14 | 3 |
+| 3-4 | 15-30K | moderate | 15-24 | 4-5 |
+| 5+ | > 30K | high | >= 25 | 5-7 |
+
+**Formula**: `C = (sections * 2) + (failure_cost_k / 50) + (framework_level * 3)`
+
+| Framework | Level |
+|-----------|-------|
 | none | 0 |
 | simple (no idioms) | 1 |
 | moderate (FastAPI) | 2 |
 | high (FastHTML) | 3 |
 
-| Complexity C | Tasks |
-|--------------|-------|
-| < 8 | 2 |
-| 8-14 | 3 |
-| 15-24 | 4-5 |
-| ≥ 25 | 5-7 |
-
 State: `Complexity: C={score} → {task_count} tasks`
 
-## Step 3: Verify Coherence
+---
 
-For each task you're about to create, answer: **"Can I write a verify command using only its Delta?"**
+## Step 3: Coherence Check → Decision
 
-| Answer | Decision |
-|--------|----------|
-| Yes, command is clear | PROCEED |
-| Yes, but needs user confirmation | VERIFY |
-| No, cannot write verify | CLARIFY |
+For each task, answer: **"Can I write a verify command using only its Delta?"**
 
-If any task fails this test, output CLARIFY with blocking questions.
+**Decision Table: Coherence Outcomes**
+
+| Condition | Decision | Action |
+|-----------|----------|--------|
+| All tasks have clear verify commands | **PROCEED** | Continue to Step 4 |
+| Verify possible but needs user confirmation | **VERIFY** | Ask: "Should {task} be verified by {command}?" |
+| Cannot determine verify for any task | **CLARIFY** | Output blocking questions, STOP |
+
+**CLARIFY Triggers:**
+
+| Situation | Question to Ask |
+|-----------|-----------------|
+| Delta ambiguous (multiple possible files) | "Which file should handle {feature}?" |
+| Test location unknown | "Where should tests live for {feature}?" |
+| Multiple implementation approaches | "Should this use {A} or {B} approach?" |
+| Missing dependency information | "Does {feature} depend on {other}?" |
 
 State: `Decision: {PROCEED|VERIFY|CLARIFY}`
+
+---
 
 ## Step 4: Design Task Sequence
 
@@ -110,45 +113,38 @@ Each task needs:
 - `type`: SPEC | BUILD | VERIFY
 - `delta`: files this task touches (specific paths, not globs)
 - `verify`: executable command that proves success
-- `depends`: seq of prerequisite, array of seqs for multi-parent, or "none"
-  - Single: `"depends": "001"` - task depends on 001
-  - Multi: `"depends": ["001", "002"]` - task depends on BOTH 001 AND 002
-  - None: `"depends": "none"` - task has no dependencies
+- `depends`: string for single parent, array for multi-parent, or "none"
 
-**DAG Parallelization**: Tasks with no dependencies or whose dependencies are all complete can run in parallel. Design task graphs to maximize parallelism:
-- Independent branches (e.g., separate features) should not depend on each other
-- Convergence tasks (integration, final verify) depend on multiple branches
+**DAG Parallelization**: Design for maximum parallelism:
+- Independent branches should not depend on each other
+- Convergence tasks depend on multiple branches
 
 State: `Ordering: {N} tasks, max_depth={D}, parallel_branches={B}`
 
-## Step 5: Locate Target Functions (BUILD tasks only)
+---
+
+## Step 5: Locate Target Functions (BUILD tasks)
 
 **First, check exploration.delta** for pre-located functions:
-
 ```
 exploration.delta.candidates = [
-  {path: "lib/campaign.py", functions: [{name: "complete", line: 106}, {name: "history", line: 143}]}
+  {path: "lib/campaign.py", functions: [{name: "complete", line: 106}]}
 ]
-
-→ For task with delta=["lib/campaign.py"]:
-  target_lines = {"lib/campaign.py": "101-160"}  // min(line)-5 to max(line)+15
+→ target_lines = {"lib/campaign.py": "101-160"}  // min(line)-5 to max(line)+15
 ```
-
-**Extraction rule**: For each BUILD task's delta file:
-1. Find matching candidate in `exploration.delta.candidates`
-2. Get min/max line numbers from `functions[]`
-3. Set `target_lines` = `"{min_line - 5}-{max_line + 15}"`
 
 **Fallback** (if exploration.delta doesn't have the file):
 ```bash
 grep -n "^def \|^class " {delta_file} | head -20
 ```
 
-State: `Targets: {function_name}@{line} for each BUILD task (source: exploration|grep)`
+State: `Targets: {function_name}@{line} for each BUILD task`
+
+---
 
 ## Step 6: Set Tool Budgets
 
-Assign budget per task:
+**Decision Table: Budget Assignment**
 
 | Condition | Budget |
 |-----------|--------|
@@ -158,28 +154,25 @@ Assign budget per task:
 | Prior failures on similar task | 7 |
 | Delta file >100 lines with partial context | +2 |
 
-**Large file adjustment**: If a delta file exists and has >100 lines, add +2 to budget. This accounts for discovery reads when code_context cannot capture the full file.
+---
 
-```bash
-wc -l {delta_file}  # Check line count
-```
-
-## Step 7: Use Framework Idioms from Exploration
+## Step 7: Extract Framework Idioms
 
 **Use `pattern.idioms` from exploration.json directly**:
 - `pattern.idioms.required`: patterns Builder MUST use
 - `pattern.idioms.forbidden`: patterns Builder MUST NOT use
 
-Copy these verbatim into plan.json. Explorer has already applied fallback rules for detected frameworks.
+**Fallback** (if exploration.pattern missing):
 
-**Fallback** (if exploration.pattern missing or idioms empty):
-- FastHTML: Required: ["Use @rt decorator", "Return component trees"], Forbidden: ["Raw HTML strings"]
-- FastAPI: Required: ["Use @app decorators", "Return Pydantic models"], Forbidden: ["Sync ops in async"]
-- none: Empty idioms (no framework constraints)
+| Framework | Required | Forbidden |
+|-----------|----------|-----------|
+| FastHTML | @rt decorator, Component trees | Raw HTML strings |
+| FastAPI | @app decorators, Pydantic models | Sync ops in async |
+| none | (empty) | (empty) |
+
+---
 
 ## Step 8: Output plan.json
-
-Output a complete plan in the format below.
 </instructions>
 
 <constraints>
@@ -211,7 +204,7 @@ Quality (note in output if violated):
 
 ```json
 {
-  "objective": "The original user objective (WHY we're doing this)",
+  "objective": "The original user objective",
   "campaign": "kebab-slug",
   "framework": "FastHTML | FastAPI | none",
   "idioms": {
@@ -231,16 +224,6 @@ Quality (note in output if violated):
     },
     {
       "seq": "002",
-      "slug": "spec-api",
-      "type": "SPEC",
-      "delta": ["tests/test_api.py"],
-      "verify": "pytest --collect-only -q tests/test_api.py",
-      "budget": 3,
-      "depends": "none",
-      "preflight": ["python -m py_compile tests/test_api.py"]
-    },
-    {
-      "seq": "003",
       "slug": "impl-auth",
       "type": "BUILD",
       "delta": ["lib/auth.py"],
@@ -250,44 +233,17 @@ Quality (note in output if violated):
       "depends": "001",
       "preflight": ["python -m py_compile lib/auth.py"],
       "target_lines": {"lib/auth.py": "1-50"}
-    },
-    {
-      "seq": "004",
-      "slug": "impl-api",
-      "type": "BUILD",
-      "delta": ["lib/api.py"],
-      "verify": "pytest tests/test_api.py -v",
-      "verify_source": "tests/test_api.py",
-      "budget": 5,
-      "depends": "002",
-      "preflight": ["python -m py_compile lib/api.py"],
-      "target_lines": {"lib/api.py": "1-60"}
-    },
-    {
-      "seq": "005",
-      "slug": "integrate",
-      "type": "BUILD",
-      "delta": ["lib/main.py"],
-      "verify": "pytest tests/ -v",
-      "budget": 5,
-      "depends": ["003", "004"],
-      "preflight": ["python -m py_compile lib/main.py"]
     }
   ]
 }
 ```
 
-**Task Graph** (001 and 002 run in parallel, 003 and 004 run in parallel after their specs, 005 waits for both):
+**Task Graph**:
 ```
-001 (spec-auth) ──→ 003 (impl-auth) ──┐
+001 (spec-auth) ──→ 002 (impl-auth) ──┐
                                       ├──→ 005 (integrate)
-002 (spec-api) ──→ 004 (impl-api) ───┘
+003 (spec-api) ──→ 004 (impl-api) ───┘
 ```
-
-**Key fields**:
-- `objective`: Include the original user objective so builders understand WHY they're doing the task
-- `verify_source`: For BUILD tasks, explicitly specify the test file so builders can read it before implementing
-- `depends`: String for single parent, array for multi-parent (DAG convergence points)
 
 ---
 

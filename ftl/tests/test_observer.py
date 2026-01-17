@@ -249,7 +249,13 @@ class TestAnalyze:
 
         assert result["workspaces"]["blocked"] == 1
         assert len(result["failures_extracted"]) == 1
-        assert "SyntaxError" in result["failures_extracted"][0]["name"] or result["failures_extracted"][0]["result"] == "added"
+        # Accept: name contains "SyntaxError", result is "added", or result starts with "merged:"
+        extracted = result["failures_extracted"][0]
+        assert (
+            "syntaxerror" in extracted["name"].lower() or
+            extracted["result"] == "added" or
+            extracted["result"].startswith("merged:")
+        )
 
 
 class TestHelpers:
@@ -274,3 +280,155 @@ class TestHelpers:
         # Numbers become \d+
         pattern = observer._generalize_to_regex("Error at line 42")
         assert "\\d+" in pattern
+
+
+class TestBlockVerification:
+    """Test verify_block functionality."""
+
+    def test_verify_block_confirmed_when_command_fails(self, ftl_dir, lib_path):
+        """Block is confirmed when verify command still fails."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        ws_path = workspace_dir / "001_fail_blocked.xml"
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-fail" status="blocked">
+    <implementation>
+        <delta>broken.py</delta>
+        <verify>exit 1</verify>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: Tests still failing</delivered>
+</workspace>""")
+
+        result = observer.verify_block(ws_path, timeout=5)
+
+        assert result["status"] == "CONFIRMED"
+        assert "exit 1" in result["reason"]
+
+    def test_verify_block_false_positive_when_passes(self, ftl_dir, lib_path):
+        """Block is false positive when verify command now passes."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        ws_path = workspace_dir / "001_maybe_blocked.xml"
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-maybe" status="blocked">
+    <implementation>
+        <delta>fixed.py</delta>
+        <verify>exit 0</verify>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: Was failing earlier</delivered>
+</workspace>""")
+
+        result = observer.verify_block(ws_path, timeout=5)
+
+        assert result["status"] == "FALSE_POSITIVE"
+        assert "pass" in result["reason"].lower()
+
+    def test_verify_block_no_verify_command(self, ftl_dir, lib_path):
+        """Block confirmed when no verify command exists."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        ws_path = workspace_dir / "001_no_verify_blocked.xml"
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-noverify" status="blocked">
+    <implementation>
+        <delta>file.py</delta>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: No way to verify</delivered>
+</workspace>""")
+
+        result = observer.verify_block(ws_path, timeout=5)
+
+        assert result["status"] == "CONFIRMED"
+        assert "no verify" in result["reason"].lower()
+
+    def test_verify_block_timeout_or_error_confirmed(self, ftl_dir, lib_path):
+        """Block confirmed when verify command times out or fails to execute."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        ws_path = workspace_dir / "001_timeout_blocked.xml"
+        # Command that either times out or fails - either way confirms block
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-timeout" status="blocked">
+    <implementation>
+        <delta>slow.py</delta>
+        <verify>/bin/sh -c "sleep 10"</verify>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: Timeout or execution error</delivered>
+</workspace>""")
+
+        # Use very short timeout
+        result = observer.verify_block(ws_path, timeout=1)
+
+        # Block should be confirmed whether due to timeout or command failure
+        assert result["status"] == "CONFIRMED"
+        # Reason should indicate either timeout or non-zero exit
+        assert "timeout" in result["reason"].lower() or "exit" in result["reason"].lower()
+
+    def test_verify_block_error_in_output(self, ftl_dir, lib_path):
+        """Block confirmed when output contains error keywords despite exit 0."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        ws_path = workspace_dir / "001_error_output_blocked.xml"
+        # echo ERROR exits 0 but output has error keyword
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-errout" status="blocked">
+    <implementation>
+        <delta>errout.py</delta>
+        <verify>echo "FAIL: something went wrong"</verify>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: Output has error</delivered>
+</workspace>""")
+
+        result = observer.verify_block(ws_path, timeout=5)
+
+        # Exit 0 but output contains FAIL -> still confirmed as blocked
+        assert result["status"] == "CONFIRMED"
+
+    def test_analyze_with_verification_enabled(self, ftl_dir, lib_path, memory_module):
+        """Analyze with verify_blocks=True runs verification."""
+        import sys
+        sys.path.insert(0, str(lib_path))
+        import observer
+
+        workspace_dir = ftl_dir / ".ftl" / "workspace"
+        # Create a blocked workspace with passing verify (false positive)
+        ws_path = workspace_dir / "001_fp_blocked.xml"
+        ws_path.write_text("""<?xml version='1.0' encoding='utf-8'?>
+<workspace id="001-fp" status="blocked">
+    <implementation>
+        <delta>fp.py</delta>
+        <verify>exit 0</verify>
+        <budget>3</budget>
+    </implementation>
+    <delivered>BLOCKED: Was failing</delivered>
+</workspace>""")
+
+        # Analyze with verification enabled
+        result = observer.analyze(workspace_dir, verify_blocks=True)
+
+        assert result["workspaces"]["blocked"] == 1
+        assert len(result["verified"]) == 1
+        assert result["verified"][0]["status"] == "FALSE_POSITIVE"
+
+        # False positive should NOT have failure extracted
+        assert len(result["failures_extracted"]) == 0

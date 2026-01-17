@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Campaign operations."""
+"""Campaign operations with request-scoped caching."""
 
 from pathlib import Path
 from datetime import datetime
+from contextlib import contextmanager
 import json
 import argparse
 import sys
@@ -18,6 +19,59 @@ except ImportError:
 CAMPAIGN_FILE = Path(".ftl/campaign.json")
 ARCHIVE_DIR = Path(".ftl/archive")
 EXPLORATION_FILE = Path(".ftl/exploration.json")
+
+# Request-scoped cache for campaign data
+_cache = {
+    "campaign": None,
+    "mtime": None,
+    "dirty": False,
+}
+
+
+def _load_cached(path: Path = CAMPAIGN_FILE) -> dict:
+    """Load campaign with mtime-based cache validation.
+
+    Returns cached data if file hasn't changed, otherwise reloads.
+    """
+    if not path.exists():
+        _cache["campaign"] = None
+        _cache["mtime"] = None
+        return None
+
+    current_mtime = path.stat().st_mtime
+    if _cache["campaign"] is not None and _cache["mtime"] == current_mtime:
+        return _cache["campaign"]
+
+    _cache["campaign"] = json.loads(path.read_text())
+    _cache["mtime"] = current_mtime
+    return _cache["campaign"]
+
+
+def _invalidate_cache():
+    """Invalidate the cache after writes."""
+    _cache["campaign"] = None
+    _cache["mtime"] = None
+
+
+@contextmanager
+def campaign_session():
+    """Context manager for batched campaign operations.
+
+    Within a session, reads are cached and writes are batched.
+    On exit, all pending updates are written atomically.
+
+    Example:
+        with campaign_session():
+            update_task("001", "complete")
+            update_task("002", "complete")
+            # Single atomic write on exit
+    """
+    global _cache
+    _cache["dirty"] = False
+    try:
+        yield
+    finally:
+        _invalidate_cache()
 
 
 def create(objective: str, framework: str = None) -> dict:
@@ -164,6 +218,7 @@ def update_task(seq: int | str, status: str) -> None:
                 break
 
     atomic_json_update(CAMPAIGN_FILE, do_update)
+    _invalidate_cache()  # Invalidate cache after write
 
 
 def next_task() -> dict | None:
@@ -191,10 +246,10 @@ def ready_tasks() -> list[dict]:
     Returns:
         List of task dicts ready for parallel execution
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _load_cached()
+    if campaign is None:
         return []
 
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
     tasks = campaign.get("tasks", [])
 
     # Build set of completed task seqs (normalized to int for comparison)
@@ -244,10 +299,10 @@ def cascade_status() -> dict:
             "unreachable": [{"seq": "002", "blocked_by": ["001"]}, ...]
         }
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _load_cached()
+    if campaign is None:
         return {"state": "none"}
 
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
     tasks = campaign.get("tasks", [])
 
     if not tasks:
@@ -305,6 +360,9 @@ def propagate_blocks() -> list:
     This allows the campaign to complete gracefully when some branches
     are blocked while others succeed. Loops until full cascade is propagated.
 
+    Uses batched updates - all unreachable tasks in each iteration are
+    updated in a single atomic write.
+
     Returns:
         List of task seqs that were marked blocked
     """
@@ -322,20 +380,21 @@ def propagate_blocks() -> list:
 
         propagated = []
 
+        # Build lookup for batch update
+        unreachable_map = {u["seq"]: u["blocked_by"] for u in unreachable}
+
         def do_update(campaign):
             nonlocal propagated
-            for u in unreachable:
-                seq = u["seq"]
-                blocked_by = u["blocked_by"]
-                for task in campaign["tasks"]:
-                    if task["seq"] == seq:
-                        task["status"] = "blocked"
-                        task["blocked_by"] = blocked_by
-                        task["updated_at"] = datetime.now().isoformat()
-                        propagated.append(seq)
-                        break
+            now = datetime.now().isoformat()
+            for task in campaign["tasks"]:
+                if task["seq"] in unreachable_map:
+                    task["status"] = "blocked"
+                    task["blocked_by"] = unreachable_map[task["seq"]]
+                    task["updated_at"] = now
+                    propagated.append(task["seq"])
 
         atomic_json_update(CAMPAIGN_FILE, do_update)
+        _invalidate_cache()  # Invalidate cache after write
         all_propagated.extend(propagated)
 
     return all_propagated

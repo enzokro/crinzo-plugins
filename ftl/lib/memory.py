@@ -141,6 +141,28 @@ def _calculate_effectiveness(entry: dict) -> float:
     return 0.5 + ratio  # Maps [0, 1] -> [0.5, 1.5]
 
 
+def _calculate_exploration_bonus(entry: dict, bonus_days: int = 7, bonus_factor: float = 0.1) -> float:
+    """Calculate exploration bonus for newer entries.
+
+    Entries less than bonus_days old get a bonus to encourage exploration
+    of recently discovered patterns/failures.
+
+    Returns:
+        1.0 + bonus_factor if entry is new, otherwise 1.0
+    """
+    created_at = entry.get("created_at", "")
+    if not created_at:
+        return 1.0
+    try:
+        created = datetime.fromisoformat(created_at)
+        age_days = (datetime.now() - created).days
+        if age_days < bonus_days:
+            return 1.0 + bonus_factor
+        return 1.0
+    except (ValueError, TypeError):
+        return 1.0
+
+
 def _calculate_importance(
     entry: dict,
     value_key: str = "cost",
@@ -148,22 +170,25 @@ def _calculate_importance(
 ) -> float:
     """Calculate importance score combining value, access frequency, recency, and effectiveness.
 
-    Importance = log₂(value + 1) × age_decay × access_boost × effectiveness
+    Importance = log₂(value + 1) × age_decay × access_boost × effectiveness × exploration_bonus
 
     This balances:
     - Base value (cost or saved tokens)
     - Time decay (older entries matter less)
-    - Access frequency boost (frequently used entries are important)
+    - Access frequency boost (frequently used entries are important, uses sqrt for diminishing returns)
     - Effectiveness (helpful entries persist, unhelpful decay faster)
+    - Exploration bonus (10% boost for entries < 7 days old)
     """
     value = entry.get(value_key, 0)
     base_score = math.log2(value + 1)
 
     age_decay = _calculate_age_decay(entry.get("created_at", ""), half_life_days)
-    access_boost = 1 + 0.1 * entry.get("access_count", 0)
+    # Use sqrt for diminishing returns on access_count
+    access_boost = 1 + 0.05 * math.sqrt(entry.get("access_count", 0))
     effectiveness = _calculate_effectiveness(entry)
+    exploration_bonus = _calculate_exploration_bonus(entry)
 
-    return base_score * age_decay * access_boost * effectiveness
+    return base_score * age_decay * access_boost * effectiveness * exploration_bonus
 
 
 def _hybrid_score(relevance: float, value: int) -> float:
@@ -266,24 +291,41 @@ def prune_memory(
     return atomic_json_update(path, _prune)
 
 
+# Valid relationship types for typed edges
+RELATIONSHIP_TYPES = {"co_occurs", "causes", "solves", "prerequisite", "variant"}
+
+
 def add_relationship(
     entry_name: str,
     related_name: str,
     entry_type: str = "failure",
+    relationship_type: str = "co_occurs",
     path: Path = MEMORY_FILE,
 ) -> str:
-    """Add a relationship between two entries.
+    """Add a typed relationship between two entries.
 
     Relationships are bidirectional - if A relates to B, B also relates to A.
+    The relationship_type describes how A relates to B.
 
     Args:
         entry_name: Name of the source entry
         related_name: Name of the related entry
         entry_type: "failure" or "pattern"
+        relationship_type: Type of relationship (co_occurs, causes, solves, prerequisite, variant)
         path: Path to memory file
 
-    Returns: "added" | "exists" | "not_found:{name}"
+    Relationship Types:
+        - co_occurs: Entries appeared together in the same campaign
+        - causes: Source entry often leads to the target entry
+        - solves: Source pattern fixes target failure
+        - prerequisite: Source must be understood before target
+        - variant: Entries are variations of the same underlying issue
+
+    Returns: "added" | "exists" | "not_found:{name}" | "invalid_type:{type}"
     """
+    if relationship_type not in RELATIONSHIP_TYPES:
+        return f"invalid_type:{relationship_type}"
+
     _ensure_memory_file(path)
 
     def _update(memory: dict) -> str:
@@ -298,18 +340,54 @@ def add_relationship(
         if not target:
             return f"not_found:{related_name}"
 
-        # Add bidirectional relationship
+        # Get or create typed relationships dict
         source_related = source.setdefault("related", [])
+        source_typed = source.setdefault("related_typed", {})
         target_related = target.setdefault("related", [])
+        target_typed = target.setdefault("related_typed", {})
 
+        # Check if relationship exists (either in legacy list or typed dict)
         if related_name in source_related:
+            # Upgrade to typed if not already
+            if relationship_type not in source_typed:
+                source_typed[relationship_type] = []
+            if related_name not in source_typed[relationship_type]:
+                source_typed[relationship_type].append(related_name)
             return "exists"
 
+        # Add to legacy list for backwards compatibility
         source_related.append(related_name)
         target_related.append(entry_name)
+
+        # Add to typed dict
+        if relationship_type not in source_typed:
+            source_typed[relationship_type] = []
+        source_typed[relationship_type].append(related_name)
+
+        # Add inverse relationship type
+        inverse_type = _inverse_relationship(relationship_type)
+        if inverse_type not in target_typed:
+            target_typed[inverse_type] = []
+        target_typed[inverse_type].append(entry_name)
+
         return "added"
 
     return atomic_json_update(path, _update)
+
+
+def _inverse_relationship(rel_type: str) -> str:
+    """Get the inverse of a relationship type."""
+    inverses = {
+        "co_occurs": "co_occurs",  # symmetric
+        "causes": "caused_by",
+        "caused_by": "causes",
+        "solves": "solved_by",
+        "solved_by": "solves",
+        "prerequisite": "depends_on",
+        "depends_on": "prerequisite",
+        "variant": "variant",  # symmetric
+    }
+    return inverses.get(rel_type, rel_type)
 
 
 def get_related_entries(
@@ -363,10 +441,11 @@ def get_related_entries(
     return result
 
 
-def track_access(entry_names: list, entry_type: str = "failure", path: Path = MEMORY_FILE) -> None:
+def _track_access(entry_names: list, entry_type: str = "failure", path: Path = MEMORY_FILE) -> None:
     """Update access count and last_accessed timestamp for retrieved entries.
 
     Called automatically when entries are retrieved via get_context.
+    Internal function - use get_context with track_access=True for automatic tracking.
     """
     if not entry_names:
         return
@@ -384,6 +463,10 @@ def track_access(entry_names: list, entry_type: str = "failure", path: Path = ME
         return None
 
     atomic_json_update(path, _update)
+
+
+# Public alias for backwards compatibility
+track_access = _track_access
 
 
 def record_feedback(
@@ -459,6 +542,8 @@ def get_context(
     max_patterns: int = 3,
     relevance_threshold: float = 0.25,
     min_results: int = 1,
+    expand_related: bool = False,
+    track_access: bool = True,
 ) -> dict:
     """Get failures and patterns for injection with semantic relevance.
 
@@ -475,6 +560,8 @@ def get_context(
         max_patterns: Maximum patterns to return (default: 3)
         relevance_threshold: Minimum relevance score (default: 0.25)
         min_results: Minimum results to return even if below threshold (default: 1)
+        expand_related: If True, include related entries via graph expansion (default: False)
+        track_access: If True, automatically update access counts (default: True)
 
     Returns:
         {"failures": [...], "patterns": [...]}
@@ -531,6 +618,46 @@ def get_context(
             key=lambda x: x.get("saved", 0),
             reverse=True
         )[:max_patterns]
+
+    # Expand with related entries if requested
+    if expand_related:
+        failure_names = {f.get("name") for f in failures}
+        pattern_names = {p.get("name") for p in patterns}
+
+        # Expand failures
+        expanded_failures = []
+        for f in failures:
+            related = get_related_entries(f.get("name", ""), "failure", max_hops=1)
+            for r in related:
+                rel_entry = r.get("entry", {})
+                if rel_entry.get("name") not in failure_names:
+                    rel_entry["_expanded"] = True
+                    rel_entry["_expanded_from"] = f.get("name")
+                    expanded_failures.append(rel_entry)
+                    failure_names.add(rel_entry.get("name"))
+        failures.extend(expanded_failures[:max_failures - len(failures)])
+
+        # Expand patterns
+        expanded_patterns = []
+        for p in patterns:
+            related = get_related_entries(p.get("name", ""), "pattern", max_hops=1)
+            for r in related:
+                rel_entry = r.get("entry", {})
+                if rel_entry.get("name") not in pattern_names:
+                    rel_entry["_expanded"] = True
+                    rel_entry["_expanded_from"] = p.get("name")
+                    expanded_patterns.append(rel_entry)
+                    pattern_names.add(rel_entry.get("name"))
+        patterns.extend(expanded_patterns[:max_patterns - len(patterns)])
+
+    # Automatic access tracking
+    if track_access:
+        retrieved_failure_names = [f.get("name") for f in failures if f.get("name")]
+        retrieved_pattern_names = [p.get("name") for p in patterns if p.get("name")]
+        if retrieved_failure_names:
+            _track_access(retrieved_failure_names, "failure")
+        if retrieved_pattern_names:
+            _track_access(retrieved_pattern_names, "pattern")
 
     return {"failures": failures, "patterns": patterns}
 

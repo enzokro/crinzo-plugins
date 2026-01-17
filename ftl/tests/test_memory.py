@@ -666,3 +666,109 @@ class TestDecayMechanism:
         assert len(data["failures"]) == 1
         # New failure should survive because it has higher importance (no decay)
         assert data["failures"][0]["name"] == "new-failure"
+
+
+class TestMemoryFeedbackCLI:
+    """Test memory feedback CLI command."""
+
+    def test_feedback_helped_increments_times_helped(self, cli, ftl_dir):
+        """Feedback --helped increments times_helped counter."""
+        failure = {
+            "name": "feedback-test",
+            "trigger": "Test error for feedback",
+            "fix": "Test fix",
+            "cost": 5000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+
+        # Record positive feedback
+        code, out, err = cli.memory("feedback", "feedback-test", "--helped")
+        assert code == 0, f"Failed: {err}"
+        assert "updated" in out
+
+        # Verify counter incremented
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        assert data["failures"][0]["times_helped"] == 1
+
+    def test_feedback_failed_increments_times_failed(self, cli, ftl_dir):
+        """Feedback --failed increments times_failed counter."""
+        failure = {
+            "name": "failed-test",
+            "trigger": "Test error for failure feedback",
+            "fix": "Test fix",
+            "cost": 3000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+
+        # Record negative feedback
+        code, out, err = cli.memory("feedback", "failed-test", "--failed")
+        assert code == 0, f"Failed: {err}"
+        assert "updated" in out
+
+        # Verify counter incremented
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        assert data["failures"][0]["times_failed"] == 1
+
+    def test_feedback_not_found(self, cli, ftl_dir):
+        """Feedback on non-existent entry returns not_found."""
+        code, out, _ = cli.memory("feedback", "nonexistent", "--helped")
+        assert "not_found" in out
+
+    def test_feedback_requires_helped_or_failed(self, cli, ftl_dir):
+        """Feedback requires either --helped or --failed flag."""
+        failure = {
+            "name": "flag-test",
+            "trigger": "Need flag test",
+            "fix": "Fix",
+            "cost": 1000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+
+        code, out, err = cli.memory("feedback", "flag-test")
+        assert code != 0
+        # Error message may be in stdout or stderr depending on implementation
+        combined = (out + err).lower()
+        assert "helped" in combined or "failed" in combined
+
+    def test_feedback_pattern_type(self, cli, ftl_dir):
+        """Feedback works with patterns using --type pattern."""
+        pattern = {
+            "name": "pattern-feedback",
+            "trigger": "Pattern for feedback test",
+            "insight": "Test insight",
+            "saved": 5000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-pattern", "--json", json.dumps(pattern))
+
+        # Record feedback on pattern
+        code, out, err = cli.memory("feedback", "pattern-feedback", "--type", "pattern", "--helped")
+        assert code == 0, f"Failed: {err}"
+        assert "updated" in out
+
+    def test_multiple_feedback_accumulates(self, cli, ftl_dir):
+        """Multiple feedback calls accumulate counters."""
+        failure = {
+            "name": "multi-feedback",
+            "trigger": "Multiple feedback test",
+            "fix": "Fix",
+            "cost": 2000,
+            "source": ["ws-1"]
+        }
+        cli.memory("add-failure", "--json", json.dumps(failure))
+
+        # Record multiple positive feedback
+        cli.memory("feedback", "multi-feedback", "--helped")
+        cli.memory("feedback", "multi-feedback", "--helped")
+        cli.memory("feedback", "multi-feedback", "--failed")
+
+        # Verify counters
+        code, out, _ = cli.memory("context", "--all")
+        data = json.loads(out)
+        assert data["failures"][0]["times_helped"] == 2
+        assert data["failures"][0]["times_failed"] == 1

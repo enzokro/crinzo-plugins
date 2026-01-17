@@ -2,7 +2,8 @@
 """Automated pattern extraction from completed workspaces."""
 
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import argparse
 import subprocess
@@ -12,14 +13,23 @@ import sys
 try:
     from lib.workspace import parse, WORKSPACE_DIR
     from lib.memory import load_memory, add_failure, add_pattern, add_relationship
+    from lib.embeddings import similarity as semantic_similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from workspace import parse, WORKSPACE_DIR
     from memory import load_memory, add_failure, add_pattern, add_relationship
+    from embeddings import similarity as semantic_similarity
 
 
-def list_workspaces(workspace_dir: Path = WORKSPACE_DIR) -> dict:
-    """Categorize workspaces by status.
+def list_workspaces(
+    workspace_dir: Path = WORKSPACE_DIR,
+    max_age_days: int = None
+) -> dict:
+    """Categorize workspaces by status with optional age filtering.
+
+    Args:
+        workspace_dir: Path to workspace directory
+        max_age_days: Only include workspaces modified within this many days (None = no filter)
 
     Returns:
         {"complete": [paths], "blocked": [paths], "active": [paths]}
@@ -28,7 +38,17 @@ def list_workspaces(workspace_dir: Path = WORKSPACE_DIR) -> dict:
     if not workspace_dir.exists():
         return result
 
+    cutoff_time = None
+    if max_age_days is not None:
+        cutoff_time = datetime.now() - timedelta(days=max_age_days)
+
     for p in workspace_dir.glob("*.xml"):
+        # Apply age filter if specified
+        if cutoff_time is not None:
+            mtime = datetime.fromtimestamp(p.stat().st_mtime)
+            if mtime < cutoff_time:
+                continue
+
         if "_complete.xml" in p.name:
             result["complete"].append(p)
         elif "_blocked.xml" in p.name:
@@ -113,9 +133,12 @@ def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
         score += 3
         breakdown["blocked_then_fixed"] = 3
 
-    # Clean first-try success (no retry mentioned in delivered)
+    # Clean first-try success (no retry/failure patterns in delivered)
     delivered = ws.get("delivered", "").lower()
-    if "retry" not in delivered and "tried" not in delivered and "attempt" not in delivered:
+    # Negative patterns that indicate retries/failures
+    retry_patterns = ["retry", "retried", "tried again", "second attempt", "multiple attempt", "failed then"]
+    has_retry = any(pattern in delivered for pattern in retry_patterns)
+    if not has_retry:
         score += 2
         breakdown["first_try_success"] = 2
 
@@ -155,9 +178,11 @@ def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
 
 
 def _similarity(a: str, b: str) -> float:
-    """Quick similarity check using SequenceMatcher."""
-    from difflib import SequenceMatcher
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    """Similarity check using semantic embeddings when available.
+
+    Falls back to SequenceMatcher if embeddings unavailable.
+    """
+    return semantic_similarity(a, b)
 
 
 def extract_failure(workspace_path: Path, verify_output: str = "") -> dict:
@@ -268,8 +293,17 @@ def _generalize_to_regex(trigger: str) -> str:
     return pattern
 
 
-def analyze(workspace_dir: Path = WORKSPACE_DIR, verify_blocks: bool = True) -> dict:
+def analyze(
+    workspace_dir: Path = WORKSPACE_DIR,
+    verify_blocks: bool = True,
+    max_workers: int = 4
+) -> dict:
     """Analyze all workspaces and extract patterns/failures.
+
+    Args:
+        workspace_dir: Path to workspace directory
+        verify_blocks: Whether to verify blocked workspaces by re-running verify
+        max_workers: Maximum parallel workers for verification (default: 4)
 
     Returns:
         {
@@ -298,33 +332,61 @@ def analyze(workspace_dir: Path = WORKSPACE_DIR, verify_blocks: bool = True) -> 
     # Track failures from this campaign for relationship linking
     campaign_failures = []
 
-    # Process blocked workspaces
-    for blocked_path in workspaces["blocked"]:
-        if verify_blocks:
-            verification = verify_block(blocked_path)
-            result["verified"].append({
-                "workspace": blocked_path.stem,
-                "status": verification["status"],
-                "reason": verification["reason"],
-            })
+    # Process blocked workspaces with parallel verification
+    if verify_blocks and workspaces["blocked"]:
+        # Parallel verification using ThreadPoolExecutor
+        verified_results = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_path = {
+                executor.submit(verify_block, path): path
+                for path in workspaces["blocked"]
+            }
+            for future in as_completed(future_to_path):
+                blocked_path = future_to_path[future]
+                try:
+                    verification = future.result()
+                    verified_results[blocked_path] = verification
+                    result["verified"].append({
+                        "workspace": blocked_path.stem,
+                        "status": verification["status"],
+                        "reason": verification["reason"],
+                    })
+                except Exception as e:
+                    result["verified"].append({
+                        "workspace": blocked_path.stem,
+                        "status": "ERROR",
+                        "reason": str(e),
+                    })
+                    verified_results[blocked_path] = {"status": "ERROR", "output": ""}
 
-            if verification["status"] != "CONFIRMED":
+        # Extract failures from confirmed blocks
+        for blocked_path in workspaces["blocked"]:
+            verification = verified_results.get(blocked_path, {})
+            if verification.get("status") != "CONFIRMED":
                 continue
 
-            verify_output = verification["output"]
-        else:
-            verify_output = ""
+            verify_output = verification.get("output", "")
+            failure = extract_failure(blocked_path, verify_output)
+            add_result = add_failure(failure)
+            result["failures_extracted"].append({
+                "name": failure["name"],
+                "result": add_result,
+            })
 
-        # Extract failure
-        failure = extract_failure(blocked_path, verify_output)
-        add_result = add_failure(failure)
-        result["failures_extracted"].append({
-            "name": failure["name"],
-            "result": add_result,
-        })
+            if add_result == "added":
+                campaign_failures.append(failure["name"])
+    else:
+        # No verification - extract from all blocked workspaces
+        for blocked_path in workspaces["blocked"]:
+            failure = extract_failure(blocked_path, "")
+            add_result = add_failure(failure)
+            result["failures_extracted"].append({
+                "name": failure["name"],
+                "result": add_result,
+            })
 
-        if add_result == "added":
-            campaign_failures.append(failure["name"])
+            if add_result == "added":
+                campaign_failures.append(failure["name"])
 
     # Process completed workspaces
     for complete_path in workspaces["complete"]:

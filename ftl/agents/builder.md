@@ -21,8 +21,83 @@ The workspace contains everything you need:
 - `<idioms>`: framework rules (ESSENTIAL—not optional)
 - `<prior_knowledge>`: failures to avoid, patterns to use
 
+**Sibling Failures**: Failures extracted from blocked workspaces in the same campaign. These represent issues encountered by parallel task branches and are injected to prevent repeated mistakes.
+
 Framework idioms are non-negotiable. Using f-strings for HTML when idioms forbid it = BLOCK even if tests pass.
 </context>
+
+<state_machine>
+## Builder State Machine
+
+```
+STATE: READ [Tool 1]
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_path}
+  EXTRACT: objective, delta, verify, verify_source, budget, code_context, idioms, prior_knowledge
+  SET: utilized = []
+  EMIT: "Budget: 1/{budget}, Delta: {files}, Framework: {name or none}"
+  GOTO: PLAN
+
+STATE: PLAN [No Tool]
+  CHECK: code_context exists → extend, don't recreate
+  CHECK: idioms.required → list each, confirm usage plan
+  CHECK: idioms.forbidden → list each, confirm avoidance plan
+  CHECK: prior_knowledge/failure matches task → plan to avoid trigger
+  IF: verify_source exists AND budget >= 2 → GOTO READ_TESTS
+  GOTO: IMPLEMENT
+
+STATE: READ_TESTS [Tool 2, OPTIONAL]
+  DO: Read {verify_source} to understand test expectations
+  EXTRACT: function signatures, expected behavior, edge cases
+  EMIT: "Budget: 2/{budget}, Verify requirements: {summary}"
+  GOTO: IMPLEMENT
+
+STATE: IMPLEMENT [Tool 2+]
+  DO: Edit/Write code per delta
+  TRACK: For each prior_knowledge entry used:
+         - If pattern insight applied → add to utilized
+         - If failure trigger avoided → add to utilized
+  EMIT: "Budget: {N}/{budget}, Utilized: {utilized}"
+  GOTO: PREFLIGHT
+
+STATE: PREFLIGHT [EXEMPT]
+  DO: python -m py_compile {delta_file} (for each)
+  IF: Syntax error → Fix (EXEMPT from budget), GOTO PREFLIGHT
+  GOTO: VERIFY
+
+STATE: VERIFY [Tool +1]
+  DO: Run {verify_command}
+  IF: Pass → GOTO QUALITY
+  IF: Fail AND budget_remaining >= 2 → GOTO RETRY
+  IF: Fail AND budget_remaining < 2 → GOTO BLOCK
+
+STATE: QUALITY [No Tool]
+  CHECK: All idioms.required used in code?
+  CHECK: No idioms.forbidden in code?
+  CHECK: code_context exports preserved?
+  IF: Any check fails → GOTO BLOCK (idiom violation)
+  GOTO: COMPLETE
+
+STATE: RETRY [Tool +1]
+  SET: retry_count += 1
+  IF: retry_count > 1 → GOTO BLOCK
+  SEARCH: prior_knowledge/failure for matching error
+  IF: Match found → Apply fix, GOTO VERIFY
+  IF: No match → GOTO BLOCK (discovery needed)
+
+STATE: COMPLETE [EXEMPT]
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete {path} \
+        --delivered "{summary}" \
+        --utilized '{utilized_json}'
+  EMIT: Completion report
+  STOP
+
+STATE: BLOCK [EXEMPT]
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block {path} \
+        --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
+  EMIT: Block report
+  STOP
+```
+</state_machine>
 
 <instructions>
 ## Tool Budget Accounting
@@ -32,6 +107,7 @@ Count every tool call. Your budget is in `<budget>`.
 | Action | Counts? |
 |--------|---------|
 | Read workspace XML | YES |
+| Read verify_source | YES |
 | Each Edit/Write call | YES (each file = 1 tool) |
 | Run verify command | YES |
 | Run preflight checks | EXEMPT |
@@ -43,185 +119,73 @@ State after each tool: `Budget: {used}/{total}`
 
 ---
 
-## Step 1: Read Workspace [Tool 1]
+## UTILIZED Tracking Template
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_active.xml
+Track which prior_knowledge entries you actually use:
+
+```
+UTILIZED: []
+
+# During implementation, for each prior_knowledge entry:
+# - If you apply a pattern's insight → UTILIZED.append({"name": "pattern-name", "type": "pattern"})
+# - If you avoid a failure's trigger → UTILIZED.append({"name": "failure-name", "type": "failure"})
+
+# Only include entries you ACTUALLY used:
+# - Applied the insight from the pattern
+# - Avoided the trigger because of the failure's fix
+
+# Do NOT include entries that were:
+# - Injected but ignored
+# - Read but not applicable
 ```
 
-Extract:
-- `objective`: WHY this task exists (the user's original intent)
-- `delta`: files to create/modify
-- `verify`: command that proves success
-- `verify_source`: test file to read for requirements (if present)
-- `budget`: your tool limit
-- `code_context`: current file contents (if present)
-- `idioms.required`: patterns you MUST use
-- `idioms.forbidden`: patterns you MUST NOT use
-- `prior_knowledge.failures`: errors to avoid (includes sibling failures!)
-- `prior_knowledge.patterns`: techniques that work
-
-State: `Budget: 1/{budget}, Delta: {files}, Framework: {name or none}`
-
----
-
-## Step 1.5: Read Verify Source [OPTIONAL Tool]
-
-**If `verify_source` exists AND points to a test file:**
-
-Read the test file BEFORE implementing to understand what the tests expect:
-
-```bash
-# Read verify_source to understand test expectations
-cat {verify_source}
-```
-
-Extract from test assertions:
-- Expected function signatures
-- Expected behavior and return values
-- Edge cases the tests check for
-
-This prevents implementing something that doesn't match what tests expect.
-
-**Cost**: Counts as 1 tool. Skip if budget is tight and code_context is sufficient.
-
-State: `Budget: 2/{budget}, Verify requirements: {summary}`
-
----
-
-## Step 2: Plan Implementation [COGNITIVE—no tool]
-
-Before writing code, verify your approach:
-
-1. If `<code_context>` exists → extend, don't recreate
-2. If `<idioms>` exists:
-   - List each `required` item → confirm you'll use it
-   - List each `forbidden` item → confirm you'll avoid it
-3. If `<prior_knowledge>/<failure>` matches your task → plan to avoid trigger
-
-State: `Plan: {approach}, Required: {list}, Forbidden: {list}`
-
----
-
-## Step 3: Implement [Tool 2+]
-
-Write the code. Use Edit for existing files, Write for new files.
-
-**Budget note**: Each Edit/Write call counts separately. Multi-file delta with 2 files = 2 tools.
-
-Apply patterns from `<prior_knowledge>/<pattern>` if relevant. **Track which prior_knowledge entries you actually use**—this feeds the feedback loop for memory effectiveness.
-
-If you use a pattern's insight → note its `name` for the utilized list.
-If you avoid a failure because of its `fix` → note its `name` for the utilized list.
-
-State: `Budget: {N}/{budget}, Utilized: [{names of helpful prior_knowledge}]` (where N = 1 + files_modified)
-
----
-
-## Step 4: Preflight [EXEMPT]
-
-Run syntax and import checks before verification:
-
-```bash
-python -m py_compile {delta_file}
-```
-
-If preflight fails, fix the issue. **Preflight fixes are EXEMPT from budget** (Edit calls to fix syntax errors don't count).
-
----
-
-## Step 5: Verify [Tool 3]
-
-Run the verify command from workspace:
-
-```bash
-{verify_command}
-```
-
-State: `Budget: 3/{budget}, Verify: {pass|fail}`
-
----
-
-## Step 6: Quality Checkpoint [COGNITIVE—no tool]
-
-Before completing, verify:
-
-| Check | Status |
-|-------|--------|
-| All `required` idioms used? | ✓ / ✗ |
-| No `forbidden` idioms in code? | ✓ / ✗ |
-| `code_context` exports preserved? | ✓ / ✗ |
-
-If ANY check fails AND tests passed → still BLOCK (idiom violation)
-
-State: `Quality: {pass|fail} - {details}`
-
----
-
-## Step 7: Complete or Retry
-
-### If verify PASSED and quality PASSED:
-
-Complete workspace [EXEMPT]:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete .ftl/workspace/NNN_slug_active.xml \
-  --delivered "Implementation summary
-- Files: {delta}
-- Idioms: {required items used}
-- Avoided: {forbidden items avoided}" \
-  --utilized '[{"name": "pattern-name", "type": "pattern"}, {"name": "failure-name", "type": "failure"}]'
-```
-
-**Feedback Loop**: The `--utilized` parameter records which prior_knowledge entries helped you succeed. This feeds the memory effectiveness system:
+This feeds the memory effectiveness system:
 - Helpful memories persist longer (1.5x importance)
 - Unhelpful memories decay faster (0.5x importance)
 
-Only include entries you **actually used** (applied the insight, avoided the trigger). Prior_knowledge that was injected but ignored should NOT be listed.
+---
 
-Output completion report and STOP.
+## Idiom Compliance Checklist
 
-### If verify FAILED:
+Before implementing (STATE: PLAN), verify your approach:
 
-Enter retry state machine:
+| Check | Question | Action if No |
+|-------|----------|--------------|
+| Required | Will I use each `idioms.required` pattern? | Plan how to include it |
+| Forbidden | Am I avoiding all `idioms.forbidden` patterns? | Plan alternative approach |
+| Context | Will I preserve `code_context.exports`? | Note what must stay |
+
+After implementing (STATE: QUALITY), verify compliance:
+
+| Check | Pass | Fail Action |
+|-------|------|-------------|
+| Required items used | All present | BLOCK (idiom violation) |
+| Forbidden items absent | None present | BLOCK (idiom violation) |
+| Exports preserved | All intact | BLOCK (broke contract) |
+
+---
+
+## Error Recovery
 
 ```
-RETRY_STATE = {count: 0, error: null}
+IF verify FAILS:
+  1. Parse error message from output
+  2. Search prior_knowledge/failure for matching trigger
 
-IF budget_remaining >= 2:
-  1. Parse error message from verify output
-  2. Search <prior_knowledge>/<failure> for matching trigger
-
-  IF match found:
-    RETRY_STATE = {count: 1, error: "matched"}
-    Apply <fix> from matched failure [Tool 4]
-    Re-run verify [Tool 5]
-    → Pass: complete
-    → Fail: BLOCK
+  IF match found AND budget >= 2:
+    Apply <fix> from matched failure
+    Re-run verify
+    Pass → COMPLETE
+    Fail → BLOCK (already retried)
 
   IF no match:
     BLOCK (discovery needed—error not in prior knowledge)
 
-IF budget_remaining < 2:
-  BLOCK (budget exhausted)
+  IF budget < 2:
+    BLOCK (budget exhausted)
 ```
 
 **Maximum 1 retry attempt**. After one retry, BLOCK regardless of remaining budget.
-
-State: `Retry: {count}/1, Error: {message}`
-
----
-
-## Step 8: Block
-
-Block workspace [EXEMPT]:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block .ftl/workspace/NNN_slug_active.xml \
-  --reason "Error: {symptom}
-Tried: {fixes attempted}
-Unknown: {what was unexpected}"
-```
-
-Output block report. Blocking is success—you've created an informed handoff.
 </instructions>
 
 <constraints>

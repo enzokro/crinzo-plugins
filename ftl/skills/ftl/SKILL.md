@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.5.0
+version: 2.6.0
 ---
 
 # FTL Protocol
@@ -10,9 +10,9 @@ version: 2.5.0
 
 | Command | Flow |
 |---------|------|
-| `/ftl <task>` | Explorer (4x) → Planner → Builder → Observer |
-| `/ftl campaign "obj"` | Explorer (4x) → Planner → [Builder]* → Observer |
-| `/ftl query "topic"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "topic"` (semantic ranking) |
+| `/ftl <task>` | EXPLORE → PLAN → BUILD → OBSERVE |
+| `/ftl campaign "obj"` | EXPLORE → PLAN → [BUILD]* → OBSERVE |
+| `/ftl query "topic"` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "topic"` |
 | `/ftl status` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status` |
 | `/ftl stats` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` |
 | `/ftl prune` | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune` |
@@ -26,96 +26,100 @@ version: 2.5.0
 | Agent | Role | Model | Budget |
 |-------|------|-------|--------|
 | **Explorer** | Parallel codebase exploration | haiku | 4 |
-| **Planner** | Decompose into verifiable tasks | opus | ∞ |
+| **Planner** | Decompose into verifiable tasks | opus | unlimited |
 | **Builder** | Transform spec into code | opus | 3-7 |
 | **Observer** | Extract patterns from work | opus | 10 |
 
 ## Paths
 
-All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directory:
-- `${CLAUDE_PLUGIN_ROOT}/lib/` - Python utilities
-- `${CLAUDE_PLUGIN_ROOT}/scripts/` - Shell scripts
+All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directory.
+See [CLI_REFERENCE.md](CLI_REFERENCE.md) for complete syntax.
 
-## TASK Workflow
+---
 
-```
-1. Clear previous exploration:
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
-
-2. Exploration Phase (4 parallel Haiku agents in single message):
-   Task(ftl:ftl-explorer) "mode=structure"
-   Task(ftl:ftl-explorer) "mode=pattern, objective={task}"
-   Task(ftl:ftl-explorer) "mode=memory, objective={task}"
-   Task(ftl:ftl-explorer) "mode=delta, objective={task}"
-
-3. Aggregate outputs (explorers write to .ftl/cache/explorer_{mode}.json):
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{task}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
-
-4. Task(ftl:ftl-planner) with task + exploration.json
-   → Returns plan.json
-
-5. Create workspace:
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan plan.json
-
-6. Task(ftl:ftl-builder) with workspace path
-   → Returns complete | blocked
-
-7. Task(ftl:ftl-observer) (always - learns from both success and failure)
-   → Updates memory.json
-```
-
-## CAMPAIGN Workflow
+## TASK State Machine
 
 ```
-1. Clear previous exploration:
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
+STATE: INIT
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
+  GOTO: EXPLORE
 
-2. Exploration Phase (4 parallel Haiku agents in single message):
-   Task(ftl:ftl-explorer) "mode=structure"
-   Task(ftl:ftl-explorer) "mode=pattern, objective={objective}"
-   Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
-   Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
+STATE: EXPLORE
+  DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
+      - Task(ftl:ftl-explorer) "mode=structure"
+      - Task(ftl:ftl-explorer) "mode=pattern, objective={task}"
+      - Task(ftl:ftl-explorer) "mode=memory, objective={task}"
+      - Task(ftl:ftl-explorer) "mode=delta, objective={task}"
+  WAIT: All 4 complete (explorers write to .ftl/cache/explorer_{mode}.json)
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{task}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
+  GOTO: PLAN
 
-3. Aggregate outputs (explorers write to .ftl/cache/explorer_{mode}.json):
-   python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
+STATE: PLAN
+  DO: Task(ftl:ftl-planner) with task + exploration.json
+  IF: Returns CLARIFY → ASK user, GOTO PLAN
+  IF: Returns plan.json → GOTO BUILD
 
-4. Task(ftl:ftl-planner) with objective + exploration.json
-   → Returns plan.json (with DAG dependencies)
+STATE: BUILD
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan plan.json
+  DO: Task(ftl:ftl-builder) with workspace path
+  GOTO: OBSERVE
 
-5. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
-
-6. Register tasks (no workspace creation yet):
-   cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
-
-7. Execute tasks with DAG parallelization:
-   WHILE python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks returns non-empty:
-     ready = ready-tasks output
-     FOR EACH task in ready (launch in PARALLEL):
-       Create workspace ON-DEMAND (parents now complete, lineage populated):
-         echo '{plan.json}' | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
-       Task(ftl:ftl-builder) with workspace
-       python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
-
-8. Handle cascade (when loop exits, check for stuck tasks):
-   cascade = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-status
-   IF cascade.state == "stuck":
-     python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py propagate-blocks
-     (Unreachable tasks are marked blocked with blocked_by reference)
-
-9. Task(ftl:ftl-observer) (analyze all workspaces - learn from success and failure)
-
-10. python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete
+STATE: OBSERVE
+  DO: Task(ftl:ftl-observer)
+  GOTO: COMPLETE
 ```
 
-**DAG Parallelization**: Tasks with `depends: ["001", "002"]` wait for both 001 AND 002 to complete.
-Tasks with no dependencies or all dependencies complete can run in parallel.
+---
 
-**Cascade Handling**: When a parent task blocks, child tasks become unreachable. The `cascade-status`
-command detects this, and `propagate-blocks` marks unreachable tasks as blocked with their blocking
-parent reference. This allows campaigns to complete gracefully with partial success.
+## CAMPAIGN State Machine
 
-**On-Demand Workspace Creation**: Workspaces are created AFTER their parent tasks complete.
-This enables proper `<lineage>` population with parent deliveries and sibling failure injection.
+```
+STATE: INIT
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
+  GOTO: EXPLORE
+
+STATE: EXPLORE
+  DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
+      - Task(ftl:ftl-explorer) "mode=structure"
+      - Task(ftl:ftl-explorer) "mode=pattern, objective={objective}"
+      - Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
+      - Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
+  WAIT: All 4 complete
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
+  GOTO: PLAN
+
+STATE: PLAN
+  DO: Task(ftl:ftl-planner) with objective + exploration.json
+  IF: Returns CLARIFY → ASK user, GOTO PLAN
+  IF: Returns plan.json → GOTO REGISTER
+
+STATE: REGISTER
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
+  DO: cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
+  GOTO: EXECUTE
+
+STATE: EXECUTE
+  DO: ready = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks
+  IF: ready is empty → GOTO CASCADE
+  DO: FOR EACH task in ready (launch in PARALLEL):
+        echo '{plan.json}' | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
+        Task(ftl:ftl-builder) with workspace
+        python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
+  GOTO: EXECUTE
+
+STATE: CASCADE
+  DO: cascade = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-status
+  IF: cascade.state == "stuck" → python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py propagate-blocks
+  GOTO: OBSERVE
+
+STATE: OBSERVE
+  SKIP_IF: All tasks blocked with same root cause (single failure cascaded)
+  DO: Task(ftl:ftl-observer)
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete
+  GOTO: COMPLETE
+```
+
+---
 
 ## Workspace Lifecycle
 
@@ -123,9 +127,11 @@ This enables proper `<lineage>` population with parent deliveries and sibling fa
 .ftl/workspace/NNN_slug_status.xml
 ```
 
-Status: `active` → `complete` | `blocked`
+Status transitions: `active` → `complete` | `blocked`
 
-**Blocking is success** (informed handoff).
+**Blocking is success** (informed handoff for Observer to learn from).
+
+---
 
 ## Constraints
 
@@ -134,100 +140,23 @@ Status: `active` → `complete` | `blocked`
 | **Essential** | Critical | Escalate |
 | **Quality** | Important | Note |
 
-## Semantic Memory
+---
 
-FTL uses semantic embeddings (sentence-transformers) for intelligent memory operations:
+## DAG Parallelization
 
-| Operation | Semantic Behavior |
-|-----------|-------------------|
-| **Retrieval** | `--objective` scores memories by cosine similarity, returns most relevant |
-| **Deduplication** | 85% semantic similarity threshold prevents near-duplicate entries |
-| **Query** | `/ftl query "topic"` ranks results by semantic relevance |
-| **Relationships** | Graph edges between related failures enable multi-hop discovery |
-| **Decay** | Importance = `log₂(value) × age_decay × access_boost × effectiveness` |
-| **Feedback** | Tracks `times_helped` / `times_failed` for injected memories |
+Tasks with `depends: ["001", "002"]` wait for both 001 AND 002 to complete.
+Tasks with no dependencies or all dependencies complete can run in parallel.
 
-**Hybrid Scoring**: `score = relevance × log₂(cost + 1)` balances semantic relevance with failure cost.
+**Cascade Handling**: When a parent task blocks, child tasks become unreachable.
+The `cascade-status` command detects this, and `propagate-blocks` marks unreachable
+tasks as blocked with their blocking parent reference.
 
-**Age Decay**: Entries lose importance over time (half-life: 30 days). Frequently accessed entries resist decay.
+**On-Demand Workspace Creation**: Workspaces are created AFTER parent tasks complete.
+This enables proper `<lineage>` population with parent deliveries and sibling failure injection.
 
-**Effectiveness**: Memories that help tasks succeed persist longer (1.5x). Unhelpful memories decay faster (0.5x).
+---
 
-**Graph Traversal**: Related entries are discovered via BFS with configurable hop depth (default: 2).
+## References
 
-**Similar Campaigns**: `/ftl similar` finds past campaigns with matching objectives/frameworks for transfer learning.
-
-**Fallback**: If sentence-transformers unavailable, falls back to SequenceMatcher string similarity.
-
-## CLI Reference (Exact Syntax)
-
-**IMPORTANT**:
-- All paths use `${CLAUDE_PLUGIN_ROOT}` - this variable resolves to the plugin installation directory
-- Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require the flag prefix.
-
-### exploration.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| clear | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear` | removes exploration.json |
-| aggregate | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate --objective "text"` | stdin: JSON lines |
-| aggregate-files | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "text"` | reads .ftl/cache/explorer_*.json |
-| write | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write` | stdin: exploration dict |
-| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read` | returns exploration.json |
-| get-structure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-structure` | |
-| get-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-pattern` | |
-| get-memory | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-memory` | |
-| get-delta | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-delta` | |
-
-### campaign.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective" [--framework NAME]` | `objective` is POS |
-| status | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status` | |
-| add-tasks | `cat plan.json \| python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks` | reads stdin, validates DAG (cycle detection) |
-| update-task | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ STATUS` | both POS |
-| next-task | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py next-task` | returns first pending |
-| ready-tasks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks` | returns all tasks ready for parallel execution |
-| cascade-status | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-status` | detects stuck campaigns due to blocked parents |
-| propagate-blocks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py propagate-blocks` | marks unreachable tasks as blocked |
-| complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete [--summary "text"]` | `--summary` is FLAG (not positional!) |
-| active | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py active` | returns campaign or null |
-| history | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py history` | |
-| export | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py export OUTPUT [--start DATE] [--end DATE]` | `OUTPUT` is POS |
-| fingerprint | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py fingerprint` | generates similarity fingerprint for current campaign |
-| find-similar | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar [--threshold F] [--max N]` | finds similar archived campaigns |
-
-### workspace.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan PATH [--task SEQ]` | `--plan` REQUIRED |
-| parse | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse PATH` | `PATH` is POS |
-| complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete PATH --delivered "text" [--utilized JSON]` | `--utilized` tracks helpful memories |
-| block | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
-
-### memory.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| context | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py context [--type TYPE] [--tags TAGS] [--objective TEXT] [--max-failures N] [--max-patterns N] [--all]` | `--objective` enables semantic retrieval |
-| add-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{...}'` | `--json` REQUIRED |
-| add-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{...}'` | `--json` REQUIRED |
-| query | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "term"` | `term` is POS, uses semantic ranking |
-| stats | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` | counts, avg_importance, avg_age, relationships |
-| prune | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune [--max-failures N] [--max-patterns N] [--min-importance F] [--half-life D]` | removes low-importance entries |
-| add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern]` | bidirectional graph edge |
-| related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | BFS traversal |
-| feedback | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback NAME --helped\|--failed [--type TYPE]` | records if memory was useful |
-
-### observer.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| analyze | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py analyze [--workspace-dir PATH] [--no-verify]` | full extraction pipeline |
-| verify-blocks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py verify-blocks [--workspace-dir PATH]` | verify all blocked workspaces |
-| score | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py score PATH` | score single workspace |
-| extract-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py extract-failure PATH` | extract failure from blocked workspace |
-
-### benchmark.py
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| report | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` | full benchmark report |
-| run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py run` | JSON results |
-| learning | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py learning` | efficiency simulation |
+- [CLI_REFERENCE.md](CLI_REFERENCE.md) - Complete command syntax
+- [MEMORY_SEMANTICS.md](MEMORY_SEMANTICS.md) - Memory decay, feedback, and graph traversal

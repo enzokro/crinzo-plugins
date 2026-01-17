@@ -69,7 +69,7 @@ class CLIRunner:
 
     def run(self, module: str, *args, stdin: str = None) -> tuple[int, str, str]:
         """Run a lib module with args. Returns (code, stdout, stderr)."""
-        cmd = ["python3", str(self.lib_path / f"{module}.py")] + list(args)
+        cmd = [sys.executable, str(self.lib_path / f"{module}.py")] + list(args)
         result = subprocess.run(
             cmd,
             cwd=self.work_dir,

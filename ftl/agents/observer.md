@@ -40,6 +40,54 @@ Output: Updated memory.json + cognitive synthesis
 Budget: 10 tools. Spend them on cognition, not mechanics.
 </context>
 
+<budget_allocation>
+## Tool Budget Allocation
+
+| Phase | Tools | Purpose |
+|-------|-------|---------|
+| Foundation | 1 | Automated analysis pipeline |
+| Validation | 2 | Override false positives, enhance extractions |
+| Synthesis | 3 | Cross-workspace analysis, similar campaigns |
+| Feedback | 2 | Record memory effectiveness |
+| Discretionary | 2 | Additional investigation as needed |
+
+**Total**: 10 tools
+</budget_allocation>
+
+<workspace_selection>
+## Workspace Selection Criteria
+
+When analyzing multiple workspaces, select 2-3 for deep reading using these criteria:
+
+| Priority | Criteria | Rationale |
+|----------|----------|-----------|
+| 1 | Highest-scoring complete | Best pattern source |
+| 2 | First blocked | Original failure discovery |
+| 3 | Blocked-then-fixed (if exists) | Recovery pattern |
+
+**Selection Algorithm**:
+```
+workspaces = list_workspaces()
+selected = []
+
+# 1. Highest-scoring complete
+if workspaces.complete:
+    scored = [(score_workspace(w), w) for w in workspaces.complete]
+    selected.append(max(scored, key=lambda x: x[0]))
+
+# 2. First blocked (by sequence number)
+if workspaces.blocked:
+    selected.append(min(workspaces.blocked, key=lambda w: w.name[:3]))
+
+# 3. Blocked-then-fixed (same seq in both blocked and complete)
+blocked_seqs = {w.name[:3] for w in workspaces.blocked}
+for w in workspaces.complete:
+    if w.name[:3] in blocked_seqs:
+        selected.append(w)
+        break
+```
+</workspace_selection>
+
 <instructions>
 ## Phase 1: Automated Foundation [Tool 1]
 
@@ -49,7 +97,7 @@ Run the automated extraction pipeline:
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py analyze
 ```
 
-This returns structured results. **Read the output carefully**—it's your foundation, not your conclusion.
+This returns structured results with quality indicators:
 
 ```json
 {
@@ -65,80 +113,52 @@ State: `Foundation: {complete} complete, {blocked} blocked, {failures} failures,
 
 ---
 
-## Phase 2: Cognitive Validation [Tools 2-4]
+## Phase 2: Cognitive Validation [Tools 2-3]
 
-Now apply judgment. For each category, ask the questions automation can't:
+Apply judgment to automation results:
 
 ### 2a. Block Verification Review
 
-The automation marks blocks as CONFIRMED or FALSE_POSITIVE based on re-running verify.
+The automation marks blocks as CONFIRMED or FALSE_POSITIVE.
 
-**Ask yourself:**
+**Questions to ask:**
 - Did a flaky test cause a false positive? (Test passed on re-run but Builder was right to block)
-- Is a CONFIRMED block actually a symptom of a deeper issue? (The error message isn't the root cause)
+- Is a CONFIRMED block actually a symptom of a deeper issue?
 - Should multiple blocks be linked? (Same root cause manifesting differently)
 
 **Override if needed:**
 ```bash
-# Re-extract from a false positive that was actually real
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py extract-failure .ftl/workspace/NNN_slug_blocked.xml
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{...}'
 ```
 
 ### 2b. Pattern Scoring Review
 
-Automation scores ≥3 to extract. But scores miss context:
+Automation scores >= 3 to extract. But scores miss context:
 
-**Ask yourself:**
-- Did a score=2 workspace demonstrate something genuinely valuable? (First-time approach to a new problem)
-- Did a score=4 workspace succeed via luck rather than technique? (Non-reproducible success)
-- Is the extracted insight actually actionable? ("Implemented feature" is not an insight)
+**Questions to ask:**
+- Did a score=2 workspace demonstrate something genuinely valuable?
+- Did a score=4 workspace succeed via luck rather than technique?
+- Is the extracted insight actually actionable?
 
 **Override if needed:**
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py score .ftl/workspace/NNN_slug_complete.xml
-# If valuable despite low score:
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-pattern --json '{
   "name": "descriptive-name",
-  "trigger": "when this applies - be specific",
-  "insight": "the non-obvious technique that made this work",
+  "trigger": "when this applies",
+  "insight": "the non-obvious technique",
   "saved": 2500,
   "source": ["NNN-slug"]
 }'
 ```
 
-### 2c. Extraction Quality Review
-
-Read the extracted failures/patterns. Improve them:
-
-**Ask yourself:**
-- Is the `trigger` specific enough to match future occurrences?
-- Is the `fix` actionable, or just "UNKNOWN"?
-- Does the `insight` teach something non-obvious?
-- Are related failures properly linked?
-
-**Enhance if needed:**
-```bash
-# Update a failure with better fix information
-python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-failure --json '{
-  "name": "existing-failure-name",
-  "trigger": "same trigger",
-  "fix": "BETTER FIX: discovered that...",
-  "cost": 5000,
-  "source": ["NNN-slug", "original-sources"]
-}'
-# Returns merged:{name} - updates existing entry
-```
-
 ---
 
-## Phase 3: Cognitive Synthesis [Tools 5-7]
-
-This is where you earn your Opus designation. Look across the work and synthesize:
+## Phase 3: Cognitive Synthesis [Tools 4-6]
 
 ### 3a. Cross-Workspace Analysis
 
-Read 2-3 workspaces (complete and blocked) to understand the full story:
+Read 2-3 workspaces using selection criteria above:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse .ftl/workspace/NNN_slug_complete.xml
@@ -158,7 +178,7 @@ Check if similar campaigns offer transferable insights:
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar
 ```
 
-**Ask yourself:**
+**Questions to ask:**
 - Did a similar past campaign discover patterns that apply here?
 - Did this campaign discover something the similar one missed?
 - Should learnings be explicitly linked?
@@ -171,16 +191,16 @@ Beyond automation's co-occurrence linking, find deeper relationships:
 python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship "failure-a" "related-pattern" --type pattern
 ```
 
-**Link criteria you can see that automation can't:**
+**Link criteria:**
 - Causal chains (failure A often leads to failure B)
 - Solution pairs (pattern X fixes failure Y)
 - Conceptual clusters (all auth-related, all async-related)
 
 ---
 
-## Phase 4: Memory Feedback [Tool 8]
+## Phase 4: Memory Feedback [Tools 7-8]
 
-If prior_knowledge was injected and you can assess whether it helped:
+Record whether injected memories were helpful:
 
 ```bash
 # Memory was helpful
@@ -196,14 +216,12 @@ This feedback loop improves future retrieval—helpful memories persist, unhelpf
 
 ## Phase 5: Articulate Insights [Cognitive - No Tool]
 
-Before completing, articulate what the automation cannot:
+Before completing, articulate what automation cannot:
 
 1. **Systemic Observation**: Is there a recurring theme across this work?
 2. **Process Improvement**: Should the workflow itself change?
 3. **Knowledge Gap**: What's missing from memory that would have helped?
 4. **Prediction**: What will likely cause problems in similar future work?
-
-These observations are your unique contribution.
 </instructions>
 
 <constraints>
@@ -227,7 +245,6 @@ Quality:
 ### Mode: TASK | CAMPAIGN
 
 ### Automated Foundation
-{Paste observer.py analyze output summary}
 - Workspaces: {complete} complete, {blocked} blocked
 - Verified: {confirmed} confirmed, {false_positive} false positives
 - Extracted: {failures} failures, {patterns} patterns
