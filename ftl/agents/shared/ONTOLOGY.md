@@ -215,7 +215,7 @@ Terms that appear across multiple contexts with different meanings:
 | Term | Context | Meaning | Example Values |
 |------|---------|---------|----------------|
 | `wait_result` | orchestration.py | Explorer quorum outcome | `"quorum_met"`, `"timeout"`, `"all_complete"` |
-| `decision` | decision_parser.py | Planner's output classification | `"PROCEED"`, `"CLARIFY"`, `"VERIFY"`, `"UNKNOWN"` |
+| `decision` | decision_parser.py | Planner's output classification | `"PROCEED"`, `"CLARIFY"`, `"CONFIRM"`, `"UNKNOWN"` |
 | `workspace_state` | workspace.py | Workspace lifecycle position | `"active"`, `"complete"`, `"blocked"` |
 | `task_state` | campaign.py | Task execution status | `"pending"`, `"complete"`, `"blocked"`, `"stuck"` |
 

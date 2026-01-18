@@ -52,6 +52,8 @@ See the CLI docs: [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) for
 | `INCREMENT:` | Increment tracked variable | `INCREMENT: clarify_count` |
 | `SET:` | Assign value to tracked variable | `SET: prior_ready_count = len(ready_tasks)` |
 | `USE:` | Invoke reusable pattern with substitution | `USE: INIT_PATTERN with mode=campaign` |
+| `PROCEED` | Fall through to next instruction | `IF: ... → PROCEED` |
+| `PARALLEL` | Execute tasks concurrently in single message | `DO: Task(X) in PARALLEL` |
 
 ### Variable Binding
 
@@ -65,6 +67,15 @@ IF: wait_result.status=="quorum_met" → ...
 ### State Context
 
 `GOTO:` creates fresh state context. Tracked variables persist; local variables reset.
+
+### Variable Lifecycle
+
+| Type | Initialized | Persists |
+|------|-------------|----------|
+| Local (from CHECK) | Each state entry | Until GOTO |
+| Tracked (from TRACK) | First declaration (default: 0) | Entire session |
+
+TRACK variables initialize on **first encounter**. Subsequent GOTO re-entries preserve values.
 
 ---
 
@@ -109,8 +120,8 @@ DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
     - Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
 WAIT: All 4 complete OR timeout=300s (quorum=3)
   CHECK: python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --required=3 --timeout=300
-  IF: wait_result=="quorum_met" OR wait_result=="all_complete" → continue
-  IF: wait_result=="timeout" → EMIT: PARTIAL_FAILURE missing={missing}, continue with available
+  IF: wait_result=="quorum_met" OR wait_result=="all_complete" → PROCEED
+  IF: wait_result=="timeout" → EMIT: PARTIAL_FAILURE missing={missing}, PROCEED
   IF: wait_result=="quorum_failure" → GOTO ERROR with error_type="quorum_failure"
 DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}"
 DO: | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
@@ -131,7 +142,8 @@ DO: Task(ftl:ftl-planner) with {input} + exploration.json > plan_output.md
 DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/decision_parser.py plan_output.md > decision.json
 CHECK: decision=$(jq -r .decision decision.json)
 IF: decision=="CLARIFY" → INCREMENT clarify_count, present questions, ASK user, GOTO PLAN
-IF: decision=="VERIFY" → present selection, confirm with user, GOTO PLAN
+IF: decision=="CONFIRM" → present selection, confirm with user, GOTO PLAN
+# Note: CONFIRM has no counter - assumes user explicitly wants confirmation loop
 IF: decision=="PROCEED" → extract plan_json to plan.json, GOTO {next_state}
 IF: decision=="UNKNOWN" → EMIT: "Decision unclear, defaulting to CLARIFY", GOTO PLAN
 ```
@@ -257,7 +269,8 @@ STATE: COMPLETE
 
 Workspace transitions: `active` → `complete` | `blocked`
 
-**Blocking is success** (informed handoff for Observer to learn from).
+**Blocking captures failure state for learning** - The workspace records what failed and why.
+Blocking is not system failure; it's success at information capture for Observer pattern extraction.
 
 ---
 

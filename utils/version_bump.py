@@ -49,7 +49,7 @@ new_version = '.'.join(new_version)
 new_cache_dir = os.path.join(ftl_plugin_cache_home, f'{new_version}')
 os.makedirs(new_cache_dir, exist_ok=True)
 
-shutil.copytree(os.path.join(plugin_path, 'ftl'), new_cache_dir, dirs_exist_ok=True)  # Python 3.8+ allows dirs_exist_ok in
-# shutil.copytree()
+shutil.copytree(os.path.join(plugin_path, 'ftl'), new_cache_dir, dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns('venv', '__pycache__', '*.pyc'))
     
 

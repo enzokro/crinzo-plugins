@@ -28,22 +28,22 @@ PROCEED_MARKERS = [
     r"```json\s*\{",  # JSON code block indicates plan output
 ]
 
-VERIFY_MARKERS = [
-    r"^### Confidence:\s*VERIFY",
-    r"^Confidence:\s*VERIFY",
-    r"^Decision:\s*VERIFY",
+CONFIRM_MARKERS = [
+    r"^### Confidence:\s*CONFIRM",
+    r"^Confidence:\s*CONFIRM",
+    r"^Decision:\s*CONFIRM",
 ]
 
 
 def detect_decision(text: str) -> dict:
-    """Detect PROCEED/CLARIFY/VERIFY decision from planner output.
+    """Detect PROCEED/CLARIFY/CONFIRM decision from planner output.
 
     Args:
         text: Raw planner output text
 
     Returns:
         {
-            "decision": "PROCEED" | "CLARIFY" | "VERIFY" | "UNKNOWN",
+            "decision": "PROCEED" | "CLARIFY" | "CONFIRM" | "UNKNOWN",
             "markers_found": ["marker1", ...],
             "questions": [...] if CLARIFY,
             "plan_json": {...} if PROCEED
@@ -73,12 +73,12 @@ def detect_decision(text: str) -> dict:
             result["questions"] = questions
         return result
 
-    # Check for VERIFY markers
-    for pattern in VERIFY_MARKERS:
+    # Check for CONFIRM markers
+    for pattern in CONFIRM_MARKERS:
         for line in lines:
             if re.search(pattern, line, re.IGNORECASE | re.MULTILINE):
                 result["markers_found"].append(pattern)
-                result["decision"] = "VERIFY"
+                result["decision"] = "CONFIRM"
                 return result
 
     # Check for PROCEED markers
@@ -264,8 +264,8 @@ def main():
         sys.exit(2)  # Needs clarification
     elif result["decision"] == "PROCEED":
         sys.exit(0)  # Ready to proceed
-    elif result["decision"] == "VERIFY":
-        sys.exit(3)  # Needs verification
+    elif result["decision"] == "CONFIRM":
+        sys.exit(3)  # Needs confirmation
     else:
         sys.exit(1)  # Unknown/error
 

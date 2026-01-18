@@ -1,6 +1,7 @@
 #!/bin/bash
 # FTL environment setup - creates venv and installs dependencies on first session
 set -e
+set -o pipefail
 
 # Unified path resolution: CLAUDE_PLUGIN_ROOT is source of truth
 # Both FTL_ROOT and CLAUDE_PLUGIN_ROOT are set for backwards compatibility

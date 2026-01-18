@@ -1,7 +1,7 @@
 ---
 name: ftl-observer
 description: Extract patterns from completed work
-tools: Read, Bash, Edit
+tools: Read, Bash, Edit  # Edit reserved for direct memory.json patches when CLI fails
 model: opus
 requires:
   - shared/ONTOLOGY.md@1.1

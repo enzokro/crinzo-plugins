@@ -12,7 +12,7 @@ Machine-readable phase definitions for the Planner agent. See [ONTOLOGY.md](ONTO
 |-------|-------|--------|------------|--------------|
 | READ_EXPLORATION | objective | exploration context | CALCULATE_COMPLEXITY | Fallback to memory.py |
 | CALCULATE_COMPLEXITY | exploration | complexity score C | COHERENCE_CHECK | - |
-| COHERENCE_CHECK | tasks draft | PROCEED/VERIFY/CLARIFY | DESIGN_SEQUENCE or STOP | CLARIFY |
+| COHERENCE_CHECK | tasks draft | PROCEED/CONFIRM/CLARIFY | DESIGN_SEQUENCE or STOP | CLARIFY |
 | DESIGN_SEQUENCE | coherent tasks | ordered DAG | LOCATE_TARGETS | - |
 | LOCATE_TARGETS | delta files | function locations | SET_BUDGETS | - |
 | SET_BUDGETS | task complexity | budget per task | EXTRACT_IDIOMS | - |
@@ -66,7 +66,7 @@ EMIT: "Step: complexity, Status: calculating C={score}"
 
 ```
 Input: draft task list
-Output: PROCEED | VERIFY | CLARIFY
+Output: PROCEED | CONFIRM | CLARIFY
 
 Question: "Can I write a verify command using only this task's Delta?"
 
@@ -74,7 +74,7 @@ Decision Table:
   | Condition | Decision | Action |
   |-----------|----------|--------|
   | All tasks have clear verify | PROCEED | Continue |
-  | Verify needs confirmation | VERIFY | Ask user |
+  | Verify needs confirmation | CONFIRM | Ask user |
   | Cannot determine verify | CLARIFY | Stop, output questions |
 
 CLARIFY Triggers:
@@ -83,7 +83,7 @@ CLARIFY Triggers:
   - Multiple implementation approaches
   - Missing dependency information
 
-EMIT: "Step: coherence, Status: {PROCEED|VERIFY|CLARIFY}"
+EMIT: "Step: coherence, Status: {PROCEED|CONFIRM|CLARIFY}"
 ```
 
 ### DESIGN_SEQUENCE
