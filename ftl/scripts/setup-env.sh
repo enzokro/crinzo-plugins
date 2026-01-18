@@ -17,6 +17,13 @@ fi
 export CLAUDE_PLUGIN_ROOT="$FTL_ROOT"
 export FTL_ROOT
 
+# CRITICAL: Persist plugin root for sub-agents
+# Sub-agents spawned via Task tool do NOT inherit environment variables.
+# Writing to .ftl/plugin_root allows sub-agents to locate the plugin via:
+#   $(cat .ftl/plugin_root)
+mkdir -p .ftl
+echo "$FTL_ROOT" > .ftl/plugin_root
+
 VENV_PATH="$FTL_ROOT/venv"
 REQUIREMENTS="$FTL_ROOT/requirements.txt"
 

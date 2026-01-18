@@ -32,7 +32,12 @@ version: 2.4.13
 
 ## Paths
 
-All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directory.
+**Orchestrator commands** (this file) use `${CLAUDE_PLUGIN_ROOT}` - available in the main session.
+
+**Sub-agent commands** (agent/*.md files) use `$(cat .ftl/plugin_root)` - sub-agents spawned via
+Task tool do NOT inherit environment variables. The `setup-env.sh` hook writes the plugin path
+to `.ftl/plugin_root` at session start, allowing sub-agents to locate the plugin.
+
 See the CLI docs: [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) for complete syntax.
 
 ---
