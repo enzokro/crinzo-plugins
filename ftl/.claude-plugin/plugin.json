@@ -1,7 +1,7 @@
 {
   "name": "ftl",
-  "description": "Task execution with learning. Planner → Builder → Observer.",
-  "version": "2.4.9",
+  "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
+  "version": "2.4.10",
   "author": {
     "name": "crinzo"
   },
