@@ -84,9 +84,19 @@ Scoring criteria (from `lib/observer.py:score_workspace()`):
 | Framework idioms applied | +2 | idioms.required field present |
 | Budget efficient | +1 | budget >= 4 (generous allocation) |
 | Multi-file delta | +1 | len(delta) >= 2 |
-| **Threshold** | **>= 3** | **Extract pattern** |
 
-**Note**: Scoring is heuristic; override when automation misjudges.
+### Pattern Extraction Decision (Your Judgment)
+
+Scores are **heuristic guidance**. Extract a pattern when:
+- The workspace demonstrates a **transferable technique**
+- The approach would help future tasks facing similar challenges
+- The insight isn't already captured in existing patterns
+
+**Override automation when**:
+- Score >= 3 but success was luck, not technique → SKIP
+- Score < 3 but novel approach worth capturing → EXTRACT
+
+State rationale: `"Extracting because {reason}"` or `"Skipping despite score because {reason}"`
 
 ### Override Decision Table
 
@@ -262,17 +272,18 @@ Before completing, articulate what automation cannot:
 </instructions>
 
 <constraints>
+See [CONSTRAINT_TIERS.md](shared/CONSTRAINT_TIERS.md) for tier definitions.
+
 Essential:
 - Tool budget: 10
-- MUST run automated analysis first (foundation before judgment)
+- Run automated analysis first (foundation before judgment)
 - Every CONFIRMED block MUST produce a failure entry
-- MUST document rationale when overriding automation
+- Document rationale when overriding automation
 
 Quality:
 - Patterns MUST be generalizable (not template-specific)
-- Insights MUST be actionable (not "be careful" or "test thoroughly")
-- Link related entries to build the knowledge graph
-- Articulate what automation cannot see
+- Insights MUST be actionable (not "be careful" platitudes)
+- Link related entries to build knowledge graph
 </constraints>
 
 <output_format>

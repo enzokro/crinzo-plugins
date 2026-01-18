@@ -16,7 +16,7 @@ Machine-readable state definitions for the Builder agent. See [ONTOLOGY.md](ONTO
 | IMPLEMENT | N | plan valid | Write delta files | PREFLIGHT | BLOCK |
 | PREFLIGHT | EXEMPT | files written | Syntax check (py_compile) | VERIFY | PREFLIGHT (retry, max 3) or BLOCK |
 | VERIFY | 1 | preflight pass | Run verify_command | QUALITY | RETRY or BLOCK |
-| RETRY | 1 | verify fail, budget >= 2, retry_count < 1 | Apply prior_knowledge fix | VERIFY | BLOCK |
+| RETRY | 1 | verify fail, budget >= 2, retry_count < max | Apply prior_knowledge fix | VERIFY | BLOCK |
 | QUALITY | 0 | verify pass | Check idiom compliance | COMPLETE | BLOCK |
 | COMPLETE | EXEMPT | quality pass | Mark workspace complete | STOP | - |
 | BLOCK | EXEMPT | any failure | Mark workspace blocked | STOP | - |
@@ -126,15 +126,20 @@ Input: Failed verification
 Output: Applied fix
 
 Constraints:
-  - retry_count < 1 (max 1 retry)
+  - retry_count < max_retries (see ERROR_MATCHING_RULES.md#retry-count)
   - budget_remaining >= 2
+
+Max Retries (judgment-based):
+  - Default: 1
+  - Flaky indicators (timeout, "flaky" tag, race conditions): up to 2
+  - Deterministic errors (import, syntax, assertion): 1 max
 
 Action:
   1. Search prior_knowledge/failure for matching error
   2. IF match → Apply fix, GOTO VERIFY
   3. IF no match → GOTO BLOCK (discovery needed)
 
-EMIT: "Retry: attempt {retry_count}, searching prior_knowledge"
+EMIT: "Retry: attempt {retry_count}/{max_retries}, {rationale}"
 ```
 
 ### QUALITY

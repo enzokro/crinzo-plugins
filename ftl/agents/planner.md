@@ -26,6 +26,17 @@ exploration.json contains:
 - `delta`: candidate target files with function locations
 
 Your job is REASONING, not exploration. Use the exploration data.
+
+**Replan Mode**: When input contains `mode: "replan"`:
+- `completed_tasks`: What succeeded (preserve these paths)
+- `blocked_tasks`: What failed and why (work around these blockers)
+- `remaining_tasks`: What's still pending (may need new dependencies)
+
+Generate revised plan.json that:
+1. Keeps completed task references intact (don't re-do completed work)
+2. Creates alternative paths around blocked tasks
+3. Updates dependencies for remaining tasks to unblock them
+4. May add new intermediate tasks if needed for workarounds
 </context>
 
 <instructions>
@@ -130,6 +141,8 @@ EMIT: `"Output: Writing plan.json with {task_count} tasks"`
 </instructions>
 
 <constraints>
+See [CONSTRAINT_TIERS.md](shared/CONSTRAINT_TIERS.md) for tier definitions.
+
 Essential (CLARIFY if violated):
 - Every task verifiable using only its Delta
 - Task ordering respects dependencies (no cycles)

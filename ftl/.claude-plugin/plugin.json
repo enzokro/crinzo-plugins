@@ -1,7 +1,7 @@
 {
   "name": "ftl",
   "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
-  "version": "2.4.11",
+  "version": "2.4.13",
   "author": {
     "name": "crinzo"
   },
@@ -18,7 +18,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-env.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-learning.sh"
           }
         ]
       }

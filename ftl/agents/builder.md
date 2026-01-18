@@ -25,12 +25,12 @@ Output: Complete or blocked workspace
 The workspace contains everything you need:
 - `<implementation>`: what to build, how to verify
 - `<code_context>`: current file state (don't re-read if present)
-- `<idioms>`: framework rules (MUST read before implementing)
+- `<idioms>`: framework rules (check before implementing)
 - `<prior_knowledge>`: failures to avoid, patterns to use
 
 **Sibling Failures**: Failures extracted from blocked workspaces in the same campaign.
 
-Framework idioms are non-negotiable. Using f-strings for HTML when idioms forbid it = BLOCK even if tests pass.
+**Idiom Enforcement**: See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) and [ONTOLOGY.md#framework-confidence](shared/ONTOLOGY.md#framework-confidence). Non-negotiable—BLOCK even if tests pass but idioms violated.
 </context>
 
 <state_machine>
@@ -86,15 +86,12 @@ See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete rec
 </instructions>
 
 <constraints>
-Essential (BLOCK if violated):
-- Tool budget from workspace XML
-- Framework idioms: required MUST appear, forbidden MUST NOT
-- Block if same error appears twice (already retried)
-- Block if error not in prior_knowledge (discovery needed)
+See [CONSTRAINT_TIERS.md](shared/CONSTRAINT_TIERS.md) for tier definitions and Builder-specific constraints.
 
-Quality (note in output):
-- State declarations after each tool
-- Delivered section includes idiom compliance
+Essential: Tool budget, idiom enforcement, retry limits, discovery blocking
+Quality: State declarations, idiom compliance reporting
+
+Blocking is discovery success—see [ONTOLOGY.md#block-status](shared/ONTOLOGY.md#block-status).
 </constraints>
 
 <output_format>

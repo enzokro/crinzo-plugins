@@ -35,6 +35,8 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | export | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py export OUTPUT [--start DATE] [--end DATE]` | `OUTPUT` is POS |
 | fingerprint | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py fingerprint` | similarity fingerprint |
 | find-similar | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py find-similar [--threshold F] [--max N]` | finds similar archived campaigns |
+| get-replan-input | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py get-replan-input` | context for adaptive re-planning |
+| merge-revised-plan | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py merge-revised-plan PATH` | `PATH` is POS, merges revised plan |
 
 ## workspace.py
 

@@ -2,7 +2,6 @@
 
 A Claude Code orchestrator that builds knowledge over time.
 
-**Composite Score: 9.4/10** against 2025-2026 Claude Code best practices.
 
 ## Introduction
 
@@ -27,10 +26,11 @@ FTL occupies a unique niche in the 2025-2026 Claude Code ecosystem:
 | Feature | FTL | Alternatives |
 |---------|-----|--------------|
 | **Scoring** | `relevance × log₂(cost)` | Mem0: triplet ranking, MAGMA: 4 graphs |
-| **Injection** | 4 tiers (0.6/0.4/0.25) | LangGraph: 3 memory types |
-| **State Model** | Explicit FSM (10 states, 12 GOTOs) | Implicit dispatch |
+| **Injection** | Judgment-based tiers (guidance, not gates) | LangGraph: 3 memory types |
+| **State Model** | Explicit FSM with adaptive re-planning | Implicit dispatch |
 | **Failure Philosophy** | Blocking-as-success | Retry-until-succeed |
-| **Intra-Campaign Learning** | Sibling failure injection | Post-campaign only |
+| **Intra-Campaign Learning** | Mid-campaign injection + sibling failures | Post-campaign only |
+| **Recovery** | Adaptive re-planning when stuck | Manual intervention |
 
 ## Philosophy
 
@@ -125,9 +125,10 @@ Four agents with distinct roles:
 - Blocking is success — informed handoff, not failure
 
 **Shared References**: Agents share common specifications via `agents/shared/`:
+- `CONSTRAINT_TIERS.md` — Essential/Quality/Style tiers with per-agent constraints
 - `FRAMEWORK_IDIOMS.md` — Detection rules and idiom requirements
 - `TOOL_BUDGET_REFERENCE.md` — Budget counting rules and exemptions
-- `ERROR_MATCHING_RULES.md` — Semantic + regex matching algorithm
+- `ERROR_MATCHING_RULES.md` — Judgment-based matching with flaky retry guidance
 - `OUTPUT_TEMPLATES.md` — Standard output formats
 
 ## Commands
@@ -210,7 +211,7 @@ A unified system capturing what went wrong and what worked:
 
 **Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a regex match pattern (to catch in logs), and a cost estimate. Injected into builder's `prior_knowledge` to prevent repeats.
 
-**Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Score ≥3 gets extracted.
+**Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Scores are **heuristic guidance** — extract when the workspace demonstrates a transferable technique, skip high scores that succeeded by luck.
 
 ### Hybrid Scoring (Novel)
 
@@ -227,18 +228,24 @@ This balances "how relevant is this to my current task?" with "how expensive was
 - MAGMA: 4 orthogonal graphs (temporal/causal/entity/semantic)
 - FTL: Single integrated formula
 
-### Tiered Injection
+### Tiered Injection (Judgment-Based)
 
-Memories are classified into injection tiers based on relevance:
+Memories are classified into injection tiers. Similarity scores are **guidance, not gates**:
 
-| Tier | Relevance | Policy |
-|------|-----------|--------|
-| **Critical** | ≥ 0.6 | Always inject |
-| **Productive** | [0.4, 0.6) | Inject if space |
-| **Exploration** | [0.25, 0.4) | Inject for discovery |
-| **Archive** | < 0.25 | Don't inject |
+| Tier | Typical Range | Guidance |
+|------|---------------|----------|
+| **Critical** | ~0.6+ | Strong candidates for injection |
+| **Productive** | ~0.4-0.6 | Evaluate based on task complexity |
+| **Exploration** | ~0.25-0.4 | Consider for novel/complex work |
+| **Archive** | <0.25 | Rarely relevant |
 
-This tiered approach enables exploration (false positives acceptable at low tiers) while prioritizing precision at high tiers — superior to flat thresholds.
+**Override automation when:**
+- High similarity but tangential relevance → skip
+- Lower similarity but obviously applicable → inject
+- Complex task needing more context → include productive tier
+- Simple task → critical tier only
+
+Select prior knowledge based on task complexity, track record (helped/failed ratio), and contextual relevance — semantic similarity is one signal, not the only signal.
 
 ### Bloom Filter Optimization
 
@@ -377,7 +384,14 @@ Algorithm: cascade_status(campaign)
   3. Return: {state: "stuck" | "progressing", unreachable: [...]}
 ```
 
-The orchestrator detects stuck campaigns and propagates blocks to unreachable tasks with `blocked_by` references. Campaigns complete gracefully with partial success rather than hanging indefinitely.
+The orchestrator detects stuck campaigns. When ≥2 tasks become unreachable, **adaptive re-planning** triggers:
+
+1. `get-replan-input` collects completed work, blocked reasons, and pending tasks
+2. Planner generates revised plan with alternative paths around blockers
+3. `merge-revised-plan` updates dependencies without losing completed work
+4. Campaign resumes from EXECUTE state with revised DAG
+
+If re-planning isn't viable, blocks propagate to unreachable tasks with `blocked_by` references. Campaigns complete gracefully with partial success rather than hanging indefinitely.
 
 ### Sibling Failure Injection
 
@@ -418,13 +432,15 @@ The `lib/` directory provides Python utilities for orchestration:
 | Library | Purpose | Key Commands |
 |---------|---------|--------------|
 | `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
-| `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete`, `find-similar` |
+| `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete`, `find-similar`, `get-replan-input`, `merge-revised-plan` |
 | `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
 | `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query`, `prune`, `feedback`, `add-relationship`, `related`, `stats`, `add-cross-relationship`, `get-solutions` |
 | `observer.py` | Automated extraction | `analyze`, `extract-failure` |
 | `embeddings.py` | Semantic similarity | LRU cache (5000 entries) |
 | `atomicfile.py` | Concurrent write safety | fcntl locks, temp-rename |
 | `phase.py` | State transitions | O(1) dispatch |
+
+**Adaptive Re-Planning:** `get-replan-input` generates context when campaigns get stuck. `merge-revised-plan` integrates revised task dependencies without losing completed work.
 
 **DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution. `cascade-status` detects stuck campaigns. `propagate-blocks` marks unreachable tasks.
 
@@ -434,24 +450,81 @@ The `lib/` directory provides Python utilities for orchestration:
 
 ## Examples
 
+### Single Task: API Endpoint with Tests
+
 ```bash
-# Execute a task — full pipeline runs
-/ftl add user authentication
+/ftl add CRUD endpoints for user profiles with validation
+```
 
-# Multi-task campaign
-/ftl campaign "implement OAuth with Google and GitHub"
+**What happens:**
+1. **Explorers** (parallel): Map codebase structure, detect FastAPI framework + Pydantic idioms, retrieve 3 similar past failures, identify `routes/users.py` as delta target
+2. **Planner**: Produces 2-task DAG — `001_spec-tests` (write test stubs) → `002_impl-routes` (implement to pass tests)
+3. **Builder 001**: Creates `test_users.py` with validation edge cases; completes
+4. **Builder 002**: Implements routes; first attempt fails validation; matches `pydantic-field-validator` from prior_knowledge; retries with fix; completes
+5. **Observer**: Extracts pattern "validator-before-model" (blocked→fixed recovery); updates memory
 
-# Query past patterns (semantic search)
-/ftl query session handling
+### Multi-Task Campaign: Feature Branch
 
-# Check status
+```bash
+/ftl campaign "add real-time notifications with WebSocket support and Redis pub/sub"
+```
+
+**What happens:**
+```
+001 (spec-ws-protocol)  ──→ 003 (impl-ws-handler) ──┐
+                                                    ├──→ 005 (integrate-notifications)
+002 (spec-redis-pubsub) ──→ 004 (impl-redis-client) ┘
+```
+
+- Tasks 001 and 002 run **in parallel** (no dependencies)
+- Task 003 waits for 001; Task 004 waits for 002
+- Task 005 waits for **both** 003 and 004 (DAG convergence)
+- If 003 blocks, 005 becomes unreachable → **adaptive re-planning** triggers:
+  - Planner receives blocked context + completed work
+  - Generates revised plan with alternative path (e.g., polling fallback)
+  - Campaign continues with merged plan
+
+### Learning Across Sessions
+
+```bash
+# Session 1: First FastHTML project
+/ftl campaign "build a todo app with FastHTML"
+# Builder blocks on: "TypeError: FT objects don't support + concatenation"
+# Observer extracts failure with fix: "Use Div(*children) not Div() + child"
+
+# Session 2: Different FastHTML project, weeks later
+/ftl add a comment section component
+# Explorer retrieves the FT concatenation failure (semantic match)
+# Builder avoids the mistake entirely — prior_knowledge injection worked
+```
+
+### Recovery from Flaky Tests
+
+```bash
+/ftl add integration tests for payment webhook
+# First attempt: timeout on Stripe sandbox
+# Builder recognizes flaky indicator → allows 2 retries (judgment-based)
+# Second attempt: succeeds
+# Observer notes "stripe-webhook-timeout" with flaky tag for future reference
+```
+
+### Diagnostic Commands
+
+```bash
+# Semantic search across all learned patterns
+/ftl query "authentication token refresh"
+
+# Campaign health and DAG state
 /ftl status
 
-# Memory health
+# Memory statistics: tier distribution, stale ratio, effectiveness
 /ftl stats
 
-# Find similar campaigns
+# Find campaigns similar to current objective (transfer learning)
 /ftl similar
+
+# Graph traversal: what's related to a specific failure?
+/ftl related "database-connection-pool"
 ```
 
 ## What's Automated vs. What's Documented
@@ -470,6 +543,7 @@ FTL operates on two layers:
 - DAG scheduling and cycle detection
 - Cascade handling for blocked parents
 - Sibling failure injection at workspace creation
+- **Mid-campaign learning injection** (PostToolUse hook extracts failures immediately on block)
 - Block verification in Observer
 - Pattern/failure deduplication (85% threshold)
 - Memory feedback recording
@@ -477,11 +551,15 @@ FTL operates on two layers:
 - Atomic XML writes (crash safety)
 - Pruning based on importance scores
 - Graph relationship traversal with weight pruning
+- **Adaptive re-planning** trigger when ≥2 tasks unreachable
 
 **Documented (agent judgment):**
 - Cross-workspace synthesis and relationship discovery
 - Idiom compliance checking (Builder follows spec)
-- Pattern scoring (≥3 points threshold)
+- Pattern extraction decision (scores are guidance, not gates)
+- Error match determination (similarity + applicability)
+- Retry count for flaky vs deterministic errors
+- Memory injection tier selection based on task complexity
 - Override of false positives in Observer
 - CLARIFY decision gate in Planner
 
@@ -556,15 +634,3 @@ FTL is designed for Opus 4.5's capabilities:
 - A model-agnostic orchestration framework (Claude-only by design)
 - A GUI-based tool (CLI power users only)
 - A replacement for Mem0/Graphiti (complementary, not competing)
-
-## Assessment Scores
-
-| Dimension | Score | Notes |
-|-----------|-------|-------|
-| Architecture | 9.5/10 | Philosophically sound, well-designed |
-| Implementation | 9.5/10 | Atomic ops, Bloom filter, shell hardening |
-| Documentation | 9.2/10 | DAG algorithms, sibling timing documented |
-| Efficiency | 9.3/10 | Redundancy ~5%, O(1) bloom fast path |
-| Best Practice Alignment | 9.6/10 | Ahead of 2025-2026 recommendations |
-
-**Composite: 9.4/10** — FTL represents a sophisticated learning architecture in the Claude Code ecosystem, differentiated by its information-theoretic approach to memory and its philosophy that failure is a learning opportunity, not a bug.

@@ -19,6 +19,7 @@ except ImportError:
 CAMPAIGN_FILE = Path(".ftl/campaign.json")
 ARCHIVE_DIR = Path(".ftl/archive")
 EXPLORATION_FILE = Path(".ftl/exploration.json")
+WORKSPACE_DIR = Path(".ftl/workspace")
 
 # Request-scoped cache for campaign data
 _cache = {
@@ -718,6 +719,142 @@ def find_similar(
     return results[:max_results]
 
 
+def get_replan_input() -> dict:
+    """Generate input for adaptive re-planning from current campaign state.
+
+    Called when CASCADE detects stuck state with significant unreachable tasks.
+    Returns context for Planner to generate revised plan.
+    """
+    campaign = _load_cached()
+    if not campaign:
+        return {}
+
+    tasks = campaign.get("tasks", [])
+    completed = [t for t in tasks if t.get("status") == "complete"]
+    blocked = [t for t in tasks if t.get("status") == "blocked"]
+    pending = [t for t in tasks if t.get("status") == "pending"]
+
+    # Collect delivery evidence from completed workspaces
+    completed_evidence = []
+    for task in completed:
+        ws_files = list(WORKSPACE_DIR.glob(f"{task['seq']}_*_complete.xml"))
+        if ws_files:
+            try:
+                from workspace import parse
+                ws = parse(ws_files[0])
+                completed_evidence.append({
+                    "seq": task["seq"],
+                    "slug": task.get("slug", ""),
+                    "delivered": ws.get("delivered", "")[:200]
+                })
+            except Exception:
+                completed_evidence.append({
+                    "seq": task["seq"],
+                    "slug": task.get("slug", ""),
+                    "delivered": "(parse error)"
+                })
+
+    # Collect block reasons
+    blocked_reasons = []
+    for task in blocked:
+        ws_files = list(WORKSPACE_DIR.glob(f"{task['seq']}_*_blocked.xml"))
+        if ws_files:
+            try:
+                from workspace import parse
+                ws = parse(ws_files[0])
+                delivered = ws.get("delivered", "")
+                reason = delivered.replace("BLOCKED: ", "")[:100] if "BLOCKED:" in delivered else delivered[:100]
+                blocked_reasons.append({
+                    "seq": task["seq"],
+                    "slug": task.get("slug", ""),
+                    "reason": reason
+                })
+            except Exception:
+                blocked_reasons.append({
+                    "seq": task["seq"],
+                    "slug": task.get("slug", ""),
+                    "reason": "(parse error)"
+                })
+
+    return {
+        "mode": "replan",
+        "objective": campaign.get("objective", ""),
+        "framework": campaign.get("framework"),
+        "completed_count": len(completed),
+        "blocked_count": len(blocked),
+        "pending_count": len(pending),
+        "completed_tasks": completed_evidence,
+        "blocked_tasks": blocked_reasons,
+        "remaining_tasks": [
+            {
+                "seq": t["seq"],
+                "slug": t.get("slug", ""),
+                "type": t.get("type", "BUILD"),
+                "depends": t.get("depends", "none")
+            }
+            for t in pending
+        ]
+    }
+
+
+def merge_revised_plan(revised_plan_path: str) -> dict:
+    """Merge revised plan into active campaign, updating blocked task paths.
+
+    Strategy:
+    - Keep completed tasks unchanged
+    - For blocked tasks with revised entries: reset to pending with new dependencies
+    - For pending tasks: update dependencies if changed
+
+    Returns:
+        {"merged": int, "unchanged": int}
+    """
+    revised_path = Path(revised_plan_path)
+    if not revised_path.exists():
+        return {"error": "Revised plan not found", "merged": 0, "unchanged": 0}
+
+    try:
+        revised = json.loads(revised_path.read_text())
+    except json.JSONDecodeError as e:
+        return {"error": f"Invalid JSON: {e}", "merged": 0, "unchanged": 0}
+
+    revised_tasks = {t["seq"]: t for t in revised.get("tasks", [])}
+    merged_count = 0
+    unchanged_count = 0
+
+    def do_update(campaign):
+        nonlocal merged_count, unchanged_count
+        for task in campaign["tasks"]:
+            seq = task["seq"]
+            if seq not in revised_tasks:
+                unchanged_count += 1
+                continue
+
+            revised_task = revised_tasks[seq]
+            current_status = task.get("status", "pending")
+
+            # Only modify blocked or pending tasks
+            if current_status == "complete":
+                unchanged_count += 1
+                continue
+
+            # Check if dependencies changed
+            new_depends = revised_task.get("depends", task.get("depends", "none"))
+            old_depends = task.get("depends", "none")
+
+            if current_status == "blocked" or new_depends != old_depends:
+                task["status"] = "pending"
+                task["depends"] = new_depends
+                task["revised_at"] = datetime.now().isoformat()
+                merged_count += 1
+            else:
+                unchanged_count += 1
+
+    atomic_json_update(CAMPAIGN_FILE, do_update)
+    _invalidate_cache()
+
+    return {"merged": merged_count, "unchanged": unchanged_count}
+
+
 def main():
     parser = argparse.ArgumentParser(description="FTL campaign operations")
     subparsers = parser.add_subparsers(dest="command")
@@ -773,6 +910,13 @@ def main():
     sim = subparsers.add_parser("find-similar", help="Find similar archived campaigns")
     sim.add_argument("--threshold", type=float, default=0.6, help="Similarity threshold (0.0-1.0)")
     sim.add_argument("--max", type=int, default=5, help="Maximum results")
+
+    # get-replan-input command
+    subparsers.add_parser("get-replan-input", help="Get input for adaptive re-planning")
+
+    # merge-revised-plan command
+    mrp = subparsers.add_parser("merge-revised-plan", help="Merge revised plan into campaign")
+    mrp.add_argument("plan_path", help="Path to revised plan JSON")
 
     args = parser.parse_args()
 
@@ -840,6 +984,14 @@ def main():
 
     elif args.command == "find-similar":
         result = find_similar(threshold=args.threshold, max_results=args.max)
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "get-replan-input":
+        result = get_replan_input()
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "merge-revised-plan":
+        result = merge_revised_plan(args.plan_path)
         print(json.dumps(result, indent=2))
 
     else:

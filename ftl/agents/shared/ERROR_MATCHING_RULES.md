@@ -1,69 +1,68 @@
 ---
-version: 1.0
+version: 2.0
 ---
 
 # Error Matching Rules
 
-This document defines the error matching algorithm used by Builder for retry decisions and Observer for failure extraction.
+This document defines error matching for Builder retry decisions and Observer failure extraction.
 
-See [ONTOLOGY.md](ONTOLOGY.md#block-status) for BLOCK vs FAIL distinction and discovery semantics.
+See [ONTOLOGY.md](ONTOLOGY.md#block-status) for BLOCK vs FAIL distinction.
 
 ## Matching Algorithm
 
 ```
-FOR each failure in prior_knowledge/failure:
-  # 1. Semantic match (preferred - more robust)
-  IF semantic_similarity(error_msg, failure.trigger) > 0.6:
-    RETURN failure
+FOR each failure in prior_knowledge:
+  1. Semantic similarity check
+  2. Regex pattern match (if failure.match exists)
 
-  # 2. Regex match (fallback - for exact patterns)
-  IF failure.match AND regex_match(failure.match, error_trace):
-    RETURN failure
-
-RETURN None  # No match - discovery needed
+Match found → apply fix if budget allows
+No match → BLOCK (discovery needed)
 ```
 
-## Match Types
+## Match Determination (Your Judgment)
 
-| Type | Rule | Use Case |
-|------|------|----------|
-| **Semantic** | similarity > 0.6 | General error messages |
-| **Regex** | `failure.match` pattern | Stack traces, specific formats |
+Similarity scores are **guidance, not gates**. Determine match based on:
 
-## Semantic Similarity Examples
+- Does the error describe the **same underlying issue**?
+- Would the recorded fix **plausibly apply** here?
+- Consider: exact substring (high confidence), semantic similarity (moderate), conceptual relation (low)
 
-| Error A | Error B | Similarity | Match? |
-|---------|---------|------------|--------|
-| "ModuleNotFoundError: {module}" | "ImportError: cannot import {module}" | ~0.75 | YES |
-| "pytest: no tests ran" | "test collection failed" | ~0.65 | YES |
-| "Framework idiom violation: {pattern}" | "Idiom check failed: {pattern}" | ~0.70 | YES |
-| "SyntaxError: unexpected EOF" | "IndentationError" | ~0.45 | NO |
-| "Connection refused" | "Database error" | ~0.30 | NO |
+**A 0.5 similarity with obvious applicability beats 0.7 with tangential relevance.**
 
-## Regex Pattern Examples
+State your rationale: `"Matched {failure_name} because {reason}"`
 
-| Pattern | Matches |
-|---------|---------|
-| `.*ModuleNotFound.*` | Any ModuleNotFoundError |
-| `AssertionError:.*expected.*got` | Assertion failures with expected/got |
-| `TypeError:.*argument.*` | Type mismatches in function calls |
+## Similarity Reference (Not Thresholds)
 
-## Priority Order
+| Error Pair | Typical Similarity | Guidance |
+|------------|-------------------|----------|
+| Same error, different wording | 0.7-0.9 | Strong match candidate |
+| Related error type | 0.5-0.7 | Evaluate fix applicability |
+| Conceptually similar | 0.3-0.5 | Match only if fix clearly applies |
+| Unrelated | <0.3 | Likely not a match |
 
-1. **Semantic match first** - More robust to wording variations
-2. **Regex fallback** - For structured error formats
+## Actions After Match Decision
 
-## Actions After Match
+| Decision | Budget >= 2 | Budget < 2 |
+|----------|-------------|------------|
+| Match found | Apply fix, retry | BLOCK (budget exhausted) |
+| No match | BLOCK (discovery) | BLOCK (discovery) |
 
-| Match Result | Builder Action | Observer Action |
-|--------------|----------------|-----------------|
-| Match found, budget >= 2 | Apply fix, retry | Link to existing failure |
-| Match found, budget < 2 | BLOCK (budget exhausted) | Note budget issue |
-| No match | BLOCK (discovery needed) | Extract new failure |
+## Retry Count (Your Judgment)
 
-## Discovery vs. Retry
+Default: 1 retry. Override based on error characteristics:
 
-- **Retry**: Error matches known failure with known fix
-- **Discovery**: Error is new, needs Observer to extract pattern
+| Indicator | Retry Guidance | Rationale |
+|-----------|----------------|-----------|
+| Timeout/connection errors | Up to 2 | Transient network issues |
+| "flaky" in failure.tags | Up to 2 | Known intermittent failure |
+| Race condition patterns | Up to 2 | Timing-dependent |
+| Assertion with identical values | 1 max | Deterministic logic error |
+| Import/syntax errors | 1 max | Won't self-resolve |
 
-Builder MUST NOT attempt fixes for unmatched errors. This preserves learning opportunities.
+State rationale: `"Allowing {n} retries because {flakiness indicator}"`
+
+BLOCK after max retries reached—even flaky errors need investigation if persistent.
+
+## Discovery Principle
+
+Builder MUST NOT attempt fixes for unmatched errors. Blocking preserves learning opportunities for Observer.

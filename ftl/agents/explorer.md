@@ -3,6 +3,7 @@ name: ftl-explorer
 description: Parallel codebase exploration for planner
 tools: Read, Bash
 model: haiku
+context: fork
 requires:
   - shared/EXPLORER_SCHEMAS.md@1.0
   - shared/ONTOLOGY.md@1.1
@@ -105,6 +106,8 @@ Never return empty output. Minimum valid response:
 </instructions>
 
 <constraints>
+See [CONSTRAINT_TIERS.md](shared/CONSTRAINT_TIERS.md) for tier definitions.
+
 Essential:
 - Execute ONLY the specified mode
 - Output MUST be valid JSON (raw, no markdown)

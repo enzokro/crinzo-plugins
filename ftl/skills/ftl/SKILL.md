@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.7.0
+version: 2.4.13
 ---
 
 # FTL Protocol
@@ -77,19 +77,45 @@ IF: wait_result.status=="quorum_met" → ...
 
 TRACK variables initialize on **first encounter**. Subsequent GOTO re-entries preserve values.
 
+### Variable Scope Reference
+
+| Variable | Scope | Used In | Rationale |
+|----------|-------|---------|-----------|
+| `clarify_count` | TRACK | PLAN_PATTERN | Survives PLAN re-entry; cap at 5 prevents infinite clarification |
+| `iteration_count` | TRACK | CAMPAIGN.EXECUTE | Survives EXECUTE re-entry; cap at 20 bounds execution |
+| `prior_ready_count` | TRACK | CAMPAIGN.EXECUTE | Detects stuck state (unchanged for 3+ iterations) |
+| `wait_result` | Local | EXPLORE_PATTERN | Consumed by IF after CHECK; disposable |
+| `decision` | Local | PLAN_PATTERN | Consumed by IF after CHECK; disposable |
+| `ready_tasks` | Local | CAMPAIGN.EXECUTE | Fresh each iteration; depends on campaign state |
+
 ---
 
-## Constants
+## Defaults & Judgment
 
-| Name | Value | Used In | Rationale |
-|------|-------|---------|-----------|
-| `EXPLORER_TIMEOUT` | 300s | EXPLORE_PATTERN | 5 min for parallel exploration |
-| `EXPLORER_QUORUM` | 3 | EXPLORE_PATTERN | 75% (3/4) required for partial success |
-| `MAX_CLARIFICATIONS` | 5 | PLAN_PATTERN | Prevent infinite clarification loops |
-| `MAX_CAMPAIGN_ITERATIONS` | 20 | CAMPAIGN.EXECUTE | Upper bound on task execution rounds |
-| `STUCK_THRESHOLD` | 3 | CAMPAIGN.EXECUTE | Iterations unchanged before cascade |
+These values are **defaults**, not hard limits. Override with stated rationale when context warrants.
 
-To modify: Update this table and corresponding pattern references.
+| Name | Default | Override When |
+|------|---------|---------------|
+| `EXPLORER_TIMEOUT` | 300s | Slow network → increase; fast local → decrease |
+| `MAX_CLARIFICATIONS` | 5 | Complex ambiguity may need more; trivial needs fewer |
+| `MAX_ITERATIONS` | 20 | Large campaigns may need more; simple tasks fewer |
+| `STUCK_THRESHOLD` | 3 | Obvious stuck → trigger earlier; subtle progress → allow more |
+
+### Exploration Quorum (Judgment-Based)
+
+Instead of fixed quorum=3, proceed when:
+- All 4 explorers complete, OR
+- Critical modes complete (structure + delta), OR
+- 3+ explorers complete with adequate coverage
+
+State rationale when proceeding with partial results.
+
+### Memory Injection (Judgment-Based)
+
+Similarity scores (0.6/0.4/0.25 tiers) are guidance. Select prior knowledge based on:
+- **Task complexity** (more priors for complex tasks)
+- **Track record** (prefer high helped/failed ratio)
+- **Contextual relevance** (semantic similarity is one signal, not the only signal)
 
 ---
 
@@ -239,7 +265,22 @@ STATE: EXECUTE
 STATE: CASCADE
   EMIT: STATE_ENTRY state=CASCADE
   DO: cascade = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-status
-  IF: cascade.state == "stuck" → EMIT: CASCADE_PROPAGATE, DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py propagate-blocks
+
+  # Adaptive re-planning: if significant tasks affected, attempt recovery
+  IF: cascade.state == "stuck" AND len(cascade.unreachable) >= 2 →
+      EMIT: CASCADE_REPLAN affected={len(cascade.unreachable)}
+      DO: replan_input = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py get-replan-input
+      DO: Task(ftl:ftl-planner) with replan_input > revised_plan.json
+      IF: revised_plan valid →
+          DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py merge-revised-plan revised_plan.json
+          EMIT: PHASE_TRANSITION from=cascade to=execute
+          GOTO: EXECUTE
+
+  # Fallback: propagate blocks and observe (original behavior)
+  IF: cascade.state == "stuck" →
+      EMIT: CASCADE_PROPAGATE
+      DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py propagate-blocks
+
   EMIT: PHASE_TRANSITION from=cascade to=observe
   GOTO: OBSERVE
 
