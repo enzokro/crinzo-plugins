@@ -11,27 +11,6 @@ Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the
 
 `ftl` is built on this shift. While previous harnesses constrained models to prevent drift, `ftl` persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
 
-## Landscape Position
-
-FTL occupies a unique niche in the 2025-2026 Claude Code ecosystem:
-
-| Category | Major Players | FTL Position |
-|----------|---------------|--------------|
-| **Orchestration** | Claude Flow (500K downloads), CC Mirror, Claude SDK | **Unique**: Explicit FSM with state declarations |
-| **Memory Systems** | Mem0 ($24M), Graphiti/Zep, A-MEM, MAGMA | **Unique**: Hybrid scoring + tiered injection |
-| **Skills/Plugins** | 739 skills in ecosystem | **Novel**: No equivalent "learning orchestrator" |
-
-### Key Differentiators
-
-| Feature | FTL | Alternatives |
-|---------|-----|--------------|
-| **Scoring** | `relevance × log₂(cost)` | Mem0: triplet ranking, MAGMA: 4 graphs |
-| **Injection** | Judgment-based tiers (guidance, not gates) | LangGraph: 3 memory types |
-| **State Model** | Explicit FSM with adaptive re-planning | Implicit dispatch |
-| **Failure Philosophy** | Blocking-as-success | Retry-until-succeed |
-| **Intra-Campaign Learning** | Mid-campaign injection + sibling failures | Post-campaign only |
-| **Recovery** | Adaptive re-planning when stuck | Manual intervention |
-
 ## Philosophy
 
 | Principle               | Meaning                                                           |
@@ -213,9 +192,9 @@ A unified system capturing what went wrong and what worked:
 
 **Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Scores are **heuristic guidance** — extract when the workspace demonstrates a transferable technique, skip high scores that succeeded by luck.
 
-### Hybrid Scoring (Novel)
+### Hybrid Scoring
 
-Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by a hybrid formula unique to FTL:
+Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by a hybrid formula:
 
 ```
 score = relevance × log₂(cost + 1)
@@ -228,7 +207,7 @@ This balances "how relevant is this to my current task?" with "how expensive was
 - MAGMA: 4 orthogonal graphs (temporal/causal/entity/semantic)
 - FTL: Single integrated formula
 
-### Tiered Injection (Judgment-Based)
+### Tiered Injection (Based on Agent judgement)
 
 Memories are classified into injection tiers. Similarity scores are **guidance, not gates**:
 
@@ -246,15 +225,6 @@ Memories are classified into injection tiers. Similarity scores are **guidance, 
 - Simple task → critical tier only
 
 Select prior knowledge based on task complexity, track record (helped/failed ratio), and contextual relevance — semantic similarity is one signal, not the only signal.
-
-### Bloom Filter Optimization
-
-Duplicate detection uses a two-phase approach:
-
-1. **Bloom filter** (O(1)) — Fast negative check
-2. **Semantic similarity** (O(N)) — Only if bloom says "maybe"
-
-This reduces ~80% of unnecessary similarity calls, making `add_failure()` and `add_pattern()` efficient at scale.
 
 ### Deduplication
 
@@ -565,16 +535,6 @@ FTL operates on two layers:
 
 The automated layer provides reliable intra-campaign learning. The instruction layer documents best practices for agents to follow — more powerful than pure automation for complex synthesis, but dependent on agent judgment.
 
-## Performance Characteristics
-
-| Operation | Complexity | Typical Time |
-|-----------|------------|--------------|
-| Explorer (4 modes) | O(1) per mode | 300-400ms |
-| Planner (8 steps) | O(T) tasks | 3-5s |
-| Builder (per task) | O(B) budget | 5-15 min |
-| Observer (analysis) | O(W) workspaces | 1-3 min |
-| Memory retrieval | O(1) bloom + O(N) worst | 50-500ms |
-| Duplicate check | O(1) bloom fast path | <10ms |
 
 ## When to Use
 
@@ -611,21 +571,6 @@ The automated layer provides reliable intra-campaign learning. The instruction l
 | `agents/builder.md` | ~215 | Implementation FSM spec | — |
 | `agents/observer.md` | ~265 | Learning extraction spec | — |
 | `agents/shared/` | ~155 | Consolidated reference docs | — |
-
-**Total**: ~4,100 lines production Python, ~1,200 lines agent specs.
-
-## Opus 4.5 Features Leveraged
-
-FTL is designed for Opus 4.5's capabilities:
-
-| Opus 4.5 Feature | FTL Usage |
-|------------------|-----------|
-| Extended thinking | Planner CLARIFY gate for complex decisions |
-| 80.9% SWE-bench | Builder's single-retry + semantic error matching |
-| Multi-agent (92.3%) | 4 parallel explorers, DAG task execution |
-| Tool search | Memory retrieval with tiered injection |
-| Context compaction | Workspace contracts isolate context per task |
-| 20-30 min autonomy | Campaign execution with cascade handling |
 
 ## What FTL Is Not
 
