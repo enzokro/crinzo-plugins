@@ -409,6 +409,14 @@ def _build_lineage(depends, campaign_id: int) -> dict:
 
 def _ws_to_dict(row) -> dict:
     """Convert workspace row to dict format."""
+    # Helper for safe JSON parsing
+    def safe_json_loads(data, default):
+        """Parse JSON with fallback to default on error."""
+        try:
+            return json.loads(data) if data else default
+        except (json.JSONDecodeError, TypeError):
+            return default
+
     result = {
         "id": row["workspace_id"],
         "workspace_id": row["workspace_id"],
@@ -417,7 +425,7 @@ def _ws_to_dict(row) -> dict:
         "completed_at": row.get("completed_at"),
         "blocked_at": row.get("blocked_at"),
         "objective": row.get("objective", ""),
-        "delta": json.loads(row.get("delta") or "[]"),
+        "delta": safe_json_loads(row.get("delta"), []),
         "verify": row.get("verify", ""),
         "verify_source": row.get("verify_source"),
         "budget": row.get("budget", 5),
@@ -426,31 +434,31 @@ def _ws_to_dict(row) -> dict:
         "framework_confidence": row.get("framework_confidence", 1.0),
     }
 
-    # Parse JSON fields
-    idioms = json.loads(row.get("idioms") or "{}")
+    # Parse remaining JSON fields
+    idioms = safe_json_loads(row.get("idioms"), {})
     if idioms:
         result["idioms"] = idioms
 
-    prior_knowledge = json.loads(row.get("prior_knowledge") or "{}")
+    prior_knowledge = safe_json_loads(row.get("prior_knowledge"), {})
     if prior_knowledge:
         result["prior_knowledge"] = prior_knowledge
 
-    lineage = json.loads(row.get("lineage") or "{}")
+    lineage = safe_json_loads(row.get("lineage"), {})
     if lineage:
         result["lineage"] = lineage
 
-    utilized_memories = json.loads(row.get("utilized_memories") or "[]")
+    utilized_memories = safe_json_loads(row.get("utilized_memories"), [])
     if utilized_memories:
         result["utilized_memories"] = utilized_memories
 
-    code_contexts = json.loads(row.get("code_contexts") or "[]")
+    code_contexts = safe_json_loads(row.get("code_contexts"), [])
     if code_contexts:
         result["code_contexts"] = code_contexts
         # Also set code_context for backwards compatibility
         if len(code_contexts) > 0:
             result["code_context"] = code_contexts[0]
 
-    preflight = json.loads(row.get("preflight") or "[]")
+    preflight = safe_json_loads(row.get("preflight"), [])
     if preflight:
         result["preflight"] = preflight
 
@@ -638,6 +646,10 @@ def main():
     lst = subparsers.add_parser("list", help="List workspaces")
     lst.add_argument("--status", help="Filter by status")
 
+    # get-injected command
+    gi = subparsers.add_parser("get-injected", help="Get injected memories for a workspace")
+    gi.add_argument("--workspace", required=True, help="Workspace ID or path")
+
     args = parser.parse_args()
 
     if args.command == "create":
@@ -667,6 +679,42 @@ def main():
     elif args.command == "list":
         result = list_workspaces(status=args.status)
         print(json.dumps(result, indent=2))
+
+    elif args.command == "get-injected":
+        injected = []
+        seen = set()  # Deduplicate across multiple workspaces
+
+        # Check if workspace arg contains glob pattern
+        if "*" in args.workspace:
+            # Extract prefix before glob (e.g., "1-" from "1-*")
+            prefix = args.workspace.replace("*", "")
+            all_ws = list_workspaces()
+            matching = [w for w in all_ws if w.get("workspace_id", "").startswith(prefix)]
+            workspace_ids = [w["workspace_id"] for w in matching]
+        else:
+            workspace_ids = [args.workspace]
+
+        for ws_id in workspace_ids:
+            ws = parse(ws_id)
+            if "error" in ws:
+                continue
+            prior = ws.get("prior_knowledge", {})
+            for f in prior.get("failures", []):
+                key = (f.get("name"), "failure")
+                if key not in seen:
+                    seen.add(key)
+                    injected.append({"name": f.get("name"), "type": "failure"})
+            for p in prior.get("patterns", []):
+                key = (p.get("name"), "pattern")
+                if key not in seen:
+                    seen.add(key)
+                    injected.append({"name": p.get("name"), "type": "pattern"})
+            for sf in prior.get("sibling_failures", []):
+                key = (sf.get("name"), "failure")
+                if key not in seen:
+                    seen.add(key)
+                    injected.append({"name": sf.get("name"), "type": "failure"})
+        print(json.dumps(injected))
 
     else:
         parser.print_help()

@@ -371,9 +371,19 @@ def complete(summary: str = None, patterns_extracted: list = None) -> dict:
     completed_at = datetime.now().isoformat()
     tasks = json.loads(campaign["tasks"])
 
-    # Calculate summary
+    # Calculate summary - ensure it's always a dict to avoid double-encoding
     if summary is not None:
-        summary_data = summary
+        if isinstance(summary, dict):
+            summary_data = summary
+        elif isinstance(summary, str):
+            # Try to parse as JSON, fall back to wrapping in dict
+            try:
+                parsed = json.loads(summary)
+                summary_data = parsed if isinstance(parsed, dict) else {"text": summary}
+            except json.JSONDecodeError:
+                summary_data = {"text": summary}
+        else:
+            summary_data = {"value": summary}
     else:
         summary_data = {
             "total": len(tasks),
@@ -728,7 +738,13 @@ def merge_revised_plan(revised_plan_path: str) -> dict:
     campaigns = db.t.campaign
 
     tasks = json.loads(campaign["tasks"])
-    revised_tasks = {t["seq"]: t for t in revised.get("tasks", [])}
+
+    # Validate and build revised tasks dict, skipping malformed entries
+    revised_tasks = {}
+    for t in revised.get("tasks", []):
+        if not isinstance(t, dict) or "seq" not in t:
+            continue  # Skip malformed task entries
+        revised_tasks[t["seq"]] = t
 
     merged_count = 0
     unchanged_count = 0

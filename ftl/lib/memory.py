@@ -13,6 +13,7 @@ import argparse
 import sys
 import math
 import hashlib
+import base64
 
 # Support both standalone execution and module import
 try:
@@ -796,21 +797,40 @@ def record_feedback_batch(
         injected: List of {"name": str, "type": "failure"|"pattern"} that were injected
         path: Ignored
 
-    Returns: {"helped": N, "not_helped": M}
+    Returns: {"helped": N, "not_helped": M, "error": str (if failed)}
     """
+    from sqlalchemy import text
+
     utilized_set = {(m["name"], m["type"]) for m in utilized}
     injected_set = {(m["name"], m["type"]) for m in injected}
 
     result = {"helped": 0, "not_helped": 0}
 
-    for name, entry_type in injected_set:
-        helped = (name, entry_type) in utilized_set
-        status = record_feedback(name, entry_type, helped)
-        if status == "updated":
-            if helped:
-                result["helped"] += 1
-            else:
-                result["not_helped"] += 1
+    db = _ensure_db()
+
+    try:
+        # Begin transaction for atomicity
+        db.execute(text("BEGIN IMMEDIATE"))
+
+        for name, entry_type in injected_set:
+            helped = (name, entry_type) in utilized_set
+            status = record_feedback(name, entry_type, helped)
+            if status == "updated":
+                if helped:
+                    result["helped"] += 1
+                else:
+                    result["not_helped"] += 1
+
+        # Commit transaction
+        db.execute(text("COMMIT"))
+
+    except Exception as e:
+        # Rollback on any error
+        try:
+            db.execute(text("ROLLBACK"))
+        except Exception:
+            pass  # Rollback may fail if no transaction active
+        result["error"] = str(e)
 
     return result
 
@@ -927,6 +947,94 @@ def get_stats(path: Path = None) -> dict:
     return {
         "failures": calc_stats(failures, "cost"),
         "patterns": calc_stats(patterns, "cost"),
+    }
+
+
+def verify_loop() -> dict:
+    """Verify the learning loop is functioning.
+
+    Checks:
+    1. Whether feedback has ever been recorded (times_helped/times_failed > 0)
+    2. Recent workspace completion with utilized memories
+    3. Memory entries that have received feedback
+
+    Returns:
+        Diagnostic dict with loop_status and recommendations
+    """
+    db = _ensure_db()
+    memories = db.t.memory
+    workspaces = db.t.workspace
+
+    # Check 1: Any feedback recorded?
+    all_memories = list(memories.rows)
+    with_feedback = [m for m in all_memories if (m.get("times_helped", 0) or 0) > 0 or (m.get("times_failed", 0) or 0) > 0]
+    total_helped = sum(m.get("times_helped", 0) or 0 for m in all_memories)
+    total_failed = sum(m.get("times_failed", 0) or 0 for m in all_memories)
+
+    # Check 2: Workspaces with utilized_memories
+    all_ws = list(workspaces.rows)
+    complete_ws = [w for w in all_ws if w.get("status") == "complete"]
+    ws_with_utilized = []
+    for ws in complete_ws:
+        utilized = ws.get("utilized_memories")
+        if utilized and utilized != "[]" and utilized != "null":
+            try:
+                parsed = json.loads(utilized)
+                if parsed:
+                    ws_with_utilized.append(ws["workspace_id"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Check 3: Workspaces with prior_knowledge
+    ws_with_prior = []
+    for ws in all_ws:
+        prior = ws.get("prior_knowledge")
+        if prior and prior != "{}" and prior != "null":
+            try:
+                parsed = json.loads(prior)
+                if parsed.get("failures") or parsed.get("patterns"):
+                    ws_with_prior.append(ws["workspace_id"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Determine loop status
+    issues = []
+    if len(all_memories) == 0:
+        issues.append("No memories in database - nothing to learn from")
+    elif len(with_feedback) == 0:
+        issues.append("No feedback recorded - times_helped and times_failed are all 0")
+
+    if len(complete_ws) > 0 and len(ws_with_utilized) == 0:
+        issues.append("Completed workspaces exist but none have utilized_memories - builder may not be outputting UTILIZED")
+
+    if len(all_ws) > 0 and len(ws_with_prior) == 0:
+        issues.append("Workspaces exist but none have prior_knowledge - memory injection may not be working")
+
+    if total_helped == 0 and total_failed == 0 and len(complete_ws) > 0:
+        issues.append("Workspaces completed but no feedback recorded - feedback-batch may not be called")
+
+    loop_closed = len(issues) == 0 and total_helped + total_failed > 0
+
+    return {
+        "loop_status": "CLOSED" if loop_closed else "OPEN",
+        "summary": {
+            "total_memories": len(all_memories),
+            "memories_with_feedback": len(with_feedback),
+            "total_times_helped": total_helped,
+            "total_times_failed": total_failed,
+            "complete_workspaces": len(complete_ws),
+            "workspaces_with_utilized": len(ws_with_utilized),
+            "workspaces_with_prior_knowledge": len(ws_with_prior),
+        },
+        "issues": issues,
+        "recommendations": [
+            "Run a task with /ftl and check builder outputs UTILIZED: [...]" if "UTILIZED" in " ".join(issues) else None,
+            "Check SKILL.md feedback-batch calls are executing" if "feedback-batch" in " ".join(issues) else None,
+            "Add failures/patterns via memory.py add-failure/add-pattern" if "No memories" in " ".join(issues) else None,
+            "Check workspace.py create includes prior_knowledge" if "prior_knowledge" in " ".join(issues) else None,
+        ],
+        "sample_utilized_workspaces": ws_with_utilized[:3],
+        "sample_feedback_memories": [m["name"] for m in with_feedback[:5]],
     }
 
 
@@ -1157,12 +1265,22 @@ def main():
     # stats command
     stats = subparsers.add_parser("stats", help="Get memory statistics")
 
+    # verify-loop command
+    subparsers.add_parser("verify-loop", help="Verify learning loop is functioning")
+
     # feedback command
     fb = subparsers.add_parser("feedback", help="Record feedback for a memory entry")
     fb.add_argument("name", help="Entry name")
     fb.add_argument("--type", default="failure", help="Entry type: failure or pattern")
     fb.add_argument("--helped", action="store_true", help="Memory was helpful")
     fb.add_argument("--failed", action="store_true", help="Memory didn't help")
+
+    # feedback-batch command
+    fbb = subparsers.add_parser("feedback-batch", help="Record feedback for batch of memories")
+    fbb.add_argument("--utilized", help="JSON array of utilized [{name, type}]")
+    fbb.add_argument("--injected", help="JSON array of injected [{name, type}]")
+    fbb.add_argument("--utilized-b64", help="Base64-encoded JSON array (avoids shell quoting issues)")
+    fbb.add_argument("--injected-b64", help="Base64-encoded JSON array (avoids shell quoting issues)")
 
     # add-cross-relationship command
     xcr = subparsers.add_parser("add-cross-relationship", help="Link failure to solving pattern")
@@ -1230,6 +1348,12 @@ def main():
         result = get_stats()
         print(json.dumps(result, indent=2))
 
+    elif args.command == "verify-loop":
+        result = verify_loop()
+        # Filter out None recommendations
+        result["recommendations"] = [r for r in result.get("recommendations", []) if r]
+        print(json.dumps(result, indent=2))
+
     elif args.command == "feedback":
         if args.helped:
             result = record_feedback(args.name, args.type, helped=True)
@@ -1239,6 +1363,27 @@ def main():
             print("Must specify --helped or --failed")
             sys.exit(1)
         print(result)
+
+    elif args.command == "feedback-batch":
+        # Support both direct JSON and base64-encoded JSON
+        if args.utilized_b64:
+            utilized = json.loads(base64.b64decode(args.utilized_b64).decode('utf-8'))
+        elif args.utilized:
+            utilized = json.loads(args.utilized)
+        else:
+            print(json.dumps({"error": "Must provide --utilized or --utilized-b64"}))
+            sys.exit(1)
+
+        if args.injected_b64:
+            injected = json.loads(base64.b64decode(args.injected_b64).decode('utf-8'))
+        elif args.injected:
+            injected = json.loads(args.injected)
+        else:
+            print(json.dumps({"error": "Must provide --injected or --injected-b64"}))
+            sys.exit(1)
+
+        result = record_feedback_batch(utilized, injected)
+        print(json.dumps(result))
 
     elif args.command == "add-cross-relationship":
         result = add_cross_relationship(args.failure, args.pattern, args.type)

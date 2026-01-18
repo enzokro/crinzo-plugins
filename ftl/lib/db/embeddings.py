@@ -53,7 +53,11 @@ def embed(text: str) -> Optional[tuple]:
     if model is None:
         return None
 
-    return tuple(model.encode(text).tolist())
+    try:
+        return tuple(model.encode(text).tolist())
+    except Exception:
+        # Graceful degradation: return None, caller will use string fallback
+        return None
 
 
 def embed_to_blob(embedding: tuple) -> Optional[bytes]:

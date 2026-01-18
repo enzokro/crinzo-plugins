@@ -201,8 +201,17 @@ STATE: PLAN
 
 STATE: BUILD
   EMIT: STATE_ENTRY state=BUILD
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id}
-  DO: Task(ftl:ftl-builder) with workspace path
+  DO: workspace_path = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id}
+  DO: builder_output = Task(ftl:ftl-builder) with workspace_path
+  # Extract UTILIZED from builder output and workspace_id from path
+  DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
+  DO: workspace_id = extract workspace identifier from workspace_path
+  DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {workspace_id}
+  IF: workspace completed successfully →
+      # Use base64 encoding to avoid shell quoting issues with JSON
+      DO: utilized_b64 = base64_encode(utilized)
+      DO: injected_b64 = base64_encode(injected)
+      DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback-batch --utilized-b64 {utilized_b64} --injected-b64 {injected_b64}
   EMIT: PHASE_TRANSITION from=build to=observe
   GOTO: OBSERVE
 
@@ -255,9 +264,16 @@ STATE: EXECUTE
   IF: iteration_count > 3 AND len(ready_tasks) == prior_ready_count → EMIT: "Stuck: ready_tasks unchanged for 3+ iterations", GOTO CASCADE
   SET: prior_ready_count = len(ready_tasks)
   DO: FOR EACH task in ready_tasks (launch in PARALLEL):
-        python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
-        Task(ftl:ftl-builder) with workspace
-        python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
+        DO: ws_path = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
+        DO: builder_output = Task(ftl:ftl-builder) with ws_path
+        DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
+        DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {SEQ}-*
+        IF: task completed (not blocked) →
+            # Use base64 encoding to avoid shell quoting issues with JSON
+            DO: utilized_b64 = base64_encode(utilized)
+            DO: injected_b64 = base64_encode(injected)
+            DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback-batch --utilized-b64 {utilized_b64} --injected-b64 {injected_b64}
+        DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task {SEQ} complete|blocked
   GOTO: EXECUTE
 
 STATE: CASCADE
@@ -270,7 +286,10 @@ STATE: CASCADE
       DO: replan_input = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py get-replan-input
       DO: Task(ftl:ftl-planner) with replan_input > revised_plan.json
       IF: revised_plan valid →
-          DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py merge-revised-plan revised_plan.json
+          CHECK: merge_result = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py merge-revised-plan revised_plan.json
+          IF: merge_result contains "error" →
+              EMIT: CASCADE_MERGE_FAILED error={merge_result.error}
+              GOTO: OBSERVE  # Fall through to observation instead of infinite retry
           EMIT: PHASE_TRANSITION from=cascade to=execute
           GOTO: EXECUTE
 
@@ -293,8 +312,8 @@ STATE: OBSERVE
 STATE: COMPLETE
   EMIT: STATE_ENTRY state=COMPLETE
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
-  DO: summary = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py summary
-  EMIT: "Campaign complete. {summary.complete_count} complete, {summary.blocked_count} blocked."
+  DO: status = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status
+  EMIT: "Campaign complete. {status.summary.complete} complete, {status.summary.blocked} blocked."
   RETURN: Summary to user
 ```
 

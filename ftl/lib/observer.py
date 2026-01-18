@@ -12,6 +12,10 @@ import argparse
 import subprocess
 import sys
 import re
+import threading
+
+# Module-level lock for thread-safe database writes
+_db_write_lock = threading.Lock()
 
 # Support both standalone execution and module import
 try:
@@ -146,6 +150,8 @@ def verify_block(workspace_path_or_id, timeout: int = 30) -> dict:
 
         if result.returncode == 0 and not has_error:
             return {"status": "FALSE_POSITIVE", "reason": "Tests pass now", "output": output}
+        elif result.returncode == 0 and has_error:
+            return {"status": "CONFIRMED", "reason": "Exit 0 but output contains errors", "output": output}
         else:
             return {"status": "CONFIRMED", "reason": f"exit {result.returncode}", "output": output}
 
@@ -414,7 +420,8 @@ def analyze(
 
             verify_output = verification.get("output", "")
             failure = extract_failure(ws["workspace_id"], verify_output)
-            add_result = add_failure(failure)
+            with _db_write_lock:
+                add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
                 "result": add_result,
@@ -425,7 +432,8 @@ def analyze(
     else:
         for ws in workspaces["blocked"]:
             failure = extract_failure(ws["workspace_id"], "")
-            add_result = add_failure(failure)
+            with _db_write_lock:
+                add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
                 "result": add_result,
@@ -440,7 +448,8 @@ def analyze(
 
         if score_data["score"] >= 3:
             pattern = extract_pattern(ws["workspace_id"], score_data)
-            add_result = add_pattern(pattern)
+            with _db_write_lock:
+                add_result = add_pattern(pattern)
             result["patterns_extracted"].append({
                 "name": pattern["name"],
                 "score": score_data["score"],
@@ -452,11 +461,12 @@ def analyze(
                 seq = score_data["workspace"].get("id", "").split("-")[0]
                 for failure_info in result["failures_extracted"]:
                     if failure_info["name"].startswith(seq) or seq in failure_info.get("name", ""):
-                        cross_result = add_cross_relationship(
-                            failure_info["name"],
-                            pattern["name"],
-                            "solves"
-                        )
+                        with _db_write_lock:
+                            cross_result = add_cross_relationship(
+                                failure_info["name"],
+                                pattern["name"],
+                                "solves"
+                            )
                         if cross_result == "added":
                             result["relationships_added"] += 1
                         break
@@ -464,7 +474,8 @@ def analyze(
     # Link co-occurring failures
     for i, f1 in enumerate(campaign_failures):
         for f2 in campaign_failures[i+1:]:
-            rel_result = add_relationship(f1, f2, "failure")
+            with _db_write_lock:
+                rel_result = add_relationship(f1, f2, "failure")
             if rel_result == "added":
                 result["relationships_added"] += 1
 

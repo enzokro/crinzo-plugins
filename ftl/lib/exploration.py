@@ -261,18 +261,22 @@ def clear_session(session_id: str) -> dict:
 # Core Exploration Write/Read Operations
 # =============================================================================
 
-def write(exploration: dict) -> dict:
+def write(exploration: dict, require_campaign: bool = True) -> dict:
     """Write exploration to database.
 
     Args:
         exploration: Aggregated exploration dict
+        require_campaign: If True (default), raise error if no active campaign
 
     Returns:
-        {"id": exploration_id}
+        {"id": exploration_id} or {"error": str} if no campaign and required
     """
     db = _ensure_db()
     explorations = db.t.exploration
     campaign = _get_active_campaign()
+
+    if require_campaign and not campaign:
+        return {"error": "No active campaign. Exploration would be orphaned.", "id": None}
 
     meta = exploration.get("_meta", {})
 
@@ -295,8 +299,12 @@ def write(exploration: dict) -> dict:
     return {"id": result.id}
 
 
-def read() -> dict | None:
+def read(campaign_id: int = None) -> dict | None:
     """Read latest exploration from database.
+
+    Args:
+        campaign_id: Optional campaign ID to filter by. If not provided,
+                     uses active campaign. If no active campaign, returns latest.
 
     Returns:
         Exploration dict or None
@@ -304,7 +312,16 @@ def read() -> dict | None:
     db = _ensure_db()
     explorations = db.t.exploration
 
-    rows = list(explorations.rows)
+    # Filter by campaign_id if provided, else use active campaign
+    if campaign_id:
+        rows = list(explorations.rows_where("campaign_id = ?", [campaign_id]))
+    else:
+        campaign = _get_active_campaign()
+        if campaign:
+            rows = list(explorations.rows_where("campaign_id = ?", [campaign["id"]]))
+        else:
+            rows = list(explorations.rows)
+
     if not rows:
         return None
 
@@ -447,7 +464,8 @@ def main():
     subparsers.add_parser("write", help="Write exploration to database from stdin")
 
     # read command
-    subparsers.add_parser("read", help="Read latest exploration from database")
+    rd = subparsers.add_parser("read", help="Read latest exploration from database")
+    rd.add_argument("--campaign-id", type=int, help="Filter by campaign ID")
 
     # get commands
     subparsers.add_parser("get-structure", help="Get structure section")
@@ -494,7 +512,8 @@ def main():
         print(f"Written: {result}")
 
     elif args.command == "read":
-        exploration = read()
+        campaign_id = getattr(args, 'campaign_id', None)
+        exploration = read(campaign_id=campaign_id)
         if exploration:
             print(json.dumps(exploration, indent=2))
         else:
