@@ -94,7 +94,7 @@ Four agents with distinct roles:
 - **delta**: Identifies candidate files and functions for modification
 
 **Constraints:**
-- Explorers write to `.ftl/cache/explorer_{mode}.json` for reliable aggregation
+- Explorers write to `explorer_result` table in `.ftl/ftl.db` for session-based aggregation
 - Planner validates DAG structure — cyclic dependencies are rejected at registration
 - Builder reads test file (`verify_source`) before implementing to match expectations
 - Builder enforces framework idioms as non-negotiable — blocks even if tests pass
@@ -131,51 +131,61 @@ Four agents with distinct roles:
 
 ## Workspace Format
 
-Tasks produce XML workspace files in `.ftl/workspace/`. Each workspace is a contract between planner and builder — what to do, how to verify, and what to watch out for.
+Tasks produce workspace records in the `workspace` table of `.ftl/ftl.db`. Each workspace is a contract between planner and builder — what to do, how to verify, and what to watch out for.
 
-```xml
-<workspace id="003-routes-crud" status="active">
-  <objective>Add CRUD routes for user management</objective>
-  <implementation>
-    <delta>src/routes.py</delta>
-    <verify>pytest routes/test_*.py -v</verify>
-    <verify_source>routes/test_crud.py</verify_source>
-    <budget>5</budget>
-  </implementation>
-  <code_context path="src/routes.py" lines="45-120">
-    <content>...</content>
-    <exports>get_user(), create_user()</exports>
-  </code_context>
-  <idioms framework="FastHTML">
-    <required>use @rt decorator for routes</required>
-    <forbidden>raw HTML string construction</forbidden>
-  </idioms>
-  <prior_knowledge>
-    <pattern name="stubs-in-first-build" saved="2293760000">...</pattern>
-    <failure name="import-order" cost="2500">...</failure>
-  </prior_knowledge>
-  <lineage>
-    <parent seq="001" workspace="001_spec-routes_complete">
-      <prior_delivery>Test stubs created</prior_delivery>
-    </parent>
-    <parent seq="002" workspace="002_impl-models_complete">
-      <prior_delivery>User model implemented</prior_delivery>
-    </parent>
-  </lineage>
-  <delivered></delivered>
-</workspace>
+**Database Schema:**
+
+```sql
+CREATE TABLE workspace (
+    id INTEGER PRIMARY KEY,
+    workspace_id TEXT NOT NULL UNIQUE,  -- "001-slug" format
+    campaign_id INTEGER NOT NULL,       -- FK → campaign.id
+    seq TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    status TEXT DEFAULT 'active',       -- "active" | "complete" | "blocked"
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    blocked_at TEXT,
+    objective TEXT,
+    delta TEXT DEFAULT '[]',            -- JSON: files to modify
+    verify TEXT,
+    verify_source TEXT,
+    budget INTEGER DEFAULT 5,
+    framework TEXT,
+    framework_confidence REAL DEFAULT 1.0,
+    idioms TEXT DEFAULT '{}',           -- JSON: {required, forbidden}
+    prior_knowledge TEXT DEFAULT '{}',  -- JSON: injected memories
+    lineage TEXT DEFAULT '{}',          -- JSON: parent references
+    delivered TEXT,
+    utilized_memories TEXT DEFAULT '[]', -- JSON: feedback tracking
+    code_contexts TEXT DEFAULT '[]',    -- JSON: code snapshots
+    preflight TEXT DEFAULT '[]'         -- JSON: preflight checks
+);
 ```
 
-**Naming:** `NNN_task-slug_status.xml`
-- `NNN` — 3-digit sequence (001, 002, 003)
-- `status` — `active`, `complete`, or `blocked`
+**Virtual Path Compatibility:**
+
+For CLI compatibility, `workspace.py` returns `Path`-like strings that map to database records:
+
+```python
+# workspace.create() returns virtual paths
+paths = workspace.create(plan, task_seq="001")
+# → [Path(".ftl/workspace/001-task-slug")]
+
+# These paths resolve to database lookups internally
+workspace.complete(path, delivered="Task done")  # Updates workspace table
+```
+
+**Naming:** `{SEQ}-{slug}` format stored in `workspace_id` column
+- `SEQ` — 3-digit sequence (001, 002, 003)
+- `status` — tracked in `status` column: `active`, `complete`, or `blocked`
 
 **Key fields:**
 - `objective` — WHY this task exists (the user's original intent)
 - `verify_source` — Test file to read before implementing
-- `lineage` — Deliveries from parent tasks (supports multiple parents for DAG convergence)
+- `lineage` — JSON object with parent references and deliveries (supports multiple parents for DAG convergence)
 
-**Atomic writes**: All workspace operations use temp-file + rename pattern for crash safety.
+**ACID Transactions**: All workspace operations use SQLite transactions for crash safety.
 
 The workspace is the builder's single source of truth. Framework idioms are non-negotiable. If something goes wrong that isn't in prior knowledge, the builder blocks — discovery is needed, not more debugging.
 
@@ -198,9 +208,13 @@ A unified system capturing what went wrong and what worked:
 
 **Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Scores are **heuristic guidance** — extract when the workspace demonstrates a transferable technique, skip high scores that succeeded by luck.
 
+### Embedding-Based Retrieval
+
+Memory uses 384-dimensional embeddings (`all-MiniLM-L6-v2` model) for semantic similarity matching. Embeddings are stored as BLOBs (1,536 bytes each: 384 floats × 4 bytes) in the `memory` and `campaign` tables.
+
 ### Hybrid Scoring
 
-Memory uses 384-dimensional embeddings (sentence-transformers) for similarity matching. When retrieving context, memories are scored by a hybrid formula:
+When retrieving context, memories are scored by a hybrid formula:
 
 ```
 score = relevance × log₂(cost + 1)
@@ -310,6 +324,53 @@ Returns:
 - Tier distribution
 - Graph connectivity
 
+## Database Architecture
+
+All persistent state is stored in `.ftl/ftl.db` (SQLite via fastsql). The schema consists of 11 tables:
+
+| Table | Purpose | Key Fields |
+|-------|---------|------------|
+| `memory` | Failures/patterns with 384-dim embeddings | `name`, `type`, `trigger`, `resolution`, `embedding` |
+| `memory_edge` | Graph relationships for BFS traversal | `from_id`, `to_id`, `rel_type`, `weight` |
+| `campaign` | Campaign state with embedded task DAG | `objective`, `tasks` (JSON), `status`, `fingerprint` |
+| `workspace` | Execution records (replaces XML files) | `workspace_id`, `objective`, `delta`, `lineage` |
+| `archive` | Completed campaign index for similarity | `objective_embedding`, `fingerprint`, `outcome` |
+| `exploration` | Aggregated explorer outputs | `structure`, `pattern`, `memory`, `delta` (JSON each) |
+| `explorer_result` | Session-based explorer staging | `session_id`, `mode`, `result`, `status` |
+| `plan` | Stored task plans | `tasks` (JSON), `idioms`, `status` |
+| `phase_state` | Workflow phase tracking (singleton) | `phase`, `transitions` (JSON) |
+| `event` | Append-only audit log | `event_type`, `timestamp`, `metadata` |
+| `benchmark` | Performance metrics | `run_id`, `metric`, `value` |
+
+### Session-Based Explorer Coordination
+
+Parallel explorers write to `explorer_result` with a shared `session_id`:
+
+```python
+# Orchestrator creates session
+session_id = orchestration.create_session()["session_id"]
+
+# 4 explorers run in parallel, each writes to explorer_result
+# mode ∈ {structure, pattern, memory, delta}
+
+# Quorum detection
+wait_result = orchestration.wait_explorers(session_id, required=3, timeout=300)
+# Returns: "all_complete" | "quorum_met" | "timeout" | "quorum_failure"
+
+# Aggregate into exploration table
+exploration.aggregate_session(session_id, objective)
+```
+
+### Virtual Path Compatibility
+
+For backward compatibility with Path-based APIs, `workspace.py` provides virtual paths that map to database records:
+
+```
+Path(".ftl/workspace/001-task-slug")  →  workspace_id="001-task-slug" in DB
+```
+
+The `workspace.create()`, `workspace.complete()`, and `workspace.block()` functions accept and return `Path` objects while storing data in SQLite.
+
 ## DAG Execution
 
 Campaigns support multi-parent task dependencies:
@@ -377,16 +438,22 @@ When a task blocks, its failure is injected into subsequent tasks *at workspace 
 |-------|--------------|
 | Plan created | Tasks defined, no workspaces yet |
 | Task 001 starts | Workspace with memory.get_context() only |
-| Task 001 blocks | Failure in 001_slug_blocked.xml |
+| Task 001 blocks | Status updated to `blocked` in workspace table |
 | Task 002 starts | Workspace with memory + sibling failures |
 
-```xml
-<prior_knowledge>
-  <failure name="sibling-001_auth-impl" injected="false">
-    <trigger>ImportError: fasthtml.core not found</trigger>
-    <fix>See blocked workspace for attempted fixes</fix>
-  </failure>
-</prior_knowledge>
+```json
+{
+  "prior_knowledge": {
+    "failures": [
+      {
+        "name": "sibling-001_auth-impl",
+        "trigger": "ImportError: fasthtml.core not found",
+        "fix": "See blocked workspace for attempted fixes",
+        "injected": false
+      }
+    ]
+  }
+}
 ```
 
 **Why at creation time, not planning?** The planner runs once BEFORE any building. Sibling failures only exist AFTER builders encounter them. Dynamic injection ensures freshness.
@@ -421,7 +488,7 @@ The `lib/` directory provides Python utilities for orchestration. All data store
 
 **Semantic Memory:** `context --objective "text"` retrieves memories ranked by semantic relevance. `query "topic"` searches with semantic ranking.
 
-**Concurrency:** Campaign and memory updates use file locking (`fcntl.LOCK_EX`) for safe parallel execution. All XML writes are atomic (temp + rename).
+**Concurrency:** All database operations use SQLite transactions for ACID compliance. Explorer sessions use `session_id` for quorum coordination.
 
 ## Examples
 
@@ -522,8 +589,8 @@ FTL operates on two layers:
 - Block verification in Observer
 - Pattern/failure deduplication (85% threshold)
 - Memory feedback recording
-- File locking for concurrent safety
-- Atomic XML writes (crash safety)
+- SQLite transactions for ACID compliance
+- Session-based explorer coordination (quorum detection)
 - Pruning based on importance scores
 - Graph relationship traversal with weight pruning
 - **Adaptive re-planning** trigger when ≥2 tasks unreachable
@@ -580,7 +647,7 @@ The automated layer provides reliable intra-campaign learning. The instruction l
 ## What FTL Is Not
 
 - A production autonomous agent system (no SLA guarantees)
-- A multi-user or team collaboration tool (file-based, single-user)
+- A multi-user or team collaboration tool (single-user, local SQLite)
 - A model-agnostic orchestration framework (Claude-only by design)
 - A GUI-based tool (CLI power users only)
 - A replacement for Mem0/Graphiti (complementary, not competing)
