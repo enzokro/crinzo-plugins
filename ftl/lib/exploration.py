@@ -105,6 +105,18 @@ def validate_result(result: dict) -> tuple[bool, str]:
 def aggregate(results: list[dict], objective: str = None) -> dict:
     """Combine explorer outputs into single exploration dict with deduplication.
 
+    This function merges outputs from the 4 parallel explorer agents into a single
+    exploration.json. It is called by the orchestrator after explorer completion.
+
+    Input Files (read by aggregate-files command):
+        .ftl/cache/explorer_structure.json
+        .ftl/cache/explorer_pattern.json
+        .ftl/cache/explorer_memory.json
+        .ftl/cache/explorer_delta.json
+
+    Output File (written by write command):
+        .ftl/exploration.json
+
     Args:
         results: List of explorer output dicts (each has 'mode' key)
         objective: Original objective text
@@ -112,9 +124,15 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
     Returns:
         Combined exploration dict with _meta and mode sections
 
-    Deduplication:
+    Merge Rules:
         - Tracks seen modes, keeps first successful result per mode
-        - Prefers "ok" status over "partial" over "error"
+        - Status priority: "ok" > "partial" > "error" > "unknown"
+        - Quorum: Proceeds if 3 of 4 modes available (per orchestration.py)
+
+    Validation:
+        - Each result must have "mode" field
+        - Mode must be one of: structure, pattern, memory, delta
+        - Status field required
     """
     # Get git sha if available
     try:

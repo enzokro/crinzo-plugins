@@ -2,12 +2,19 @@
 # FTL environment setup - creates venv and installs dependencies on first session
 set -e
 
-# Use CLAUDE_PLUGIN_ROOT if available, otherwise derive from script location
+# Unified path resolution: CLAUDE_PLUGIN_ROOT is source of truth
+# Both FTL_ROOT and CLAUDE_PLUGIN_ROOT are set for backwards compatibility
 if [ -n "$CLAUDE_PLUGIN_ROOT" ]; then
     FTL_ROOT="$CLAUDE_PLUGIN_ROOT"
+elif [ -f ".ftl/plugin_root" ]; then
+    # Fallback to cached plugin_root if available
+    FTL_ROOT="$(cat .ftl/plugin_root)"
 else
     FTL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
+# Ensure both variables are set consistently
+export CLAUDE_PLUGIN_ROOT="$FTL_ROOT"
+export FTL_ROOT
 
 VENV_PATH="$FTL_ROOT/venv"
 REQUIREMENTS="$FTL_ROOT/requirements.txt"
@@ -37,18 +44,7 @@ if [ ! -x "$VENV_PATH/bin/python3" ]; then
     echo "[ftl] Environment recreated"
 fi
 
-# Quick sanity check: can we import the embeddings module?
-if ! "$VENV_PATH/bin/python3" -c "import sentence_transformers" 2>/dev/null; then
-    echo "[ftl] WARNING: sentence-transformers not importable, reinstalling..."
-    "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS" --progress-bar off 2>&1
-fi
-
 # Persist environment for Claude's subsequent bash commands
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    # Export paths so all ftl Python scripts use the venv
-    echo "export FTL_ROOT='$FTL_ROOT'" >> "$CLAUDE_ENV_FILE"
-    echo "export FTL_VENV='$VENV_PATH'" >> "$CLAUDE_ENV_FILE"
     echo "export PATH='$VENV_PATH/bin:$PATH'" >> "$CLAUDE_ENV_FILE"
 fi
-
-exit 0

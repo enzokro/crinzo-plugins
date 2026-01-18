@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.6.0
+version: 2.7.0
 ---
 
 # FTL Protocol
@@ -37,33 +37,86 @@ See [CLI_REFERENCE.md](CLI_REFERENCE.md) for complete syntax.
 
 ---
 
+## Shared Patterns
+
+### INIT_PATTERN
+
+Reusable initialization for both TASK and CAMPAIGN flows.
+
+```
+EMIT: STATE_ENTRY state=INIT [mode={mode}]
+DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
+DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
+EMIT: PHASE_TRANSITION from=init to=explore
+GOTO: EXPLORE
+```
+
+### EXPLORE_PATTERN
+
+Reusable exploration logic for both TASK and CAMPAIGN flows.
+
+```
+EMIT: STATE_ENTRY state=EXPLORE agents=4
+DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
+    - Task(ftl:ftl-explorer) "mode=structure"
+    - Task(ftl:ftl-explorer) "mode=pattern, objective={objective}"
+    - Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
+    - Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
+WAIT: All 4 complete OR timeout=300s (quorum=3)
+  CHECK: python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --required=3 --timeout=300
+  IF: wait_result=="quorum_met" OR wait_result=="all_complete" → continue
+  IF: wait_result=="timeout" → EMIT: PARTIAL_FAILURE missing={missing}, continue with available
+  IF: wait_result=="quorum_failure" → GOTO ERROR with error_type="quorum_failure"
+DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}"
+DO: | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
+# Output: .ftl/exploration.json (aggregated from .ftl/cache/explorer_*.json)
+EMIT: PHASE_TRANSITION from=explore to=plan
+GOTO: PLAN
+```
+
+### PLAN_PATTERN
+
+Reusable planning logic with decision parsing.
+
+```
+EMIT: STATE_ENTRY state=PLAN
+TRACK: clarify_count (starts at 0, persists across PLAN re-entries)
+IF: clarify_count > 5 → EMIT: "Max clarifications (5) reached", RETURN with questions summary
+DO: Task(ftl:ftl-planner) with {input} + exploration.json > plan_output.md
+DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/decision_parser.py plan_output.md > decision.json
+CHECK: decision=$(jq -r .decision decision.json)
+IF: decision=="CLARIFY" → INCREMENT clarify_count, present questions, ASK user, GOTO PLAN
+IF: decision=="VERIFY" → present selection, confirm with user, GOTO PLAN
+IF: decision=="PROCEED" → extract plan_json to plan.json, GOTO {next_state}
+IF: decision=="UNKNOWN" → EMIT: "Decision unclear, defaulting to CLARIFY", GOTO PLAN
+```
+
+### ERROR_PATTERN
+
+Handles orchestration failures gracefully.
+
+```
+STATE: ERROR
+  EMIT: STATE_ENTRY state=ERROR error_type={type}
+  IF: error_type=="timeout" → EMIT: "Exploration timeout, using partial data", GOTO PLAN
+  IF: error_type=="quorum_failure" → EMIT: "Insufficient explorer data", RETURN with partial results
+  IF: error_type=="cascade_stuck" → DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-analysis, RETURN with analysis
+  DEFAULT: EMIT: "Unrecoverable error: {type}", RETURN with error summary
+```
+
+---
+
 ## TASK State Machine
 
 ```
 STATE: INIT
-  EMIT: STATE_ENTRY state=INIT
-  DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
-  EMIT: PHASE_TRANSITION from=init to=explore
-  GOTO: EXPLORE
+  USE: INIT_PATTERN
 
 STATE: EXPLORE
-  EMIT: STATE_ENTRY state=EXPLORE agents=4
-  DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
-      - Task(ftl:ftl-explorer) "mode=structure"
-      - Task(ftl:ftl-explorer) "mode=pattern, objective={task}"
-      - Task(ftl:ftl-explorer) "mode=memory, objective={task}"
-      - Task(ftl:ftl-explorer) "mode=delta, objective={task}"
-  WAIT: All 4 complete (explorers write to .ftl/cache/explorer_{mode}.json)
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{task}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
-  EMIT: PHASE_TRANSITION from=explore to=plan
-  GOTO: PLAN
+  USE: EXPLORE_PATTERN with objective={task}
 
 STATE: PLAN
-  EMIT: STATE_ENTRY state=PLAN
-  DO: Task(ftl:ftl-planner) with task + exploration.json
-  IF: Returns CLARIFY → EMIT: DECISION decision=clarify, ASK user, GOTO PLAN
-  IF: Returns plan.json → EMIT: PHASE_TRANSITION from=plan to=build, GOTO BUILD
+  USE: PLAN_PATTERN with input={task}, next_state=BUILD
 
 STATE: BUILD
   EMIT: STATE_ENTRY state=BUILD
@@ -74,9 +127,18 @@ STATE: BUILD
 
 STATE: OBSERVE
   EMIT: STATE_ENTRY state=OBSERVE
-  DO: Task(ftl:ftl-observer)
+  DO: Task(ftl:ftl-observer)  # Analyzes all workspaces in .ftl/workspace/
   EMIT: PHASE_TRANSITION from=observe to=complete
   GOTO: COMPLETE
+
+STATE: COMPLETE
+  EMIT: STATE_ENTRY state=COMPLETE
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
+  EMIT: "Task complete. See .ftl/workspace/ for deliverables."
+  RETURN: Summary to user
+
+STATE: ERROR
+  USE: ERROR_PATTERN
 ```
 
 ---
@@ -85,29 +147,13 @@ STATE: OBSERVE
 
 ```
 STATE: INIT
-  EMIT: STATE_ENTRY state=INIT mode=campaign
-  DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
-  EMIT: PHASE_TRANSITION from=init to=explore
-  GOTO: EXPLORE
+  USE: INIT_PATTERN with mode=campaign
 
 STATE: EXPLORE
-  EMIT: STATE_ENTRY state=EXPLORE agents=4
-  DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
-      - Task(ftl:ftl-explorer) "mode=structure"
-      - Task(ftl:ftl-explorer) "mode=pattern, objective={objective}"
-      - Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
-      - Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
-  WAIT: All 4 complete
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}" | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
-  EMIT: PHASE_TRANSITION from=explore to=plan
-  GOTO: PLAN
+  USE: EXPLORE_PATTERN with objective={objective}
 
 STATE: PLAN
-  EMIT: STATE_ENTRY state=PLAN
-  DO: Task(ftl:ftl-planner) with objective + exploration.json
-  IF: Returns CLARIFY → EMIT: DECISION decision=clarify, ASK user, GOTO PLAN
-  IF: Returns plan.json → EMIT: PHASE_TRANSITION from=plan to=register, GOTO REGISTER
+  USE: PLAN_PATTERN with input={objective}, next_state=REGISTER
 
 STATE: REGISTER
   EMIT: STATE_ENTRY state=REGISTER
@@ -118,11 +164,17 @@ STATE: REGISTER
 
 STATE: EXECUTE
   EMIT: STATE_ENTRY state=EXECUTE
-  DO: ready = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks
-  EMIT: READY_TASKS count={len(ready)}
-  IF: ready is empty → EMIT: PHASE_TRANSITION from=execute to=cascade, GOTO CASCADE
-  DO: FOR EACH task in ready (launch in PARALLEL):
-        echo '{plan.json}' | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
+  TRACK: iteration_count (starts at 0, persists across EXECUTE re-entries)
+  TRACK: prior_ready_count (persists across EXECUTE re-entries)
+  IF: iteration_count > 20 → EMIT: "Max iterations (20) reached", GOTO CASCADE
+  INCREMENT: iteration_count
+  DO: ready_tasks = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py ready-tasks
+  EMIT: READY_TASKS count={len(ready_tasks)}, iteration={iteration_count}
+  IF: ready_tasks is empty → EMIT: PHASE_TRANSITION from=execute to=cascade, GOTO CASCADE
+  IF: iteration_count > 3 AND len(ready_tasks) == prior_ready_count → EMIT: "Stuck: ready_tasks unchanged for 3+ iterations", GOTO CASCADE
+  SET: prior_ready_count = len(ready_tasks)
+  DO: FOR EACH task in ready_tasks (launch in PARALLEL):
+        cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
         Task(ftl:ftl-builder) with workspace
         python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
   GOTO: EXECUTE
@@ -141,6 +193,13 @@ STATE: OBSERVE
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py complete
   EMIT: PHASE_TRANSITION from=observe to=complete
   GOTO: COMPLETE
+
+STATE: COMPLETE
+  EMIT: STATE_ENTRY state=COMPLETE
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
+  DO: summary = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py summary
+  EMIT: "Campaign complete. {summary.complete_count} complete, {summary.blocked_count} blocked."
+  RETURN: Summary to user
 ```
 
 ---
@@ -151,7 +210,7 @@ STATE: OBSERVE
 .ftl/workspace/NNN_slug_status.xml
 ```
 
-Status transitions: `active` → `complete` | `blocked`
+Workspace transitions: `active` → `complete` | `blocked`
 
 **Blocking is success** (informed handoff for Observer to learn from).
 
@@ -194,11 +253,11 @@ Implementation: campaign.py::add_tasks()
 
 ```
 Algorithm: ready_tasks(campaign)
-  1. Get all tasks with status = "pending"
+  1. Get all tasks with task_state = "pending"
   2. For each pending task:
      - Get depends[] list
      - If depends is empty or "none" → ready
-     - If ALL depends have status = "complete" → ready
+     - If ALL depends have task_state = "complete" → ready
      - Otherwise → not ready
   3. Return ready tasks
 
@@ -218,7 +277,7 @@ Algorithm: cascade_status(campaign)
 
 Algorithm: propagate_blocks(campaign)
   1. For each unreachable task from cascade_status:
-     - Set status = "blocked"
+     - Set task_state = "blocked"
      - Set blocked_by = blocking parent seq
      - Record as cascade (not original failure)
 ```
@@ -295,6 +354,7 @@ builders encounter them. The dynamic injection at workspace creation time ensure
   "objective": "string (required)",
   "campaign": "string (required)",
   "framework": "string | null",
+  "framework_confidence": "number | null",
   "idioms": {"required": [], "forbidden": []},
   "tasks": [
     {

@@ -75,7 +75,7 @@ def campaign_session():
 
 
 def create(objective: str, framework: str = None) -> dict:
-    """Create new campaign.
+    """Create new campaign with atomic write.
 
     Args:
         objective: Campaign objective
@@ -93,7 +93,11 @@ def create(objective: str, framework: str = None) -> dict:
         "tasks": [],
     }
     CAMPAIGN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CAMPAIGN_FILE.write_text(json.dumps(campaign, indent=2))
+
+    # Use atomic write to prevent corruption on crash
+    from atomicfile import atomic_write
+    atomic_write(CAMPAIGN_FILE, campaign)
+    _invalidate_cache()
     return campaign
 
 

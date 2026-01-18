@@ -13,6 +13,8 @@ import os
 # Add lib directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+from framework_registry import get_idioms
+
 
 WORKSPACE_DIR = Path(".ftl/workspace")
 
@@ -248,6 +250,24 @@ def extract_code_context(
     }
 
 
+def _get_framework_confidence() -> float:
+    """Get framework confidence from exploration.json.
+
+    Returns:
+        Confidence score 0.0-1.0, defaults to 1.0 if not available.
+    """
+    exploration_file = Path(".ftl/exploration.json")
+    if not exploration_file.exists():
+        return 1.0
+
+    try:
+        exploration = json.loads(exploration_file.read_text())
+        pattern = exploration.get("pattern", {})
+        return float(pattern.get("confidence", 1.0))
+    except (json.JSONDecodeError, IOError, ValueError):
+        return 1.0
+
+
 def create(plan: dict, task_seq: str = None) -> list:
     """Create workspace XML files from plan.
 
@@ -326,14 +346,30 @@ def create(plan: dict, task_seq: str = None) -> list:
                     ET.SubElement(code_ctx, "imports").text = ctx["imports"]
                 # No break - process ALL delta files
 
-        # Framework idioms
+        # Framework idioms with confidence from exploration
+        # Registry is authoritative; plan.json is fallback for custom idioms
         framework = plan.get("framework")
         if framework and framework != "none":
+            confidence = _get_framework_confidence()
             idioms_elem = ET.SubElement(root, "idioms", framework=framework)
-            for req in plan.get("idioms", {}).get("required", []):
+            idioms_elem.set("confidence", str(round(confidence, 2)))
+
+            # Use registry as authoritative source, plan as fallback
+            registry_idioms = get_idioms(framework)
+            plan_idioms = plan.get("idioms", {})
+
+            # Registry wins if it has entries; otherwise use plan (for custom frameworks)
+            required = registry_idioms.get("required") or plan_idioms.get("required", [])
+            forbidden = registry_idioms.get("forbidden") or plan_idioms.get("forbidden", [])
+
+            for req in required:
                 ET.SubElement(idioms_elem, "required").text = req
-            for forb in plan.get("idioms", {}).get("forbidden", []):
+            for forb in forbidden:
                 ET.SubElement(idioms_elem, "forbidden").text = forb
+
+        # Framework confidence (also as standalone element for easy access)
+        confidence = _get_framework_confidence()
+        ET.SubElement(root, "framework_confidence").text = str(round(confidence, 2))
 
         # Prior knowledge from memory + blocked siblings (intra-campaign learning)
         memory_failures = []
@@ -541,10 +577,18 @@ def parse(path: Path) -> dict:
             # Also keep first as code_context for backwards compatibility
             result["code_context"] = result["code_contexts"][0]
 
+    # Framework confidence (standalone element)
+    framework_confidence = root.findtext("framework_confidence")
+    if framework_confidence:
+        result["framework_confidence"] = float(framework_confidence)
+
     # Idioms
     idioms = root.find("idioms")
     if idioms is not None:
         result["framework"] = idioms.get("framework")
+        # Confidence may also be on idioms element
+        if idioms.get("confidence"):
+            result["framework_confidence"] = float(idioms.get("confidence"))
         result["idioms"] = {
             "required": [r.text for r in idioms.findall("required")],
             "forbidden": [f.text for f in idioms.findall("forbidden")],

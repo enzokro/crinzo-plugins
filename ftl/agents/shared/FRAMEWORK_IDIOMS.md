@@ -1,60 +1,60 @@
+---
+version: 1.1
+---
+
 # Framework Idioms Reference
 
-This document defines framework detection rules and idiom requirements shared across FTL agents.
+Framework detection and idioms are data-driven via `lib/framework_registry.py`.
 
-## Framework Detection
+**To add a new framework**: Add entry to `FRAMEWORK_PATTERNS` and `FRAMEWORK_IDIOMS` in registry. No agent prompt changes needed.
 
-| Import Pattern | Framework | Idiom Level |
-|----------------|-----------|-------------|
-| `from fasthtml` | FastHTML | HIGH (strict enforcement) |
-| `from fastapi` | FastAPI | MODERATE |
-| `from flask` | Flask | LOW |
-| None detected | none | NONE |
+See [ONTOLOGY.md](ONTOLOGY.md#framework-confidence) for confidence thresholds and enforcement rules.
 
-## Idiom Requirements by Framework
+## Registry CLI
 
-### FastHTML (HIGH)
+```bash
+# Detect framework in codebase
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect
 
-| Type | Rule | Rationale |
-|------|------|-----------|
-| **Required** | `@rt` decorator for routes | Framework convention |
-| **Required** | Return component trees (Div, P, etc.) | Type-safe rendering |
-| **Forbidden** | Raw HTML strings with f-strings | XSS risk, bypasses component model |
-| **Forbidden** | Direct `Response()` with HTML body | Loses component benefits |
+# Get idioms for framework
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
 
-### FastAPI (MODERATE)
+# Get complexity weight for planner
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight fastapi
 
-| Type | Rule | Rationale |
-|------|------|-----------|
-| **Required** | `@app.get/@app.post` decorators | Framework convention |
-| **Required** | Return Pydantic models for JSON | Type validation |
-| **Forbidden** | Sync operations in async endpoints | Blocks event loop |
-| **Forbidden** | Raw dict returns without schema | Loses validation |
-
-### Flask (LOW)
-
-| Type | Rule | Rationale |
-|------|------|-----------|
-| **Required** | `@app.route` decorator | Framework convention |
-| **Forbidden** | None enforced | Flexible framework |
-
-### None
-
-No idiom requirements or restrictions.
+# List registered frameworks
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
+```
 
 ## Detection Priority
 
-1. Check `README.md` for explicit "Framework Idioms" section (highest confidence)
-2. Grep for import statements (medium confidence)
-3. Check `pyproject.toml` or `requirements.txt` for dependencies (fallback)
+1. README.md contains "## Framework Idioms" section → 0.95 confidence
+2. Framework import in >50% of .py files → 0.85 confidence
+3. Framework import in any .py file → 0.75 confidence
+4. Framework in pyproject.toml → 0.65 confidence
+5. No detection → 0.0 (no idiom enforcement)
 
 ## Idiom Compliance Checking
-
-Agents MUST verify idiom compliance at these points:
 
 | Agent | Check Point | Action on Violation |
 |-------|-------------|---------------------|
 | Explorer | Pattern detection | Report in exploration.json |
 | Planner | Task design | Include idioms in plan.json |
-| Builder | PLAN + QUALITY states | BLOCK (idiom violation) |
+| Builder | PLAN + QUALITY states | BLOCK (if confidence >= 0.6) |
 | Observer | Pattern extraction | Note systemic idiom issues |
+
+---
+
+## Per-Framework Idioms
+
+Framework-specific idioms are defined in `lib/framework_registry.py`:
+
+```bash
+# View all registered frameworks
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
+
+# View idioms for a specific framework
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
+```
+
+**To add a new framework**: Add entries to `FRAMEWORK_PATTERNS` and `FRAMEWORK_IDIOMS` in the registry. No documentation updates needed.

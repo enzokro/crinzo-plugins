@@ -97,9 +97,12 @@ def transition(to_phase: str) -> dict:
     if current_phase == "none":
         state["started_at"] = now
 
-    # Write state
+    # Write state atomically to prevent corruption on crash
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from atomicfile import atomic_write
     PHASE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PHASE_STATE_FILE.write_text(json.dumps(state, indent=2))
+    atomic_write(PHASE_STATE_FILE, state)
 
     return state
 

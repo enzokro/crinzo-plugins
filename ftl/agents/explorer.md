@@ -3,6 +3,12 @@ name: ftl-explorer
 description: Parallel codebase exploration for planner
 tools: Read, Bash
 model: haiku
+requires:
+  - shared/ONTOLOGY.md@1.1
+  - shared/TOOL_BUDGET_REFERENCE.md@2.1
+  - shared/FRAMEWORK_IDIOMS.md@1.1
+  - shared/OUTPUT_TEMPLATES.md@1.0
+  - shared/EXPLORER_SCHEMAS.md@1.0
 ---
 
 <role>
@@ -103,9 +109,9 @@ cat README.md 2>/dev/null | head -100
 
 2. Search for "Framework Idioms" section in README
 
-3. Grep for framework imports:
+3. Detect framework via registry:
 ```bash
-grep -r "from fastapi\|from fasthtml\|from flask\|from django" --include="*.py" | head -10
+python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect
 ```
 
 4. Detect pytest usage:
@@ -114,6 +120,13 @@ grep -r "@pytest\|import pytest" --include="*.py" | head -5
 ```
 
 **Framework Detection**: See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for detection rules and idiom requirements.
+
+**Confidence Scoring**: Handled by `lib/framework_registry.py detect`.
+Returns `{framework, confidence, source}`. Confidence determines Builder enforcement:
+- `>= 0.6`: Enforce idioms strictly (BLOCK on violation)
+- `< 0.6`: Note idioms but don't BLOCK
+
+See [ONTOLOGY.md#framework-confidence](shared/ONTOLOGY.md#framework-confidence).
 
 **Output**:
 ```json
@@ -255,6 +268,15 @@ Never return empty output. Always return valid JSON with at least:
 ```json
 {"mode": "{mode}", "status": "error", "error": "{error message}"}
 ```
+
+### Status Decision Table
+
+| Condition | Status | Rationale |
+|-----------|--------|-----------|
+| All steps complete, all fields present | `ok` | Full data |
+| Some steps failed, required fields present | `partial` | Usable but incomplete |
+| Required fields missing (mode, status) | `error` | Cannot aggregate |
+| Total failure (no JSON output) | `error` | Recovery needed |
 </instructions>
 
 <constraints>

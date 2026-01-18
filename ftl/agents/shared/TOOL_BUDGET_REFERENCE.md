@@ -1,6 +1,15 @@
+---
+version: 2.1
+---
+
 # Tool Budget Reference
 
 This document defines tool budget rules and exemptions shared across FTL agents.
+
+See [ONTOLOGY.md](ONTOLOGY.md#tool-budget) for canonical terminology:
+- `budget`: Total tool calls available
+- `budget_used`: Calls consumed
+- `budget_remaining`: `budget - budget_used`
 
 ## Budget Allocation by Agent
 
@@ -20,6 +29,18 @@ This document defines tool budget rules and exemptions shared across FTL agents.
 | Run command | YES | `Bash {command}` |
 | Parse workspace | YES | First action in Builder |
 | Read verify_source | YES | Optional test reading |
+
+### Tool Call Counting Clarification
+
+Budget counts **tool invocations**, not unique resources:
+
+| Scenario | Tool Calls | Explanation |
+|----------|------------|-------------|
+| 3 Edit calls to same file | 3 | Each invocation counts |
+| 1 Edit call with 3 changes | 1 | Single invocation |
+| Read file A, Edit file A | 2 | Two invocations |
+
+**Rationale**: Aligns with API billing model (per-request, not per-resource).
 
 ## Exempt Actions (Don't Count)
 

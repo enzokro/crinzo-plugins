@@ -166,15 +166,22 @@ class Pattern:
     times_failed: int = 0       # Times this memory was injected but didn't help
 
 
+MEMORY_SCHEMA_VERSION = "1.0"
+
+
 def load_memory(path: Path = MEMORY_FILE) -> dict:
-    """Load memory from disk."""
+    """Load memory from disk, checking schema version."""
     if not path.exists():
-        return {"failures": [], "patterns": []}
-    return json.loads(path.read_text())
+        return {"failures": [], "patterns": [], "_schema_version": MEMORY_SCHEMA_VERSION}
+    data = json.loads(path.read_text())
+    # Track schema version for future migrations
+    version = data.get("_schema_version", "0.9")
+    # Future: migrate if version != MEMORY_SCHEMA_VERSION
+    return data
 
 
 def save_memory(memory: dict, path: Path = MEMORY_FILE) -> None:
-    """Save memory to disk with atomic write.
+    """Save memory to disk with atomic write and schema version.
 
     Uses file locking to prevent concurrent write corruption.
     """
@@ -183,6 +190,8 @@ def save_memory(memory: dict, path: Path = MEMORY_FILE) -> None:
     def _update(existing: dict) -> None:
         existing.clear()
         existing.update(memory)
+        # Ensure schema version is always present
+        existing["_schema_version"] = MEMORY_SCHEMA_VERSION
         return None
 
     atomic_json_update(path, _update)
@@ -192,7 +201,11 @@ def _ensure_memory_file(path: Path = MEMORY_FILE) -> None:
     """Ensure memory file exists for atomic operations."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        path.write_text(json.dumps({"failures": [], "patterns": []}, indent=2))
+        path.write_text(json.dumps({
+            "failures": [],
+            "patterns": [],
+            "_schema_version": MEMORY_SCHEMA_VERSION
+        }, indent=2))
 
 
 def is_duplicate(trigger: str, existing: list, threshold: float = 0.85) -> tuple:
@@ -392,6 +405,10 @@ def _score_entries(
 ) -> tuple:
     """Score entries by semantic relevance and partition by threshold.
 
+    Performance: O(N) where N = len(entries).
+    The objective embedding is computed once and cached by embeddings.py's LRU cache.
+    Each entry trigger is also cached, so repeated calls with same entries are fast.
+
     Args:
         entries: List of failure/pattern dicts
         objective: Semantic anchor for relevance scoring
@@ -405,6 +422,8 @@ def _score_entries(
     relevant = []
     fallback = []
 
+    # Note: semantic_similarity calls embed() which has LRU cache.
+    # The objective embedding is computed once and reused for all entries.
     for entry in entries:
         trigger = entry.get("trigger", "")
         value = entry.get(value_key, 0)

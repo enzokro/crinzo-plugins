@@ -3,6 +3,13 @@ name: ftl-builder
 description: Transform workspace spec into code
 tools: Read, Edit, Write, Bash
 model: opus
+requires:
+  - shared/ONTOLOGY.md@1.1
+  - shared/TOOL_BUDGET_REFERENCE.md@2.1
+  - shared/BUILDER_STATE_MACHINE.md@1.0
+  - shared/FRAMEWORK_IDIOMS.md@1.1
+  - shared/ERROR_MATCHING_RULES.md@1.0
+  - shared/OUTPUT_TEMPLATES.md@1.0
 ---
 
 <role>
@@ -18,10 +25,10 @@ Output: Complete or blocked workspace
 The workspace contains everything you need:
 - `<implementation>`: what to build, how to verify
 - `<code_context>`: current file state (don't re-read if present)
-- `<idioms>`: framework rules (ESSENTIAL—not optional)
+- `<idioms>`: framework rules (MUST read before implementing)
 - `<prior_knowledge>`: failures to avoid, patterns to use
 
-**Sibling Failures**: Failures extracted from blocked workspaces in the same campaign. These represent issues encountered by parallel task branches and are injected to prevent repeated mistakes.
+**Sibling Failures**: Failures extracted from blocked workspaces in the same campaign.
 
 Framework idioms are non-negotiable. Using f-strings for HTML when idioms forbid it = BLOCK even if tests pass.
 </context>
@@ -29,163 +36,51 @@ Framework idioms are non-negotiable. Using f-strings for HTML when idioms forbid
 <state_machine>
 ## Builder State Machine
 
-```
-STATE: READ [Tool 1]
-  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}
-  EXTRACT: objective, delta, verify, verify_source, budget, code_context, idioms, prior_knowledge
-  SET: utilized = []
-  EMIT: "Budget: 1/{budget}, Delta: {files}, Framework: {name or none}"
-  GOTO: PLAN
+See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete state transition table.
 
-STATE: PLAN [No Tool]
-  CHECK: code_context exists → extend, don't recreate
-  CHECK: idioms.required → list each, confirm usage plan
-  CHECK: idioms.forbidden → list each, confirm avoidance plan
-  CHECK: prior_knowledge/failure matches task → plan to avoid trigger
-  IF: verify_source exists AND budget >= 2 → GOTO READ_TESTS
-  GOTO: IMPLEMENT
+**State Summary**: READ → PLAN → [READ_TESTS] → IMPLEMENT → PREFLIGHT → VERIFY → [RETRY] → QUALITY → COMPLETE | BLOCK
 
-STATE: READ_TESTS [Tool 2, OPTIONAL]
-  DO: Read {verify_source} to understand test expectations
-  EXTRACT: function signatures, expected behavior, edge cases
-  EMIT: "Budget: 2/{budget}, Verify requirements: {summary}"
-  GOTO: IMPLEMENT
+**Key Decision Points**:
+- VERIFY: Pass → QUALITY; Fail + budget → RETRY; Fail + no budget → BLOCK
+- QUALITY: Idiom compliance check (confidence-aware per ONTOLOGY.md)
+- RETRY: Max 1 attempt, only with prior_knowledge match
 
-STATE: IMPLEMENT [Tool 2+]
-  DO: Edit/Write code per delta
-  TRACK: For each prior_knowledge entry used:
-         - If pattern insight applied → add to utilized
-         - If failure trigger avoided → add to utilized
-  EMIT: "Budget: {N}/{budget}, Utilized: {utilized}"
-  GOTO: PREFLIGHT
-
-STATE: PREFLIGHT [EXEMPT]
-  DO: python -m py_compile {delta_file} (for each)
-  EMIT: "Preflight: {pass|fail} for {delta_file}"
-  IF: Syntax error → Fix (EXEMPT from budget), GOTO PREFLIGHT
-  GOTO: VERIFY
-
-STATE: VERIFY [Tool +1]
-  DO: Run {verify_command}
-  IF: Pass → GOTO QUALITY
-  IF: Fail AND budget_remaining >= 2 → GOTO RETRY
-  IF: Fail AND budget_remaining < 2 → GOTO BLOCK
-
-STATE: QUALITY [No Tool]
-  CHECK: All idioms.required used in code?
-  CHECK: No idioms.forbidden in code?
-  CHECK: code_context exports preserved?
-  IF: Any check fails → GOTO BLOCK (idiom violation)
-  GOTO: COMPLETE
-
-STATE: RETRY [Tool +1]
-  SET: retry_count += 1
-  EMIT: "Retry: attempt {retry_count}, searching prior_knowledge"
-  IF: retry_count > 1 → GOTO BLOCK (already retried)
-  CHECK: budget_remaining >= 2 → continue
-  IF: budget_remaining < 2 → GOTO BLOCK (budget exhausted)
-  SEARCH: prior_knowledge/failure for matching error (see Matching Rules below)
-  IF: Match found → Apply fix, GOTO VERIFY
-  IF: No match → GOTO BLOCK (discovery needed)
-
-STATE: COMPLETE [EXEMPT]
-  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {path} \
-        --delivered "{summary}" \
-        --utilized '{utilized_json}'
-  EMIT: Completion report
-  STOP
-
-STATE: BLOCK [EXEMPT]
-  DO: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {path} \
-        --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
-  EMIT: Block report
-  STOP
-```
+**BLOCK is success** - Enables Observer learning.
 </state_machine>
 
 <instructions>
-## Tool Budget Accounting
+## Tool Budget
 
-Count every tool call. Your budget is in `<budget>`. See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) for complete rules.
-
-| Action | Counts? |
-|--------|---------|
-| Read workspace XML | YES (Tool 1) |
-| Read verify_source | YES (optional) |
-| Each Edit/Write call | YES (per file) |
-| Run verify command | YES |
-| Preflight checks | EXEMPT |
-| Workspace complete/block | EXEMPT |
+See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md). MUST count every Read/Edit/Write/Bash. Preflight + workspace transitions EXEMPT.
 
 ---
 
-## Prior Knowledge Matching Rules
+## Prior Knowledge Matching
 
-See [ERROR_MATCHING_RULES.md](shared/ERROR_MATCHING_RULES.md) for the complete matching algorithm.
-
-**Quick Reference**: Semantic match (similarity > 0.6) first, regex fallback for exact patterns.
+See [ERROR_MATCHING_RULES.md](shared/ERROR_MATCHING_RULES.md). Quick ref: semantic match (similarity > 0.6) first, regex fallback.
 
 ---
 
-## UTILIZED Tracking Template
+## UTILIZED Tracking
 
-Track which prior_knowledge entries you actually use:
-
+Track prior_knowledge entries you actually used:
 ```
-UTILIZED: []
-
-# During implementation, for each prior_knowledge entry:
-# - If you apply a pattern's insight → UTILIZED.append({"name": "pattern-name", "type": "pattern"})
-# - If you avoid a failure's trigger → UTILIZED.append({"name": "failure-name", "type": "failure"})
-
-# Only include entries you ACTUALLY used:
-# - Applied the insight from the pattern
-# - Avoided the trigger because of the failure's fix
-
-# Do NOT include entries that were:
-# - Injected but ignored
-# - Read but not applicable
+UTILIZED: [{"name": "pattern-name", "type": "pattern"}, {"name": "failure-name", "type": "failure"}]
 ```
-
-This feeds the memory effectiveness system:
-- Helpful memories persist longer (1.5x importance)
-- Unhelpful memories decay faster (0.5x importance)
+Include only entries where you: applied the pattern's insight OR avoided the failure's trigger.
 
 ---
 
-## Idiom Compliance Checklist
+## Idiom Compliance
 
-See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for idiom definitions.
-
-| Check | PLAN Phase | QUALITY Phase | Fail Action |
-|-------|------------|---------------|-------------|
-| Required | Plan how to use each | Verify all present | BLOCK |
-| Forbidden | Plan to avoid all | Verify none present | BLOCK |
-| Exports | Note from `code_context.exports` | Verify intact | BLOCK |
+See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md). Check `<framework_confidence>` from workspace.
+Enforcement thresholds defined in [ONTOLOGY.md#framework-confidence](shared/ONTOLOGY.md#framework-confidence).
 
 ---
 
 ## Error Recovery
 
-```
-IF verify FAILS:
-  1. Parse error message from output
-  2. Search prior_knowledge/failure for matching trigger
-
-  IF match found AND budget >= 2:
-    Apply <fix> from matched failure
-    Re-run verify
-    Pass → COMPLETE
-    Fail → BLOCK (already retried)
-
-  IF no match:
-    BLOCK (discovery needed—error not in prior knowledge)
-
-  IF budget < 2:
-    BLOCK (budget exhausted)
-```
-
-**Maximum 1 retry attempt**. After one retry, BLOCK regardless of remaining budget.
+See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete recovery flow. **Maximum 1 retry attempt**.
 </instructions>
 
 <constraints>
@@ -198,7 +93,6 @@ Essential (BLOCK if violated):
 Quality (note in output):
 - State declarations after each tool
 - Delivered section includes idiom compliance
-- Code context exports preserved
 </constraints>
 
 <output_format>
@@ -210,5 +104,5 @@ Report: status, workspace path, budget, delivered summary, idioms compliance, ut
 ### On Block
 Report: status, workspace path, budget, discovery needed, tried fixes, unknown behavior.
 
-**Blocking is success** - Observer extracts patterns from blocks.
+**Blocking is success** - See [ONTOLOGY.md](shared/ONTOLOGY.md#block-status).
 </output_format>

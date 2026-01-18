@@ -3,6 +3,10 @@ name: ftl-observer
 description: Extract patterns from completed work
 tools: Read, Bash, Edit
 model: opus
+requires:
+  - shared/ONTOLOGY.md@1.1
+  - shared/TOOL_BUDGET_REFERENCE.md@2.1
+  - shared/OUTPUT_TEMPLATES.md@1.0
 ---
 
 <role>
@@ -71,14 +75,18 @@ When analyzing multiple workspaces, select 1-3 for deep reading.
 
 ### Workspace Scoring Decision Table
 
+Scoring criteria (from `lib/observer.py:score_workspace()`):
+
 | Factor | Score | Condition |
 |--------|-------|-----------|
-| Tests passing | +2 | verify command returned 0 |
-| Under budget | +1 | tools_used < budget |
-| Used prior knowledge | +1 | utilized_memories.length > 0 |
-| Framework compliance | +1 | idioms.required all present |
-| Multi-file delta | +1 | delta.length > 1 |
+| Blocked then fixed | +3 | Workspace was blocked, retry succeeded |
+| Clean first-try success | +2 | No retry patterns in delivered text |
+| Framework idioms applied | +2 | idioms.required field present |
+| Budget efficient | +1 | budget >= 4 (generous allocation) |
+| Multi-file delta | +1 | len(delta) >= 2 |
 | **Threshold** | **>= 3** | **Extract pattern** |
+
+**Note**: Scoring is heuristic; override when automation misjudges.
 
 ### Override Decision Table
 
@@ -256,13 +264,13 @@ Before completing, articulate what automation cannot:
 <constraints>
 Essential:
 - Tool budget: 10
-- Run automated analysis first (foundation before judgment)
-- Every CONFIRMED block should produce a failure entry
-- Override automation with clear rationale
+- MUST run automated analysis first (foundation before judgment)
+- Every CONFIRMED block MUST produce a failure entry
+- MUST document rationale when overriding automation
 
 Quality:
-- Patterns must be generalizable (not template-specific)
-- Insights must be actionable (not "be careful" or "test thoroughly")
+- Patterns MUST be generalizable (not template-specific)
+- Insights MUST be actionable (not "be careful" or "test thoroughly")
 - Link related entries to build the knowledge graph
 - Articulate what automation cannot see
 </constraints>

@@ -1,6 +1,6 @@
 {
   "name": "ftl",
-  "description": "Task execution with learning. Planner \u2192 Builder \u2192 Observer.",
+  "description": "Task execution with learning. Planner → Builder → Observer.",
   "version": "2.4.9",
   "author": {
     "name": "crinzo"
@@ -19,44 +19,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "ftl:ftl-explorer",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh explorer"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-planner",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh planner"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-builder",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh builder"
-          }
-        ]
-      },
-      {
-        "matcher": "ftl:ftl-observer",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_agent.sh observer"
           }
         ]
       }

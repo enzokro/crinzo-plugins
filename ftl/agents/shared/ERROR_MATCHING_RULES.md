@@ -1,6 +1,12 @@
+---
+version: 1.0
+---
+
 # Error Matching Rules
 
 This document defines the error matching algorithm used by Builder for retry decisions and Observer for failure extraction.
+
+See [ONTOLOGY.md](ONTOLOGY.md#block-status) for BLOCK vs FAIL distinction and discovery semantics.
 
 ## Matching Algorithm
 
@@ -28,8 +34,9 @@ RETURN None  # No match - discovery needed
 
 | Error A | Error B | Similarity | Match? |
 |---------|---------|------------|--------|
-| "ModuleNotFoundError: flask" | "ImportError: cannot import flask" | ~0.75 | YES |
+| "ModuleNotFoundError: {module}" | "ImportError: cannot import {module}" | ~0.75 | YES |
 | "pytest: no tests ran" | "test collection failed" | ~0.65 | YES |
+| "Framework idiom violation: {pattern}" | "Idiom check failed: {pattern}" | ~0.70 | YES |
 | "SyntaxError: unexpected EOF" | "IndentationError" | ~0.45 | NO |
 | "Connection refused" | "Database error" | ~0.30 | NO |
 
