@@ -15,10 +15,7 @@ mkdir -p "$FTL_DIR"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 echo "[${TIMESTAMP}] Session ended (reason: $REASON)" >> "$FTL_DIR/sessions.log"
 
-# Clean transient cache files (explorer outputs from current session)
-CACHE_DIR=".ftl/cache"
-if [ -d "$CACHE_DIR" ]; then
-    rm -f "$CACHE_DIR"/explorer_*.json 2>/dev/null || true
-fi
+# Database cleanup is handled automatically by SQLite
+# No transient cache files to clean (all explorer data in database)
 
 exit 0

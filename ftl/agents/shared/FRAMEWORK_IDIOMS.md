@@ -38,8 +38,8 @@ python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
 
 | Agent | Check Point | Action on Violation |
 |-------|-------------|---------------------|
-| Explorer | Pattern detection | Report in exploration.json |
-| Planner | Task design | Include idioms in plan.json |
+| Explorer | Pattern detection | Store in exploration table |
+| Planner | Task design | Include idioms in plan output |
 | Builder | PLAN + QUALITY states | BLOCK (if confidence >= 0.6) |
 | Observer | Pattern extraction | Note systemic idiom issues |
 

@@ -44,6 +44,9 @@ Generate revised plan.json that:
 
 Execute phases in order. See [PLANNER_PHASES.md](shared/PLANNER_PHASES.md) for complete specifications.
 
+**Note**: EMIT statements are for console output/logging. Phase transitions are tracked
+separately in the `phase_state` database table via `phase.py transition`.
+
 ### Phase 1: READ_EXPLORATION
 ```bash
 python3 "$(cat .ftl/plugin_root)/lib/exploration.py" read
@@ -129,7 +132,7 @@ See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md). Priority order:
 
 ### Phase 7: EXTRACT_IDIOMS
 
-Use `pattern.idioms` from exploration.json directly.
+Use `pattern.idioms` from exploration data (retrieved via `exploration.py get-pattern`).
 
 See [FRAMEWORK_IDIOMS.md](shared/FRAMEWORK_IDIOMS.md) for defaults.
 

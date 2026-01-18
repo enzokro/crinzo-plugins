@@ -152,7 +152,7 @@ Reusable planning logic with decision parsing.
 EMIT: STATE_ENTRY state=PLAN
 TRACK: clarify_count (starts at 0, persists across PLAN re-entries)
 IF: clarify_count > 5 → EMIT: "Max clarifications (5) reached", RETURN with questions summary
-DO: Task(ftl:ftl-planner) with {input} + exploration.json > plan_output.md
+DO: Task(ftl:ftl-planner) with {input} + exploration data > plan_output.md
 DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/decision_parser.py plan_output.md > decision.json
 CHECK: decision=$(jq -r .decision decision.json)
 IF: decision=="CLARIFY" → INCREMENT clarify_count, present questions, ASK user, GOTO PLAN

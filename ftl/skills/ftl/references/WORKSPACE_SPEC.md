@@ -10,15 +10,15 @@ All workspace data is stored in `.ftl/ftl.db` SQLite database. The CLI maintains
 
 ```
 .ftl/
-├── ftl.db                             # SQLite database (all persistent state)
+├── ftl.db                             # SQLite database (ALL persistent state)
 │   ├── workspace table                # Workspace execution records
 │   ├── campaign table                 # Campaign state with DAG
 │   ├── memory table                   # Failures and patterns
 │   ├── exploration table              # Aggregated explorer outputs
+│   ├── explorer_result table          # Session-based explorer staging
+│   ├── plan table                     # Stored plans from planner
 │   └── ...
-├── cache/
-│   └── explorer_*.json                # Temporary explorer outputs (intermediate)
-├── plan.json                          # Current plan (transient)
+├── ftl.log                            # Debug logs
 └── plugin_root                        # Plugin path marker
 ```
 
@@ -74,14 +74,14 @@ The workspace API accepts and returns virtual paths for CLI compatibility:
 ### complete
 
 - Builder finished, deliverables produced
-- File renamed: `NNN_slug_complete.xml`
+- Status updated to `complete` in database
 - `completed_at` timestamp added
 - `delivered` field populated with summary
 
 ### blocked
 
 - Builder encountered unrecoverable issue
-- File renamed: `NNN_slug_blocked.xml`
+- Status updated to `blocked` in database
 - `blocked_at` timestamp added
 - `delivered` field contains `BLOCKED: {reason}`
 
@@ -89,92 +89,67 @@ The workspace API accepts and returns virtual paths for CLI compatibility:
 
 ---
 
-## XML Schema
+## Database Fields
 
-### Root Element
+Workspace data is stored in the `workspace` table in `.ftl/ftl.db`. The XML-style virtual paths are for CLI compatibility only.
 
-```xml
-<workspace id="003-routes-crud" status="active" _schema_version="1.0" created_at="2024-01-15T10:30:00">
-  <!-- Content -->
-</workspace>
-```
+### Core Fields
 
-| Attribute | Required | Description |
-|-----------|----------|-------------|
-| `id` | Yes | `{SEQ}-{slug}` format |
-| `status` | Yes | `active`, `complete`, or `blocked` |
-| `_schema_version` | Yes | Schema version (currently "1.0") |
-| `created_at` | Yes | ISO 8601 timestamp |
-| `completed_at` | On complete | ISO 8601 timestamp |
-| `blocked_at` | On blocked | ISO 8601 timestamp |
+| Field | Type | Description |
+|-------|------|-------------|
+| `workspace_id` | TEXT | `{SEQ}-{slug}` format, UNIQUE |
+| `campaign_id` | INT | Foreign key to campaigns table |
+| `seq` | TEXT | 3-digit sequence number |
+| `slug` | TEXT | Kebab-case task name |
+| `status` | TEXT | `active`, `complete`, or `blocked` |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `completed_at` | TEXT | ISO 8601 timestamp (on complete) |
+| `blocked_at` | TEXT | ISO 8601 timestamp (on blocked) |
 
-### Full Schema
+### Task Fields
 
-```xml
-<workspace id="003-routes-crud" status="active" _schema_version="1.0" created_at="...">
+| Field | Type | Description |
+|-------|------|-------------|
+| `objective` | TEXT | User's original intent |
+| `delta` | TEXT (JSON) | Files to modify `["path1", "path2"]` |
+| `verify` | TEXT | Verification command |
+| `verify_source` | TEXT | Optional test file to read |
+| `budget` | INT | Tool call budget |
+| `preflight` | TEXT (JSON) | Pre-checks `["cmd1", "cmd2"]` |
 
-  <!-- WHY this task exists -->
-  <objective>Add CRUD routes for user management</objective>
+### Context Fields
 
-  <!-- WHAT to do and HOW to verify -->
-  <implementation>
-    <delta>src/routes.py</delta>
-    <delta>src/models.py</delta>
-    <verify>pytest routes/test_*.py -v</verify>
-    <verify_source>routes/test_crud.py</verify_source>
-    <budget>5</budget>
-    <preflight>python -c "import fasthtml"</preflight>
-  </implementation>
+| Field | Type | Description |
+|-------|------|-------------|
+| `framework` | TEXT | Detected framework name |
+| `framework_confidence` | REAL | Confidence score 0.0-1.0 |
+| `idioms` | TEXT (JSON) | `{"required": [...], "forbidden": [...]}` |
+| `prior_knowledge` | TEXT (JSON) | Injected failures and patterns |
+| `lineage` | TEXT (JSON) | Parent task references |
+| `code_contexts` | TEXT (JSON) | Code snippets for delta files |
 
-  <!-- Code context for delta files -->
-  <code_context path="src/routes.py" lines="45-120">
-    <content>...</content>
-    <exports>get_user(), create_user()</exports>
-    <imports>from fasthtml import ...</imports>
-  </code_context>
+### Output Fields
 
-  <!-- Framework constraints -->
-  <idioms framework="FastHTML" confidence="0.85">
-    <required>use @rt decorator for routes</required>
-    <forbidden>raw HTML string construction</forbidden>
-  </idioms>
+| Field | Type | Description |
+|-------|------|-------------|
+| `delivered` | TEXT | Builder output summary (or `BLOCKED: reason`) |
+| `utilized_memories` | TEXT (JSON) | Memories that were helpful |
 
-  <!-- Framework confidence (standalone) -->
-  <framework_confidence>0.85</framework_confidence>
+### Field Mapping from Conceptual XML
 
-  <!-- Prior knowledge from memory + siblings -->
-  <prior_knowledge>
-    <failure name="import-order" cost="2500" injected="true">
-      <trigger>ImportError: cannot import name 'FT'</trigger>
-      <fix>Import FT from fasthtml.common, not fasthtml</fix>
-      <match>ImportError.*FT</match>
-    </failure>
-    <pattern name="stubs-in-first-build" saved="2293760000" injected="true">
-      <trigger>Building implementation without test file</trigger>
-      <insight>Read verify_source first to understand expected behavior</insight>
-    </pattern>
-  </prior_knowledge>
+For reference, the conceptual XML elements map to database fields:
 
-  <!-- Parent task deliveries (DAG lineage) -->
-  <lineage>
-    <parent seq="001" workspace="001_spec-routes_complete">
-      <prior_delivery>Test stubs created for CRUD operations</prior_delivery>
-    </parent>
-    <parent seq="002" workspace="002_impl-models_complete">
-      <prior_delivery>User model with validation implemented</prior_delivery>
-    </parent>
-  </lineage>
-
-  <!-- Builder output (empty until complete/blocked) -->
-  <delivered></delivered>
-
-  <!-- Memory utilization tracking (on complete) -->
-  <memory_utilization>
-    <utilized name="import-order" type="failure"/>
-  </memory_utilization>
-
-</workspace>
-```
+| XML Element | Database Field |
+|-------------|----------------|
+| `<objective>` | `objective` |
+| `<implementation><delta>` | `delta` (JSON array) |
+| `<implementation><verify>` | `verify` |
+| `<implementation><budget>` | `budget` |
+| `<idioms>` | `idioms` (JSON object) |
+| `<prior_knowledge>` | `prior_knowledge` (JSON object) |
+| `<lineage>` | `lineage` (JSON object) |
+| `<delivered>` | `delivered` |
+| `<memory_utilization>` | `utilized_memories` (JSON array) |
 
 ---
 
@@ -293,7 +268,7 @@ Enables intra-campaign learning: failures from one branch inform parallel branch
 |-------|--------------|
 | Plan created | Tasks defined with dependencies, no workspaces yet |
 | Task 001 starts | Workspace created with `memory.get_context()` only |
-| Task 001 blocks | Failure recorded in `001_slug_blocked.xml` |
+| Task 001 blocks | Workspace status set to `blocked` in database |
 | Task 002 starts | Workspace created with memory + sibling failures from 001 |
 
 ### Implementation
@@ -308,29 +283,33 @@ def create(plan, task_seq):
     )
     memory_failures = memory_ctx.get("failures", [])
 
-    # 2. Scan for sibling failures
-    sibling_failures = get_sibling_failures(WORKSPACE_DIR)
+    # 2. Query for sibling failures from database
+    sibling_failures = get_sibling_failures(campaign_id)
 
     # 3. Combine and inject
     all_failures = memory_failures + sibling_failures
     inject_into_prior_knowledge(workspace, all_failures)
 
-def get_sibling_failures(workspace_dir):
-    failures = []
-    for blocked_path in workspace_dir.glob("*_blocked.xml"):
-        blocked_data = parse(blocked_path)
-        delivered = blocked_data.get("delivered", "")
+def get_sibling_failures(campaign_id: int) -> list:
+    """Query blocked workspaces in same campaign for failure injection."""
+    db = get_db()
+    blocked = list(db.t.workspace.rows_where(
+        "campaign_id = ? AND status = ?",
+        [campaign_id, "blocked"]
+    ))
 
+    failures = []
+    for ws in blocked:
+        delivered = ws.get("delivered", "")
         if "BLOCKED:" in delivered:
             reason = delivered.split("BLOCKED:", 1)[1].strip()
             failures.append({
-                "name": f"sibling-{blocked_path.stem}",
+                "name": f"sibling-{ws['workspace_id']}",
                 "trigger": reason.split('\n')[0],
                 "fix": "See blocked workspace for attempted fixes",
                 "cost": 1000,
-                "source": [blocked_path.stem]
+                "source": [ws["workspace_id"]]
             })
-
     return failures
 ```
 
@@ -379,7 +358,7 @@ All database operations are protected by SQLite's ACID properties, replacing the
 
 | Command | Description |
 |---------|-------------|
-| `workspace.py create --plan plan.json [--task SEQ]` | Create workspace(s) from plan |
+| `workspace.py create --plan-id ID [--task SEQ]` | Create workspace(s) from stored plan |
 | `workspace.py complete PATH --delivered "summary"` | Mark workspace complete |
 | `workspace.py block PATH --reason "why"` | Mark workspace blocked |
 | `workspace.py parse PATH` | Parse workspace to JSON |

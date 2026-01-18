@@ -200,7 +200,7 @@ When Decision = CLARIFY:
 ## Blocking Questions
 1. [Specific question that would unblock planning]
 
-## What I Analyzed (from exploration.json)
+## What I Analyzed (from exploration database)
 - Structure: {file_count} files
 - Framework: {pattern.framework}
 - Delta candidates: {delta.candidates.length} files

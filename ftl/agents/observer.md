@@ -1,7 +1,7 @@
 ---
 name: ftl-observer
 description: Extract patterns from completed work
-tools: Read, Bash, Edit  # Edit reserved for direct memory.json patches when CLI fails
+tools: Read, Bash, Edit  # Edit reserved for test file modifications
 model: opus
 requires:
   - shared/ONTOLOGY.md@1.1
@@ -242,22 +242,15 @@ python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-relationship "failure-a" "re
 
 ---
 
-## Phase 4: Memory Feedback [Tools 7-8]
+## Phase 4: Memory Feedback [Automatic]
 
-**TRIGGER**: After reading `workspace.utilized` from completed workspaces
-**EMIT**: `"Phase: feedback, Status: recording {N} utilization events"`
+Feedback is tracked automatically via the `utilized_memories` field in workspace records.
+When builder marks memories as utilized, this data is available for analysis without explicit feedback commands.
 
-Record whether injected memories were helpful:
+**EMIT**: `"Phase: feedback, Status: analyzing {N} utilization events from workspace records"`
 
-```bash
-# Memory was helpful
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" feedback "failure-name" --helped
-
-# Memory was present but didn't help
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" feedback "failure-name" --failed
-```
-
-This feedback loop improves future retrieval—helpful memories persist, unhelpful ones decay.
+The `utilized_memories` JSON array in completed workspaces indicates which injected memories were actually helpful.
+This feedback loop improves future retrieval—helpful memories persist in relevance scoring.
 
 ---
 

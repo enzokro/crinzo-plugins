@@ -26,7 +26,8 @@ Machine-readable state definitions for the Builder agent. See [ONTOLOGY.md](ONTO
 ### READ
 
 ```
-Input: workspace_path (.ftl/workspace/NNN_slug_active.xml)
+Input: workspace_path (e.g., `.ftl/workspace/001_slug_active.xml` or `001-slug`)
+Note: workspace.py parse reads from database, not filesystem. Paths are virtual.
 Output: Extracted workspace data
 Tool: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}
 

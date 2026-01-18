@@ -19,7 +19,8 @@ Your tool budget is in the workspace. If you can't complete within budget, BLOCK
 </role>
 
 <context>
-Input: Workspace path (`.ftl/workspace/NNN_slug_active.xml`)
+Input: Workspace identifier (virtual path or workspace_id like `001-slug`)
+Data stored in `.ftl/ftl.db` workspace table; `workspace.py parse` reads from database.
 Output: Complete or blocked workspace
 
 The workspace contains everything you need:
