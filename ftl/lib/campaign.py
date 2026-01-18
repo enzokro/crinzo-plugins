@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Campaign operations with request-scoped caching."""
+"""Campaign operations with fastsql database backend.
+
+Provides campaign lifecycle management, task DAG scheduling,
+similarity search, and adaptive re-planning support.
+"""
 
 from pathlib import Path
 from datetime import datetime
@@ -7,99 +11,91 @@ from contextlib import contextmanager
 import json
 import argparse
 import sys
+import hashlib
 
 # Support both standalone execution and module import
 try:
-    from lib.atomicfile import atomic_json_update
+    from lib.db import get_db, init_db, Campaign, Archive
+    from lib.db.embeddings import embed, embed_to_blob, cosine_similarity_blob, similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from atomicfile import atomic_json_update
+    from db import get_db, init_db, Campaign, Archive
+    from db.embeddings import embed, embed_to_blob, cosine_similarity_blob, similarity
 
 
-CAMPAIGN_FILE = Path(".ftl/campaign.json")
-ARCHIVE_DIR = Path(".ftl/archive")
-EXPLORATION_FILE = Path(".ftl/exploration.json")
-WORKSPACE_DIR = Path(".ftl/workspace")
-
-# Request-scoped cache for campaign data
-_cache = {
-    "campaign": None,
-    "mtime": None,
-    "dirty": False,
-}
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
 
 
-def _load_cached(path: Path = CAMPAIGN_FILE) -> dict:
-    """Load campaign with mtime-based cache validation.
-
-    Returns cached data if file hasn't changed, otherwise reloads.
-    """
-    if not path.exists():
-        _cache["campaign"] = None
-        _cache["mtime"] = None
-        return None
-
-    current_mtime = path.stat().st_mtime
-    if _cache["campaign"] is not None and _cache["mtime"] == current_mtime:
-        return _cache["campaign"]
-
-    _cache["campaign"] = json.loads(path.read_text())
-    _cache["mtime"] = current_mtime
-    return _cache["campaign"]
+def _get_active_campaign():
+    """Get the currently active campaign, if any."""
+    db = _ensure_db()
+    campaigns = db.t.campaign
+    rows = list(campaigns.rows_where("status = ?", ["active"]))
+    if rows:
+        # Return most recent active campaign
+        rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return rows[0]
+    return None
 
 
-def _invalidate_cache():
-    """Invalidate the cache after writes."""
-    _cache["campaign"] = None
-    _cache["mtime"] = None
-
+# =============================================================================
+# Request-scoped cache (no-op for database backend)
+# =============================================================================
 
 @contextmanager
 def campaign_session():
-    """Context manager for batched campaign operations.
+    """Context manager for batched campaign operations (no-op with DB)."""
+    yield
 
-    Within a session, reads are cached and writes are batched.
-    On exit, all pending updates are written atomically.
 
-    Example:
-        with campaign_session():
-            update_task("001", "complete")
-            update_task("002", "complete")
-            # Single atomic write on exit
-    """
-    global _cache
-    _cache["dirty"] = False
-    try:
-        yield
-    finally:
-        _invalidate_cache()
-
+# =============================================================================
+# Core Campaign Operations
+# =============================================================================
 
 def create(objective: str, framework: str = None) -> dict:
-    """Create new campaign with atomic write.
+    """Create new campaign.
 
     Args:
         objective: Campaign objective
         framework: Optional framework name
 
     Returns:
-        Campaign dict
+        Campaign dict with id and objective
     """
-    campaign = {
-        "_schema_version": "1.0",
+    db = _ensure_db()
+    campaigns = db.t.campaign
+
+    # Generate embedding for objective
+    emb = embed(objective)
+    emb_blob = embed_to_blob(emb) if emb else None
+
+    campaign = Campaign(
+        objective=objective,
+        framework=framework,
+        status="active",
+        created_at=datetime.now().isoformat(),
+        completed_at=None,
+        tasks="[]",
+        summary="{}",
+        fingerprint="{}",
+        patterns_extracted="[]",
+        objective_embedding=emb_blob
+    )
+
+    result = campaigns.insert(campaign)
+    now = datetime.now().isoformat()
+
+    return {
+        "id": result.id,
         "objective": objective,
-        "framework": framework,
-        "created_at": datetime.now().isoformat(),
         "status": "active",
         "tasks": [],
+        "framework": framework,
+        "created_at": now
     }
-    CAMPAIGN_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    # Use atomic write to prevent corruption on crash
-    from atomicfile import atomic_write
-    atomic_write(CAMPAIGN_FILE, campaign)
-    _invalidate_cache()
-    return campaign
 
 
 def add_tasks(plan: dict) -> None:
@@ -109,9 +105,10 @@ def add_tasks(plan: dict) -> None:
         plan: Plan dict with tasks[]
 
     Raises:
-        ValueError: If no active campaign or cycle detected in dependencies
+        ValueError: If no active campaign or cycle detected
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _get_active_campaign()
+    if not campaign:
         raise ValueError("No active campaign")
 
     tasks = plan.get("tasks", [])
@@ -119,112 +116,55 @@ def add_tasks(plan: dict) -> None:
     # Detect cycles before registering
     cycle = _detect_cycle(tasks)
     if cycle:
-        cycle_str = " → ".join(str(s) for s in cycle)
+        cycle_str = " -> ".join(str(s) for s in cycle)
         raise ValueError(f"Cycle detected in task dependencies: {cycle_str}")
 
-    def do_update(campaign):
-        campaign["framework"] = plan.get("framework")
-        campaign["tasks"] = [
-            {
-                "seq": t["seq"],
-                "slug": t["slug"],
-                "type": t.get("type", "BUILD"),
-                "depends": t.get("depends", "none"),  # Store for DAG scheduling
-                "status": "pending"
-            }
-            for t in tasks
-        ]
+    db = _ensure_db()
+    campaigns = db.t.campaign
 
-    atomic_json_update(CAMPAIGN_FILE, do_update)
+    # Build task entries with status
+    task_entries = [
+        {
+            "seq": t["seq"],
+            "slug": t["slug"],
+            "type": t.get("type", "BUILD"),
+            "depends": t.get("depends", "none"),
+            "status": "pending"
+        }
+        for t in tasks
+    ]
 
-
-def _normalize_seq(seq) -> int | str:
-    """Normalize seq to int for comparison (handles '001' -> 1)."""
-    try:
-        return int(seq)
-    except (ValueError, TypeError):
-        return seq
+    # Update campaign
+    campaigns.update({
+        "framework": plan.get("framework"),
+        "tasks": json.dumps(task_entries)
+    }, campaign["id"])
 
 
-def _get_deps(task: dict) -> list:
-    """Extract normalized dependency list from task."""
-    depends = task.get("depends", "none")
-    if depends == "none" or depends is None:
-        return []
-    if isinstance(depends, str):
-        return [_normalize_seq(depends)]
-    return [_normalize_seq(d) for d in depends if d and d != "none"]
-
-
-def _detect_cycle(tasks: list) -> list | None:
-    """Detect cycle in task dependencies using DFS.
-
-    Args:
-        tasks: List of task dicts with seq and depends
-
-    Returns:
-        List of seqs forming cycle, or None if acyclic
-    """
-    # Build adjacency: task -> dependencies
-    task_seqs = {_normalize_seq(t["seq"]) for t in tasks}
-    deps = {_normalize_seq(t["seq"]): _get_deps(t) for t in tasks}
-
-    visited = set()
-    path = []
-    path_set = set()
-
-    def dfs(seq):
-        if seq in path_set:
-            # Found cycle - extract it
-            cycle_start = path.index(seq)
-            return path[cycle_start:] + [seq]
-        if seq in visited:
-            return None
-
-        path.append(seq)
-        path_set.add(seq)
-
-        for dep in deps.get(seq, []):
-            if dep in task_seqs:  # Only check deps within our task set
-                result = dfs(dep)
-                if result:
-                    return result
-
-        path.pop()
-        path_set.remove(seq)
-        visited.add(seq)
-        return None
-
-    for seq in task_seqs:
-        if seq not in visited:
-            result = dfs(seq)
-            if result:
-                return result
-
-    return None
-
-
-def update_task(seq: int | str, status: str) -> None:
+def update_task(seq, status: str) -> None:
     """Update task status.
 
     Args:
-        seq: Task sequence number (int or string, e.g., 1, "1", "001")
+        seq: Task sequence number (int or string)
         status: New status (pending, in_progress, complete, blocked)
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _get_active_campaign()
+    if not campaign:
         raise ValueError("No active campaign")
 
+    db = _ensure_db()
+    campaigns = db.t.campaign
+
     seq_normalized = _normalize_seq(seq)
+    tasks = json.loads(campaign["tasks"])
 
-    def do_update(campaign):
-        for task in campaign["tasks"]:
-            if _normalize_seq(task["seq"]) == seq_normalized:
-                task["status"] = status
-                task["updated_at"] = datetime.now().isoformat()
-                break
+    for task in tasks:
+        if _normalize_seq(task["seq"]) == seq_normalized:
+            task["status"] = status
+            task["updated_at"] = datetime.now().isoformat()
+            break
 
-    atomic_json_update(CAMPAIGN_FILE, do_update)
-    _invalidate_cache()  # Invalidate cache after write
+    campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
 
 
 def next_task() -> dict | None:
@@ -233,32 +173,30 @@ def next_task() -> dict | None:
     Returns:
         Task dict or None if no pending tasks
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _get_active_campaign()
+    if not campaign:
         return None
 
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
-    for task in campaign.get("tasks", []):
+    tasks = json.loads(campaign["tasks"])
+    for task in tasks:
         if task.get("status") == "pending":
             return task
     return None
 
 
-def ready_tasks() -> list[dict]:
-    """Get all tasks ready for execution (pending with all dependencies complete).
-
-    This enables DAG-based parallel execution: tasks whose dependencies are
-    all complete can run simultaneously.
+def ready_tasks() -> list:
+    """Get all tasks ready for execution (pending with all deps complete).
 
     Returns:
         List of task dicts ready for parallel execution
     """
-    campaign = _load_cached()
-    if campaign is None:
+    campaign = _get_active_campaign()
+    if not campaign:
         return []
 
-    tasks = campaign.get("tasks", [])
+    tasks = json.loads(campaign["tasks"])
 
-    # Build set of completed task seqs (normalized to int for comparison)
+    # Build set of completed seqs
     completed_seqs = {
         _normalize_seq(t["seq"])
         for t in tasks
@@ -270,23 +208,8 @@ def ready_tasks() -> list[dict]:
         if task.get("status") != "pending":
             continue
 
-        depends = task.get("depends", "none")
-
-        # Normalize depends to list
-        if depends == "none" or depends is None:
-            deps_list = []
-        elif isinstance(depends, str):
-            deps_list = [depends]
-        else:
-            deps_list = depends
-
-        # Check if all dependencies are complete
-        all_deps_complete = all(
-            _normalize_seq(dep) in completed_seqs
-            for dep in deps_list
-        )
-
-        if all_deps_complete:
+        deps = _get_deps(task)
+        if all(d in completed_seqs for d in deps):
             ready.append(task)
 
     return ready
@@ -296,21 +219,13 @@ def cascade_status() -> dict:
     """Detect if campaign is stuck due to blocked parent cascade.
 
     Returns:
-        {
-            "state": "none" | "complete" | "in_progress" | "stuck" | "all_blocked",
-            "ready": int,
-            "pending": int,
-            "complete": int,
-            "blocked": int,
-            "unreachable": [{"seq": "002", "blocked_by": ["001"]}, ...]
-        }
+        Status dict with state, counts, and unreachable tasks
     """
-    campaign = _load_cached()
-    if campaign is None:
+    campaign = _get_active_campaign()
+    if not campaign:
         return {"state": "none"}
 
-    tasks = campaign.get("tasks", [])
-
+    tasks = json.loads(campaign["tasks"])
     if not tasks:
         return {"state": "complete", "ready": 0, "pending": 0, "complete": 0, "blocked": 0, "unreachable": []}
 
@@ -324,15 +239,13 @@ def cascade_status() -> dict:
     ready = ready_tasks()
     counts["ready"] = len(ready)
 
-    # If we have ready tasks, we're in progress
     if ready:
         return {"state": "in_progress", **counts, "unreachable": []}
 
-    # If no pending tasks, we're complete
     if counts["pending"] == 0:
         return {"state": "complete", **counts, "unreachable": []}
 
-    # No ready tasks but pending exist - check for cascade
+    # Check for cascade
     blocked_seqs = {
         _normalize_seq(t["seq"])
         for t in tasks
@@ -356,25 +269,17 @@ def cascade_status() -> dict:
     if unreachable:
         return {"state": "stuck", **counts, "unreachable": unreachable}
 
-    # Pending but not unreachable - shouldn't happen in valid DAG
     return {"state": "all_blocked", **counts, "unreachable": []}
 
 
 def propagate_blocks() -> list:
     """Mark all unreachable tasks as blocked due to parent cascade.
 
-    This allows the campaign to complete gracefully when some branches
-    are blocked while others succeed. Loops until full cascade is propagated.
-
-    Uses batched updates - all unreachable tasks in each iteration are
-    updated in a single atomic write.
-
     Returns:
         List of task seqs that were marked blocked
     """
     all_propagated = []
 
-    # Loop until no more unreachable tasks
     while True:
         cs = cascade_status()
         if cs.get("state") != "stuck":
@@ -384,23 +289,26 @@ def propagate_blocks() -> list:
         if not unreachable:
             break
 
-        propagated = []
+        campaign = _get_active_campaign()
+        if not campaign:
+            break
 
-        # Build lookup for batch update
+        db = _ensure_db()
+        campaigns = db.t.campaign
+
+        tasks = json.loads(campaign["tasks"])
         unreachable_map = {u["seq"]: u["blocked_by"] for u in unreachable}
+        propagated = []
+        now = datetime.now().isoformat()
 
-        def do_update(campaign):
-            nonlocal propagated
-            now = datetime.now().isoformat()
-            for task in campaign["tasks"]:
-                if task["seq"] in unreachable_map:
-                    task["status"] = "blocked"
-                    task["blocked_by"] = unreachable_map[task["seq"]]
-                    task["updated_at"] = now
-                    propagated.append(task["seq"])
+        for task in tasks:
+            if task["seq"] in unreachable_map:
+                task["status"] = "blocked"
+                task["blocked_by"] = unreachable_map[task["seq"]]
+                task["updated_at"] = now
+                propagated.append(task["seq"])
 
-        atomic_json_update(CAMPAIGN_FILE, do_update)
-        _invalidate_cache()  # Invalidate cache after write
+        campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
         all_propagated.extend(propagated)
 
     return all_propagated
@@ -412,115 +320,173 @@ def status() -> dict:
     Returns:
         Campaign dict or {"status": "none"} if no campaign
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _get_active_campaign()
+    if not campaign:
         return {"status": "none"}
-    return json.loads(CAMPAIGN_FILE.read_text())
+
+    return {
+        "status": campaign["status"],
+        "objective": campaign["objective"],
+        "framework": campaign.get("framework"),
+        "created_at": campaign.get("created_at"),
+        "tasks": json.loads(campaign["tasks"]),
+        "summary": json.loads(campaign.get("summary") or "{}"),
+    }
+
+
+def active() -> dict | None:
+    """Get active campaign or None."""
+    campaign = _get_active_campaign()
+    if not campaign:
+        return None
+
+    return {
+        "id": campaign["id"],
+        "status": campaign["status"],
+        "objective": campaign["objective"],
+        "framework": campaign.get("framework"),
+        "created_at": campaign.get("created_at"),
+        "tasks": json.loads(campaign["tasks"]),
+    }
 
 
 def complete(summary: str = None, patterns_extracted: list = None) -> dict:
-    """Complete campaign.
+    """Complete campaign and archive it.
 
     Args:
-        summary: Optional summary text (if None, computes dict summary)
-        patterns_extracted: Optional list of pattern names extracted during this campaign
+        summary: Optional summary text
+        patterns_extracted: Optional list of pattern names extracted
 
     Returns:
-        Final campaign dict with summary and fingerprint
+        Final campaign dict
     """
-    if not CAMPAIGN_FILE.exists():
+    campaign = _get_active_campaign()
+    if not campaign:
         raise ValueError("No active campaign")
 
+    db = _ensure_db()
+    campaigns = db.t.campaign
+    archives = db.t.archive
+
     completed_at = datetime.now().isoformat()
-    result_campaign = {}
+    tasks = json.loads(campaign["tasks"])
 
-    def do_update(campaign):
-        nonlocal result_campaign
-        campaign["status"] = "complete"
-        campaign["completed_at"] = completed_at
+    # Calculate summary
+    if summary is not None:
+        summary_data = summary
+    else:
+        summary_data = {
+            "total": len(tasks),
+            "complete": sum(1 for t in tasks if t.get("status") == "complete"),
+            "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
+        }
 
-        # Calculate summary
-        if summary is not None:
-            campaign["summary"] = summary
-        else:
-            tasks = campaign.get("tasks", [])
-            campaign["summary"] = {
-                "total": len(tasks),
-                "complete": sum(1 for t in tasks if t.get("status") == "complete"),
-                "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
-            }
+    # Generate fingerprint
+    fp = fingerprint({"objective": campaign["objective"], "framework": campaign.get("framework"), "tasks": tasks})
 
-        # Generate and store fingerprint for similarity matching
-        campaign["fingerprint"] = fingerprint(campaign)
+    # Determine outcome
+    if isinstance(summary_data, dict):
+        total = summary_data.get("total", 0)
+        complete_count = summary_data.get("complete", 0)
+        outcome = "complete" if complete_count == total else "partial"
+    else:
+        outcome = "complete"
 
-        # Store patterns extracted during this campaign (for transfer learning)
-        if patterns_extracted:
-            campaign["patterns_extracted"] = patterns_extracted
+    # Update campaign
+    campaigns.update({
+        "status": "complete",
+        "completed_at": completed_at,
+        "summary": json.dumps(summary_data),
+        "fingerprint": json.dumps(fp),
+        "patterns_extracted": json.dumps(patterns_extracted or [])
+    }, campaign["id"])
 
-        # Store copy for archiving
-        result_campaign = dict(campaign)
+    # Create archive entry in database
+    archives.insert(Archive(
+        campaign_id=campaign["id"],
+        objective=campaign["objective"],
+        objective_preview=campaign["objective"][:100],
+        framework=campaign.get("framework"),
+        completed_at=completed_at,
+        fingerprint=json.dumps(fp),
+        objective_embedding=campaign.get("objective_embedding"),
+        outcome=outcome,
+        summary=json.dumps(summary_data),
+        patterns_extracted=json.dumps(patterns_extracted or [])
+    ))
 
-    atomic_json_update(CAMPAIGN_FILE, do_update)
-
-    # Archive completed campaign
-    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-    safe_ts = completed_at.replace(":", "-").replace(".", "-")
-    (ARCHIVE_DIR / f"{safe_ts}.json").write_text(json.dumps(result_campaign, indent=2))
-
-    return result_campaign
+    return {
+        "status": "complete",
+        "objective": campaign["objective"],
+        "completed_at": completed_at,
+        "summary": summary_data,
+        "fingerprint": fp,
+    }
 
 
 def history() -> dict:
     """Get archived campaign history.
 
     Returns:
-        Dict with archives list containing objective, completed_at, summary
+        Dict with archives list
     """
-    archives = []
-    if ARCHIVE_DIR.exists():
-        for f in sorted(ARCHIVE_DIR.glob("*.json"), reverse=True):
-            campaign = json.loads(f.read_text())
-            archives.append({
-                "objective": campaign.get("objective"),
-                "completed_at": campaign.get("completed_at"),
-                "summary": campaign.get("summary"),
-            })
-    return {"archives": archives}
+    db = _ensure_db()
+    archives = db.t.archive
+
+    result = []
+    for row in archives.rows:
+        result.append({
+            "objective": row["objective"],
+            "completed_at": row.get("completed_at"),
+            "summary": json.loads(row.get("summary") or "{}"),
+        })
+
+    # Sort by completed_at descending
+    result.sort(key=lambda x: x.get("completed_at", ""), reverse=True)
+    return {"archives": result}
 
 
 def export_history(output_file: str, start_date: str = None, end_date: str = None) -> dict:
-    """Export campaign history to JSON file with optional date filtering.
+    """Export campaign history to JSON file.
 
     Args:
         output_file: Path to output JSON file
-        start_date: Optional start date (YYYY-MM-DD format)
-        end_date: Optional end date (YYYY-MM-DD format)
+        start_date: Optional start date (YYYY-MM-DD)
+        end_date: Optional end date (YYYY-MM-DD)
 
     Returns:
         Dict with campaigns list
     """
-    campaigns = []
-    if ARCHIVE_DIR.exists():
-        for f in sorted(ARCHIVE_DIR.glob("*.json"), reverse=True):
-            campaign = json.loads(f.read_text())
-            completed_at = campaign.get("completed_at", "")
+    db = _ensure_db()
+    archives = db.t.archive
+    campaigns_table = db.t.campaign
 
-            # Extract date portion (YYYY-MM-DD) from ISO timestamp
-            if completed_at:
-                campaign_date = completed_at[:10]
-            else:
-                campaign_date = ""
+    campaign_list = []
 
-            # Apply date filters
-            if start_date and campaign_date < start_date:
-                continue
-            if end_date and campaign_date > end_date:
-                continue
+    # Get completed campaigns
+    for row in campaigns_table.rows_where("status = ?", ["complete"]):
+        completed_at = row.get("completed_at", "")
+        if completed_at:
+            campaign_date = completed_at[:10]
+        else:
+            campaign_date = ""
 
-            campaigns.append(campaign)
+        if start_date and campaign_date < start_date:
+            continue
+        if end_date and campaign_date > end_date:
+            continue
 
-    result = {"campaigns": campaigns}
+        campaign_list.append({
+            "objective": row["objective"],
+            "framework": row.get("framework"),
+            "completed_at": completed_at,
+            "tasks": json.loads(row["tasks"]),
+            "summary": json.loads(row.get("summary") or "{}"),
+            "fingerprint": json.loads(row.get("fingerprint") or "{}"),
+        })
 
-    # Write to output file
+    result = {"campaigns": campaign_list}
+
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2))
@@ -528,88 +494,52 @@ def export_history(output_file: str, start_date: str = None, end_date: str = Non
     return result
 
 
-def active() -> dict | None:
-    """Get active campaign or None.
-
-    Returns:
-        Campaign dict if active, else None
-    """
-    if not CAMPAIGN_FILE.exists():
-        return None
-    campaign = json.loads(CAMPAIGN_FILE.read_text())
-    if campaign.get("status") == "active":
-        return campaign
-    return None
-
-
 def fingerprint(campaign: dict = None) -> dict:
-    """Generate a fingerprint for campaign similarity matching.
-
-    Fingerprint includes:
-    - framework: The detected framework
-    - task_count: Number of tasks
-    - task_types: Set of task types (SPEC, BUILD)
-    - delta_files: Sorted list of files being modified
-    - objective_hash: Short hash of objective for quick comparison
+    """Generate fingerprint for campaign similarity matching.
 
     Args:
-        campaign: Campaign dict (if None, loads active campaign)
+        campaign: Campaign dict (if None, uses active campaign)
 
     Returns:
         Fingerprint dict
     """
     if campaign is None:
-        campaign = status()
-        if campaign.get("status") == "none":
+        active_camp = _get_active_campaign()
+        if not active_camp:
             return {}
+        campaign = {
+            "objective": active_camp["objective"],
+            "framework": active_camp.get("framework"),
+            "tasks": json.loads(active_camp["tasks"])
+        }
 
     tasks = campaign.get("tasks", [])
 
-    # Collect delta files from exploration if available
+    # Collect delta files from exploration
     delta_files = []
-    if EXPLORATION_FILE.exists():
-        try:
-            exploration = json.loads(EXPLORATION_FILE.read_text())
-            delta = exploration.get("delta", {})
+    try:
+        db = _ensure_db()
+        explorations = db.t.exploration
+        exp_rows = list(explorations.rows)
+        if exp_rows:
+            exp_rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+            delta = json.loads(exp_rows[0].get("delta") or "{}")
             candidates = delta.get("candidates", [])
             delta_files = sorted(set(c.get("file", "") for c in candidates if c.get("file")))
-        except (json.JSONDecodeError, KeyError):
-            pass
+    except Exception:
+        pass
 
-    # Hash objective for quick comparison
-    import hashlib
     objective = campaign.get("objective", "")
     obj_hash = hashlib.md5(objective.encode()).hexdigest()[:8]
 
     return {
-        "framework": campaign.get("framework", "none"),
+        "framework": campaign.get("framework") or "none",
         "task_count": len(tasks),
         "task_types": sorted(set(t.get("type", "BUILD") for t in tasks)),
-        "delta_files": delta_files[:20],  # Limit to 20 files
+        "delta_files": delta_files[:20],
         "objective_hash": obj_hash,
         "objective_preview": objective[:100],
     }
-
-
-def _embed_text(text: str) -> tuple | None:
-    """Get embedding for text (lazy import)."""
-    try:
-        from embeddings import embed
-        return embed(text)
-    except ImportError:
-        return None
-
-
-def _cosine_similarity(vec1: tuple, vec2: tuple) -> float:
-    """Compute cosine similarity between two vectors."""
-    if not vec1 or not vec2:
-        return 0.0
-    try:
-        import numpy as np
-        v1, v2 = np.array(vec1), np.array(vec2)
-        return float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
-    except ImportError:
-        return 0.0
 
 
 def find_similar(
@@ -619,18 +549,13 @@ def find_similar(
 ) -> list:
     """Find campaigns similar to the current one.
 
-    Similarity is based on:
-    - Framework match (required)
-    - Objective embedding similarity
-    - Delta file overlap
-
     Args:
-        current_fingerprint: Fingerprint to compare (if None, uses active campaign)
-        threshold: Minimum similarity score (0.0-1.0)
+        current_fingerprint: Fingerprint to compare (if None, uses active)
+        threshold: Minimum similarity score
         max_results: Maximum number of results
 
     Returns:
-        List of {"archive": str, "similarity": float, "fingerprint": dict, "outcome": str}
+        List of similar campaigns with similarity scores
     """
     if current_fingerprint is None:
         current_fingerprint = fingerprint()
@@ -641,144 +566,124 @@ def find_similar(
     current_framework = current_fingerprint.get("framework", "none")
     current_objective = current_fingerprint.get("objective_preview", "")
     current_delta = set(current_fingerprint.get("delta_files", []))
-    current_embedding = _embed_text(current_objective)
+
+    # Get current embedding
+    current_emb = embed(current_objective)
+    current_emb_blob = embed_to_blob(current_emb) if current_emb else None
+
+    db = _ensure_db()
+    archives = db.t.archive
 
     results = []
 
-    if not ARCHIVE_DIR.exists():
-        return []
-
-    for archive_path in ARCHIVE_DIR.glob("*.json"):
-        try:
-            archived = json.loads(archive_path.read_text())
-        except (json.JSONDecodeError, IOError):
-            continue
-
-        arch_fingerprint = archived.get("fingerprint", {})
-        if not arch_fingerprint:
-            # Legacy archive without fingerprint - generate one
-            arch_fingerprint = {
-                "framework": archived.get("framework", "none"),
-                "task_count": len(archived.get("tasks", [])),
-                "objective_preview": archived.get("objective", "")[:100],
+    for row in archives.rows:
+        arch_fp = json.loads(row.get("fingerprint") or "{}")
+        if not arch_fp:
+            arch_fp = {
+                "framework": row.get("framework") or "none",
+                "task_count": 0,
+                "objective_preview": row.get("objective_preview", "")[:100],
             }
 
-        # Framework must match (or both be "none")
-        arch_framework = arch_fingerprint.get("framework", "none")
+        # Framework must match
+        arch_framework = arch_fp.get("framework", "none")
         if current_framework != "none" and arch_framework != current_framework:
             continue
 
         # Calculate similarity
-        similarity = 0.0
+        sim = 0.0
 
         # Objective embedding similarity (weight: 0.6)
-        arch_objective = arch_fingerprint.get("objective_preview", archived.get("objective", "")[:100])
-        if current_embedding:
-            arch_embedding = _embed_text(arch_objective)
-            if arch_embedding:
-                similarity += 0.6 * _cosine_similarity(current_embedding, arch_embedding)
+        arch_emb_blob = row.get("objective_embedding")
+        if current_emb_blob and arch_emb_blob:
+            sim += 0.6 * cosine_similarity_blob(current_emb_blob, arch_emb_blob)
         else:
-            # Fallback to string comparison
-            from difflib import SequenceMatcher
-            similarity += 0.6 * SequenceMatcher(None, current_objective.lower(), arch_objective.lower()).ratio()
+            arch_objective = arch_fp.get("objective_preview", row.get("objective", "")[:100])
+            sim += 0.6 * similarity(current_objective, arch_objective)
 
         # Delta file overlap (weight: 0.3)
-        arch_delta = set(arch_fingerprint.get("delta_files", []))
+        arch_delta = set(arch_fp.get("delta_files", []))
         if current_delta and arch_delta:
             overlap = len(current_delta & arch_delta) / max(len(current_delta | arch_delta), 1)
-            similarity += 0.3 * overlap
+            sim += 0.3 * overlap
 
         # Task count similarity (weight: 0.1)
         current_tasks = current_fingerprint.get("task_count", 0)
-        arch_tasks = arch_fingerprint.get("task_count", 0)
+        arch_tasks = arch_fp.get("task_count", 0)
         if current_tasks > 0 and arch_tasks > 0:
             task_sim = 1.0 - abs(current_tasks - arch_tasks) / max(current_tasks, arch_tasks)
-            similarity += 0.1 * task_sim
+            sim += 0.1 * task_sim
 
-        if similarity >= threshold:
-            # Determine outcome
-            summary = archived.get("summary", {})
-            if isinstance(summary, dict):
-                total = summary.get("total", 0)
-                complete = summary.get("complete", 0)
-                outcome = "complete" if complete == total else "partial"
-            else:
-                outcome = "complete"
-
+        if sim >= threshold:
             results.append({
-                "archive": archive_path.stem,
-                "similarity": round(similarity, 3),
-                "fingerprint": arch_fingerprint,
-                "outcome": outcome,
-                "objective": archived.get("objective", "")[:100],
-                "patterns_from": archived.get("patterns_extracted", []),
+                "archive": str(row["id"]),
+                "similarity": round(sim, 3),
+                "fingerprint": arch_fp,
+                "outcome": row.get("outcome", "complete"),
+                "objective": row.get("objective", "")[:100],
+                "patterns_from": json.loads(row.get("patterns_extracted") or "[]"),
             })
 
-    # Sort by similarity descending
     results.sort(key=lambda x: x["similarity"], reverse=True)
     return results[:max_results]
 
 
 def get_replan_input() -> dict:
-    """Generate input for adaptive re-planning from current campaign state.
+    """Generate input for adaptive re-planning.
 
-    Called when CASCADE detects stuck state with significant unreachable tasks.
-    Returns context for Planner to generate revised plan.
+    Returns:
+        Context dict for Planner to generate revised plan
     """
-    campaign = _load_cached()
+    campaign = _get_active_campaign()
     if not campaign:
         return {}
 
-    tasks = campaign.get("tasks", [])
+    tasks = json.loads(campaign["tasks"])
     completed = [t for t in tasks if t.get("status") == "complete"]
     blocked = [t for t in tasks if t.get("status") == "blocked"]
     pending = [t for t in tasks if t.get("status") == "pending"]
 
-    # Collect delivery evidence from completed workspaces
+    # Collect delivery evidence
     completed_evidence = []
     for task in completed:
-        ws_files = list(WORKSPACE_DIR.glob(f"{task['seq']}_*_complete.xml"))
-        if ws_files:
-            try:
-                from workspace import parse
-                ws = parse(ws_files[0])
-                completed_evidence.append({
-                    "seq": task["seq"],
-                    "slug": task.get("slug", ""),
-                    "delivered": ws.get("delivered", "")[:200]
-                })
-            except Exception:
-                completed_evidence.append({
-                    "seq": task["seq"],
-                    "slug": task.get("slug", ""),
-                    "delivered": "(parse error)"
-                })
+        try:
+            from lib.workspace import parse
+            ws = parse(f"{task['seq']}-{task.get('slug', '')}")
+            completed_evidence.append({
+                "seq": task["seq"],
+                "slug": task.get("slug", ""),
+                "delivered": ws.get("delivered", "")[:200]
+            })
+        except Exception:
+            completed_evidence.append({
+                "seq": task["seq"],
+                "slug": task.get("slug", ""),
+                "delivered": "(no workspace)"
+            })
 
     # Collect block reasons
     blocked_reasons = []
     for task in blocked:
-        ws_files = list(WORKSPACE_DIR.glob(f"{task['seq']}_*_blocked.xml"))
-        if ws_files:
-            try:
-                from workspace import parse
-                ws = parse(ws_files[0])
-                delivered = ws.get("delivered", "")
-                reason = delivered.replace("BLOCKED: ", "")[:100] if "BLOCKED:" in delivered else delivered[:100]
-                blocked_reasons.append({
-                    "seq": task["seq"],
-                    "slug": task.get("slug", ""),
-                    "reason": reason
-                })
-            except Exception:
-                blocked_reasons.append({
-                    "seq": task["seq"],
-                    "slug": task.get("slug", ""),
-                    "reason": "(parse error)"
-                })
+        try:
+            from lib.workspace import parse
+            ws = parse(f"{task['seq']}-{task.get('slug', '')}")
+            delivered = ws.get("delivered", "")
+            reason = delivered.replace("BLOCKED: ", "")[:100] if "BLOCKED:" in delivered else delivered[:100]
+            blocked_reasons.append({
+                "seq": task["seq"],
+                "slug": task.get("slug", ""),
+                "reason": reason
+            })
+        except Exception:
+            blocked_reasons.append({
+                "seq": task["seq"],
+                "slug": task.get("slug", ""),
+                "reason": "(no workspace)"
+            })
 
     return {
         "mode": "replan",
-        "objective": campaign.get("objective", ""),
+        "objective": campaign["objective"],
         "framework": campaign.get("framework"),
         "completed_count": len(completed),
         "blocked_count": len(blocked),
@@ -798,12 +703,10 @@ def get_replan_input() -> dict:
 
 
 def merge_revised_plan(revised_plan_path: str) -> dict:
-    """Merge revised plan into active campaign, updating blocked task paths.
+    """Merge revised plan into active campaign.
 
-    Strategy:
-    - Keep completed tasks unchanged
-    - For blocked tasks with revised entries: reset to pending with new dependencies
-    - For pending tasks: update dependencies if changed
+    Args:
+        revised_plan_path: Path to revised plan JSON
 
     Returns:
         {"merged": int, "unchanged": int}
@@ -817,43 +720,112 @@ def merge_revised_plan(revised_plan_path: str) -> dict:
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON: {e}", "merged": 0, "unchanged": 0}
 
+    campaign = _get_active_campaign()
+    if not campaign:
+        return {"error": "No active campaign", "merged": 0, "unchanged": 0}
+
+    db = _ensure_db()
+    campaigns = db.t.campaign
+
+    tasks = json.loads(campaign["tasks"])
     revised_tasks = {t["seq"]: t for t in revised.get("tasks", [])}
+
     merged_count = 0
     unchanged_count = 0
 
-    def do_update(campaign):
-        nonlocal merged_count, unchanged_count
-        for task in campaign["tasks"]:
-            seq = task["seq"]
-            if seq not in revised_tasks:
-                unchanged_count += 1
-                continue
+    for task in tasks:
+        seq = task["seq"]
+        if seq not in revised_tasks:
+            unchanged_count += 1
+            continue
 
-            revised_task = revised_tasks[seq]
-            current_status = task.get("status", "pending")
+        revised_task = revised_tasks[seq]
+        current_status = task.get("status", "pending")
 
-            # Only modify blocked or pending tasks
-            if current_status == "complete":
-                unchanged_count += 1
-                continue
+        if current_status == "complete":
+            unchanged_count += 1
+            continue
 
-            # Check if dependencies changed
-            new_depends = revised_task.get("depends", task.get("depends", "none"))
-            old_depends = task.get("depends", "none")
+        new_depends = revised_task.get("depends", task.get("depends", "none"))
+        old_depends = task.get("depends", "none")
 
-            if current_status == "blocked" or new_depends != old_depends:
-                task["status"] = "pending"
-                task["depends"] = new_depends
-                task["revised_at"] = datetime.now().isoformat()
-                merged_count += 1
-            else:
-                unchanged_count += 1
+        if current_status == "blocked" or new_depends != old_depends:
+            task["status"] = "pending"
+            task["depends"] = new_depends
+            task["revised_at"] = datetime.now().isoformat()
+            merged_count += 1
+        else:
+            unchanged_count += 1
 
-    atomic_json_update(CAMPAIGN_FILE, do_update)
-    _invalidate_cache()
+    campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
 
     return {"merged": merged_count, "unchanged": unchanged_count}
 
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _normalize_seq(seq) -> int | str:
+    """Normalize seq to int for comparison."""
+    try:
+        return int(seq)
+    except (ValueError, TypeError):
+        return seq
+
+
+def _get_deps(task: dict) -> list:
+    """Extract normalized dependency list from task."""
+    depends = task.get("depends", "none")
+    if depends == "none" or depends is None:
+        return []
+    if isinstance(depends, str):
+        return [_normalize_seq(depends)]
+    return [_normalize_seq(d) for d in depends if d and d != "none"]
+
+
+def _detect_cycle(tasks: list) -> list | None:
+    """Detect cycle in task dependencies using DFS."""
+    task_seqs = {_normalize_seq(t["seq"]) for t in tasks}
+    deps = {_normalize_seq(t["seq"]): _get_deps(t) for t in tasks}
+
+    visited = set()
+    path = []
+    path_set = set()
+
+    def dfs(seq):
+        if seq in path_set:
+            cycle_start = path.index(seq)
+            return path[cycle_start:] + [seq]
+        if seq in visited:
+            return None
+
+        path.append(seq)
+        path_set.add(seq)
+
+        for dep in deps.get(seq, []):
+            if dep in task_seqs:
+                result = dfs(dep)
+                if result:
+                    return result
+
+        path.pop()
+        path_set.remove(seq)
+        visited.add(seq)
+        return None
+
+    for seq in task_seqs:
+        if seq not in visited:
+            result = dfs(seq)
+            if result:
+                return result
+
+    return None
+
+
+# =============================================================================
+# CLI Interface
+# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description="FTL campaign operations")
@@ -879,7 +851,7 @@ def main():
     subparsers.add_parser("ready-tasks", help="Get all tasks ready for parallel execution")
 
     # cascade-status command
-    subparsers.add_parser("cascade-status", help="Check if campaign is stuck due to blocked cascade")
+    subparsers.add_parser("cascade-status", help="Check if campaign is stuck")
 
     # propagate-blocks command
     subparsers.add_parser("propagate-blocks", help="Mark unreachable tasks as blocked")
@@ -908,7 +880,7 @@ def main():
 
     # find-similar command
     sim = subparsers.add_parser("find-similar", help="Find similar archived campaigns")
-    sim.add_argument("--threshold", type=float, default=0.6, help="Similarity threshold (0.0-1.0)")
+    sim.add_argument("--threshold", type=float, default=0.6, help="Similarity threshold")
     sim.add_argument("--max", type=int, default=5, help="Maximum results")
 
     # get-replan-input command
@@ -931,7 +903,7 @@ def main():
 
     elif args.command == "update-task":
         update_task(args.seq, args.status)
-        print(f"Task {args.seq} → {args.status}")
+        print(f"Task {args.seq} -> {args.status}")
 
     elif args.command == "next-task":
         task = next_task()

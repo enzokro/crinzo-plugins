@@ -26,15 +26,17 @@ class TestCampaignCreate:
         data = json.loads(out)
         assert data["framework"] == "FastHTML"
 
-    def test_create_writes_file(self, cli, ftl_dir):
-        """Create writes campaign.json file."""
+    def test_create_stores_in_database(self, cli, ftl_dir):
+        """Create stores campaign in database (queryable via status)."""
         cli.campaign("create", "Test objective")
 
-        campaign_file = ftl_dir / ".ftl/campaign.json"
-        assert campaign_file.exists()
+        # Verify via status command (queries database)
+        code, out, _ = cli.campaign("status")
+        assert code == 0
 
-        data = json.loads(campaign_file.read_text())
+        data = json.loads(out)
         assert data["objective"] == "Test objective"
+        assert data["status"] == "active"
 
 
 class TestCampaignStatus:
@@ -118,46 +120,49 @@ class TestCampaignExportHistory:
 
 
 class TestCampaignArchive:
-    """Test campaign archival on complete."""
+    """Test campaign archival on complete (via database)."""
 
-    def test_complete_creates_archive_file(self, cli, ftl_dir):
-        """Complete creates archive file in .ftl/archive/."""
+    def test_complete_creates_archive_entry(self, cli, ftl_dir):
+        """Complete creates archive entry in database."""
         cli.campaign("create", "Archive test")
         cli.campaign("complete", "--summary", "Done")
 
-        archive_dir = ftl_dir / ".ftl/archive"
-        assert archive_dir.exists(), "Archive directory not created"
-        assert list(archive_dir.glob("*.json")), "No archive file created"
+        # Verify via history command (queries archive table)
+        code, out, _ = cli.campaign("history")
+        assert code == 0
 
-    def test_archive_filename_is_timestamp(self, cli, ftl_dir):
-        """Archive filename based on completed_at timestamp."""
+        data = json.loads(out)
+        assert len(data["archives"]) == 1, "No archive entry created"
+
+    def test_archive_has_timestamp(self, cli, ftl_dir):
+        """Archive entry has completed_at timestamp."""
         cli.campaign("create", "Timestamp test")
         cli.campaign("complete", "--summary", "Done")
 
-        archive_dir = ftl_dir / ".ftl/archive"
-        archive_files = list(archive_dir.glob("*.json"))
-        assert archive_files, "No archive file found"
+        code, out, _ = cli.campaign("history")
+        data = json.loads(out)
+        assert len(data["archives"]) == 1, "No archive entry found"
 
-        # Filename should be ISO timestamp format (YYYY-MM-DDTHH-MM-SS)
-        filename = archive_files[0].stem
-        assert len(filename) >= 19, f"Filename too short: {filename}"
-        # Check format: starts with date pattern
-        assert filename[4] == "-" and filename[7] == "-", f"Bad date format: {filename}"
+        archive = data["archives"][0]
+        assert "completed_at" in archive
+        # Verify timestamp format: starts with date pattern (YYYY-MM-DD)
+        completed_at = archive["completed_at"]
+        assert len(completed_at) >= 19, f"Timestamp too short: {completed_at}"
+        assert completed_at[4] == "-" and completed_at[7] == "-", f"Bad date format: {completed_at}"
 
     def test_archive_contains_campaign_data(self, cli, ftl_dir):
-        """Archived JSON contains full campaign data."""
+        """Archive entry contains full campaign data."""
         cli.campaign("create", "Data test")
         cli.campaign("complete", "--summary", "All done")
 
-        archive_dir = ftl_dir / ".ftl/archive"
-        archive_files = list(archive_dir.glob("*.json"))
-        assert archive_files, "No archive file found"
+        code, out, _ = cli.campaign("history")
+        data = json.loads(out)
+        assert len(data["archives"]) == 1, "No archive entry found"
 
-        data = json.loads(archive_files[0].read_text())
-        assert data["objective"] == "Data test"
-        assert data["summary"] == "All done"
-        assert data["status"] == "complete"
-        assert "completed_at" in data
+        archive = data["archives"][0]
+        assert archive["objective"] == "Data test"
+        assert archive["summary"] == "All done"
+        assert "completed_at" in archive
 
 
 class TestCampaignHistory:

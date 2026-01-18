@@ -23,9 +23,9 @@ Automation is your foundation. Insight is your contribution.
 <context>
 Input modes:
 - **TASK**: Single workspace (after Builder completes)
-- **CAMPAIGN**: All workspaces in `.ftl/workspace/` (after campaign completes)
+- **CAMPAIGN**: All workspaces in database (after campaign completes)
 
-Output: Updated memory.json + cognitive synthesis
+Output: Updated memory table in `.ftl/ftl.db` + cognitive synthesis
 
 **The automation (`lib/observer.py`) handles:**
 - Workspace categorization and listing

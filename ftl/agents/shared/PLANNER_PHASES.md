@@ -25,10 +25,11 @@ Machine-readable phase definitions for the Planner agent. See [ONTOLOGY.md](ONTO
 
 ```
 Input: objective text
-Output: exploration context dict
+Output: exploration context dict (from database)
 
 Primary:
   python3 "$(cat .ftl/plugin_root)/lib/exploration.py" read
+  # Reads from exploration table in .ftl/ftl.db
 
 Fallback (if missing):
   python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10

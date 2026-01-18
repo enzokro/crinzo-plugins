@@ -51,7 +51,7 @@ Or from inside of Claude Code:
 │  structure │ pattern │ memory │ delta
 └─────────────────────────────────────┘
     │
-    ▼ exploration.json
+    ▼ exploration (database)
 ┌─────────────────────────────────────┐
 │  PLANNER                            │
 │  Decompose → Verify → Budget → Order│
@@ -63,13 +63,13 @@ Or from inside of Claude Code:
 │  Read spec → Implement → Verify     │
 └─────────────────────────────────────┘
     │
-    ▼ complete/blocked workspaces
+    ▼ complete/blocked workspaces (database)
 ┌─────────────────────────────────────┐
 │  OBSERVER                           │
 │  Verify blocks → Extract patterns   │
 └─────────────────────────────────────┘
     │
-    ▼ memory.json
+    ▼ memory (database)
 ```
 
 **Explorers** gather codebase context in parallel. **Planner** decomposes work into a task DAG with dependencies. **Builders** execute tasks in parallel where dependencies allow. **Observer** extracts patterns from outcomes — both successes and failures become future knowledge.
@@ -104,7 +104,11 @@ Four agents with distinct roles:
 - Blocking is success — informed handoff, not failure
 
 **Shared References**: Agents share common specifications via `agents/shared/`:
-- `CONSTRAINT_TIERS.md` — Essential/Quality/Style tiers with per-agent constraints
+- `ONTOLOGY.md` — Canonical definitions (budget, BLOCK status, framework confidence)
+- `BUILDER_STATE_MACHINE.md` — 10-state builder FSM with transitions
+- `PLANNER_PHASES.md` — 8-phase planning flow
+- `EXPLORER_SCHEMAS.md` — JSON output schemas for 4 explorer modes
+- `CONSTRAINT_TIERS.md` — Essential/Quality tiers with per-agent constraints
 - `FRAMEWORK_IDIOMS.md` — Detection rules and idiom requirements
 - `TOOL_BUDGET_REFERENCE.md` — Budget counting rules and exemptions
 - `ERROR_MATCHING_RULES.md` — Judgment-based matching with flaky retry guidance
@@ -179,12 +183,14 @@ The workspace is the builder's single source of truth. Framework idioms are non-
 
 A unified system capturing what went wrong and what worked:
 
-| File | Purpose |
-|------|---------|
-| `.ftl/memory.json` | Failures and patterns with semantic retrieval |
-| `.ftl/exploration.json` | Aggregated explorer outputs |
-| `.ftl/campaign.json` | Active campaign state with DAG |
-| `.ftl/archive/` | Completed campaigns |
+| Storage | Purpose |
+|---------|---------|
+| `.ftl/ftl.db` | SQLite database containing all persistent state |
+| `memory` table | Failures and patterns with semantic retrieval |
+| `campaign` table | Active campaign state with DAG |
+| `workspace` table | Workspace execution records |
+| `exploration` table | Aggregated explorer outputs |
+| `archive` table | Completed campaign archives |
 
 **Capacity**: 500 failures + 200 patterns (~130KB estimated storage)
 
@@ -397,18 +403,17 @@ Returns campaigns with similar objectives, framework, and delta patterns — pro
 
 ## CLI Tools
 
-The `lib/` directory provides Python utilities for orchestration:
+The `lib/` directory provides Python utilities for orchestration. All data stored in `.ftl/ftl.db` SQLite database:
 
 | Library | Purpose | Key Commands |
 |---------|---------|--------------|
 | `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
 | `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete`, `find-similar`, `get-replan-input`, `merge-revised-plan` |
-| `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse` |
+| `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse`, `list` |
 | `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query`, `prune`, `feedback`, `add-relationship`, `related`, `stats`, `add-cross-relationship`, `get-solutions` |
-| `observer.py` | Automated extraction | `analyze`, `extract-failure` |
-| `embeddings.py` | Semantic similarity | LRU cache (5000 entries) |
-| `atomicfile.py` | Concurrent write safety | fcntl locks, temp-rename |
+| `observer.py` | Automated extraction | `analyze`, `extract-failure`, `verify-blocks` |
 | `phase.py` | State transitions | O(1) dispatch |
+| `db/` | Database schema and connection | fastsql-based SQLite storage |
 
 **Adaptive Re-Planning:** `get-replan-input` generates context when campaigns get stuck. `merge-revised-plan` integrates revised task dependencies without losing completed work.
 
@@ -555,22 +560,22 @@ The automated layer provides reliable intra-campaign learning. The instruction l
 
 ## Architecture
 
-| Module | Lines | Purpose | Status |
-|--------|-------|---------|--------|
-| `lib/memory.py` | 1,280 | Semantic memory with Bloom filter, decay, pruning, graph | Production |
-| `lib/campaign.py` | 847 | DAG scheduling, cycle detection, cascade handling, fingerprinting | Production |
-| `lib/workspace.py` | 680 | Atomic XML lifecycle, lineage, sibling injection | Production |
-| `lib/observer.py` | 487 | Parallelized pattern/failure extraction | Production |
-| `lib/exploration.py` | 364 | Multi-mode aggregation with similar campaigns | Production |
-| `lib/phase.py` | 145 | O(1) state transitions | Production |
-| `lib/embeddings.py` | 92 | LRU-cached semantic similarity | Production |
-| `lib/atomicfile.py` | 110 | fcntl locking, temp-rename pattern | Production |
-| `lib/logging_config.py` | 102 | Rotating logs (1MB, 3 backups) | Production |
-| `agents/explorer.md` | ~280 | 4-mode exploration spec | — |
-| `agents/planner.md` | ~280 | Task decomposition spec | — |
-| `agents/builder.md` | ~215 | Implementation FSM spec | — |
-| `agents/observer.md` | ~265 | Learning extraction spec | — |
-| `agents/shared/` | ~155 | Consolidated reference docs | — |
+| Module | Purpose | Status |
+|--------|---------|--------|
+| `lib/memory.py` | Semantic memory with Bloom filter, decay, pruning, graph | Production |
+| `lib/campaign.py` | DAG scheduling, cycle detection, cascade handling, fingerprinting | Production |
+| `lib/workspace.py` | Workspace lifecycle, lineage, sibling injection (database-backed) | Production |
+| `lib/observer.py` | Parallelized pattern/failure extraction | Production |
+| `lib/exploration.py` | Multi-mode aggregation with similar campaigns | Production |
+| `lib/phase.py` | O(1) state transitions | Production |
+| `lib/orchestration.py` | Explorer quorum management, state emission | Production |
+| `lib/benchmark.py` | Performance metrics and learning simulation | Production |
+| `lib/db/` | SQLite schema, connection, embeddings (fastsql) | Production |
+| `agents/explorer.md` | 4-mode exploration spec | — |
+| `agents/planner.md` | Task decomposition spec | — |
+| `agents/builder.md` | Implementation FSM spec | — |
+| `agents/observer.md` | Learning extraction spec | — |
+| `agents/shared/` | Consolidated reference docs (9 files) | — |
 
 ## What FTL Is Not
 

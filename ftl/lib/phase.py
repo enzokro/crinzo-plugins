@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
-"""Phase state tracking for FTL workflow.
+"""Phase state tracking with fastsql database backend.
 
-Tracks phase transitions in .ftl/phase_state.json and validates
-that transitions follow the expected workflow order.
+Tracks phase transitions and validates workflow order.
 """
 
 from pathlib import Path
 from datetime import datetime
 import json
+import argparse
+import sys
 
-PHASE_STATE_FILE = Path(".ftl/phase_state.json")
+# Support both standalone execution and module import
+try:
+    from lib.db import get_db, init_db, PhaseState
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from db import get_db, init_db, PhaseState
+
+
+# Note: All storage is now in .ftl/ftl.db
 
 # Valid phases in workflow order
 PHASES = ["none", "explore", "plan", "build", "observe", "complete"]
@@ -19,10 +28,35 @@ VALID_TRANSITIONS = {
     "none": ["explore"],
     "explore": ["plan"],
     "plan": ["build", "explore"],  # Can go back to explore if CLARIFY
-    "build": ["observe", "build"],  # Can stay in build for multi-task campaigns
+    "build": ["observe", "build"],  # Can stay in build for multi-task
     "observe": ["complete"],
     "complete": ["none"],  # Reset for next campaign
 }
+
+
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
+
+
+def _get_phase_state():
+    """Get or create the phase state singleton."""
+    db = _ensure_db()
+    phase_states = db.t.phase_state
+
+    rows = list(phase_states.rows)
+    if rows:
+        return rows[0]
+
+    # Create initial state
+    state = PhaseState(
+        phase="none",
+        started_at=None,
+        transitions="[]"
+    )
+    phase_states.insert(state)
+    return list(phase_states.rows)[0]
 
 
 def get_state() -> dict:
@@ -31,21 +65,12 @@ def get_state() -> dict:
     Returns:
         {"phase": str, "started_at": str, "transitions": []}
     """
-    if not PHASE_STATE_FILE.exists():
-        return {
-            "phase": "none",
-            "started_at": None,
-            "transitions": []
-        }
-
-    try:
-        return json.loads(PHASE_STATE_FILE.read_text())
-    except (json.JSONDecodeError, IOError):
-        return {
-            "phase": "none",
-            "started_at": None,
-            "transitions": []
-        }
+    row = _get_phase_state()
+    return {
+        "phase": row.get("phase", "none"),
+        "started_at": row.get("started_at"),
+        "transitions": json.loads(row.get("transitions") or "[]")
+    }
 
 
 def can_transition(from_phase: str, to_phase: str) -> bool:
@@ -74,6 +99,9 @@ def transition(to_phase: str) -> dict:
     Raises:
         ValueError: If transition is invalid
     """
+    db = _ensure_db()
+    phase_states = db.t.phase_state
+
     state = get_state()
     current_phase = state["phase"]
 
@@ -86,25 +114,31 @@ def transition(to_phase: str) -> dict:
     now = datetime.now().isoformat()
 
     # Record transition
-    state["transitions"].append({
+    transitions = state["transitions"]
+    transitions.append({
         "from": current_phase,
         "to": to_phase,
         "at": now
     })
 
-    # Update phase
-    state["phase"] = to_phase
+    # Update state
+    started_at = state["started_at"]
     if current_phase == "none":
-        state["started_at"] = now
+        started_at = now
 
-    # Write state atomically to prevent corruption on crash
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent))
-    from atomicfile import atomic_write
-    PHASE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write(PHASE_STATE_FILE, state)
+    # Get the row and update
+    row = _get_phase_state()
+    phase_states.update({
+        "phase": to_phase,
+        "started_at": started_at,
+        "transitions": json.dumps(transitions)
+    }, row["id"])
 
-    return state
+    return {
+        "phase": to_phase,
+        "started_at": started_at,
+        "transitions": transitions
+    }
 
 
 def reset() -> dict:
@@ -113,16 +147,18 @@ def reset() -> dict:
     Returns:
         New empty state dict
     """
-    state = {
+    db = _ensure_db()
+    phase_states = db.t.phase_state
+
+    # Delete all existing states
+    for row in list(phase_states.rows):
+        phase_states.delete(row["id"])
+
+    return {
         "phase": "none",
         "started_at": None,
         "transitions": []
     }
-
-    if PHASE_STATE_FILE.exists():
-        PHASE_STATE_FILE.unlink()
-
-    return state
 
 
 def get_duration() -> float | None:
@@ -142,9 +178,11 @@ def get_duration() -> float | None:
         return None
 
 
-if __name__ == "__main__":
-    import argparse
+# =============================================================================
+# CLI Interface
+# =============================================================================
 
+def main():
     parser = argparse.ArgumentParser(description="FTL phase state tracking")
     subparsers = parser.add_subparsers(dest="command")
 
@@ -163,6 +201,9 @@ if __name__ == "__main__":
     ct.add_argument("from_phase", choices=PHASES, help="Current phase")
     ct.add_argument("to_phase", choices=PHASES, help="Target phase")
 
+    # duration command
+    subparsers.add_parser("duration", help="Get workflow duration")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -175,7 +216,7 @@ if __name__ == "__main__":
             print(json.dumps(state, indent=2))
         except ValueError as e:
             print(f"Error: {e}")
-            exit(1)
+            sys.exit(1)
 
     elif args.command == "reset":
         state = reset()
@@ -185,5 +226,17 @@ if __name__ == "__main__":
         result = can_transition(args.from_phase, args.to_phase)
         print("valid" if result else "invalid")
 
+    elif args.command == "duration":
+        duration = get_duration()
+        if duration is not None:
+            print(f"{duration:.2f} seconds")
+        else:
+            print("No workflow started")
+
     else:
         parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

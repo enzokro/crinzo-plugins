@@ -439,21 +439,22 @@ class TestMemoryPruning:
         """Pruning removes entries below importance threshold."""
         from datetime import datetime, timedelta
 
-        # Add old low-cost failure (should be pruned)
+        # Add old low-cost failure (should be pruned due to age decay)
+        # Cost must be >= 100 to pass quality gate
         old_failure = {
             "name": "old-low-cost",
-            "trigger": "Minor warning message",
+            "trigger": "Minor warning message that happened long ago",
             "fix": "Ignore it",
-            "cost": 10,  # Very low cost
+            "cost": 200,  # Low cost but above MIN_FAILURE_COST
             "source": ["ws-old"],
-            "created_at": (datetime.now() - timedelta(days=60)).isoformat(),
+            "created_at": (datetime.now() - timedelta(days=90)).isoformat(),
         }
         cli.memory("add-failure", "--json", json.dumps(old_failure))
 
         # Add recent high-cost failure (should be kept)
         new_failure = {
             "name": "new-high-cost",
-            "trigger": "Critical error that crashed the system",
+            "trigger": "Critical error that crashed the system completely",
             "fix": "Major fix required",
             "cost": 50000,
             "source": ["ws-new"],
@@ -463,15 +464,16 @@ class TestMemoryPruning:
         # Verify both exist
         code, out, _ = cli.memory("context", "--all")
         data = json.loads(out)
-        assert len(data["failures"]) == 2
+        assert len(data["failures"]) == 2, f"Expected 2 failures, got {len(data['failures'])}"
 
-        # Prune with high min_importance
-        code, out, err = cli.memory("prune", "--min-importance", "5")
+        # Prune with limit of 1 to force removal
+        code, out, err = cli.memory("prune", "--max-failures", "1", "--min-importance", "0")
         assert code == 0, f"Failed: {err}"
         result = json.loads(out)
 
-        # Check that pruning occurred
-        assert result["remaining_failures"] <= 2
+        # Check that pruning removed one entry
+        assert result["remaining_failures"] == 1
+        assert result["pruned_failures"] == 1
 
     def test_prune_enforces_size_limits(self, cli, ftl_dir):
         """Pruning enforces maximum size limits."""
@@ -575,8 +577,8 @@ class TestMemoryRelationships:
         """Adding relationship with non-existent entry returns not_found."""
         failure = {
             "name": "exists",
-            "trigger": "Error",
-            "fix": "Fix",
+            "trigger": "This is a real error message that exists",
+            "fix": "Fix the issue",
             "cost": 1000,
             "source": ["ws"]
         }

@@ -16,8 +16,8 @@ Codebase explorer. Gather focused information for Planner in one of 4 modes. Out
 </role>
 
 <context>
-Input: `mode={structure|pattern|memory|delta}` + optional `objective={text}`
-Output: JSON per [EXPLORER_SCHEMAS.md](shared/EXPLORER_SCHEMAS.md)
+Input: `mode={structure|pattern|memory|delta}`, `session_id={uuid}`, optional `objective={text}`
+Output: JSON per [EXPLORER_SCHEMAS.md](shared/EXPLORER_SCHEMAS.md), written to database via `write-result`
 
 You are one of 4 parallel explorers:
 - **structure**: WHERE does code live? (topology)
@@ -25,17 +25,20 @@ You are one of 4 parallel explorers:
 - **memory**: WHAT happened before? (failures, patterns)
 - **delta**: WHAT will change? (target files, functions)
 
-Budget: 4 tool calls per mode. See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md).
+The `session_id` links you to other parallel explorers for quorum tracking.
+
+Budget: 4 tool calls per mode (exploration) + 1 for write. See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md).
 </context>
 
 <instructions>
 ## Execution Flow
 
-1. Parse input: extract `mode` and `objective`
-2. EMIT: `STATE_ENTRY state=EXPLORE mode={mode}`
+1. Parse input: extract `mode`, `session_id`, and `objective`
+2. EMIT: `STATE_ENTRY state=EXPLORE mode={mode} session_id={session_id}`
 3. Execute mode-specific exploration (see schemas below)
 4. EMIT: `"Budget: {used}/4, Mode: {mode}"`
-5. Output valid JSON (no markdown wrappers)
+5. Write result to database: `python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{result}'`
+6. Output valid JSON (no markdown wrappers)
 
 ---
 
@@ -119,11 +122,19 @@ Quality:
 </constraints>
 
 <output_format>
-Write to `.ftl/cache/explorer_{mode}.json`
+## Output Protocol
+
+Write result to database using the session_id provided at invocation:
+
+```bash
+python3 "$(cat .ftl/plugin_root)/lib/exploration.py" write-result \
+    --session "{session_id}" \
+    --mode "{mode}" <<< '{...json result...}'
+```
 
 See [EXPLORER_SCHEMAS.md](shared/EXPLORER_SCHEMAS.md) for complete field specifications per mode.
 
-Rules:
+JSON rules:
 1. Start with `{`, end with `}`
 2. No markdown wrappers, no explanation text
 3. No trailing commas, use double quotes

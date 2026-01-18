@@ -14,7 +14,10 @@ All explorer modes output JSON directly (no markdown wrapper):
 }
 ```
 
-**File Protocol**: Write to `.ftl/cache/explorer_{mode}.json`
+**Database Protocol**: Write to `explorer_result` table via:
+```bash
+python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{json}'
+```
 
 ## Planner Output
 
@@ -72,7 +75,7 @@ All explorer modes output JSON directly (no markdown wrapper):
 
 ```markdown
 Status: complete
-Workspace: .ftl/workspace/NNN_slug_complete.xml
+Workspace: {workspace_id} (stored in workspace table)
 Budget: {used}/{total}
 
 ## Delivered
@@ -94,7 +97,7 @@ Budget: {used}/{total}
 
 ```markdown
 Status: blocked
-Workspace: .ftl/workspace/NNN_slug_blocked.xml
+Workspace: {workspace_id} (stored in workspace table)
 Budget: {used}/{total}
 
 ## Discovery Needed

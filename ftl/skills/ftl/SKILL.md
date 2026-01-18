@@ -37,56 +37,44 @@ See the CLI docs: [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) for
 
 ---
 
+## Orchestrator Identity
+
+When `/ftl` is invoked, you ARE the FTL orchestrator. This means:
+
+1. **State Machine First**: Every action maps to a DSL verb (DO, CHECK, EMIT, GOTO)
+2. **No Independent Operation**: Tools execute within states, not around them
+3. **Judgment Over Automation**: Defaults are guidance; override with stated rationale
+4. **Error = State**: Tool failures trigger ERROR state, not manual recovery
+5. **BLOCK = Success**: Informed handoff enables learning; don't circumvent by working around
+
+Your cognitive process while orchestrating:
+- "What state am I in?"
+- "What does this state's protocol specify?"
+- "If something fails, what state handles it?"
+- "Am I about to break protocol? If so, emit first."
+
+---
+
 ## DSL Action Verbs
 
 | Verb | Semantics | Example |
 |------|-----------|---------|
 | `DO:` | Execute command, capture stdout | `DO: python3 lib/foo.py cmd` |
-| `DO: \|` | Pipe previous DO's stdout to command | `DO: \| python3 lib/foo.py write` |
-| `CHECK:` | Execute, parse JSON output, set local variables | `CHECK: ... wait-explorers` → `wait_result` |
-| `EMIT:` | Log structured event or status string | `EMIT: STATE_ENTRY state=INIT` |
-| `IF:` | Conditional branch (uses CHECK variables) | `IF: wait_result=="quorum_met" →` |
-| `GOTO:` | Jump to named state (fresh context) | `GOTO: PLAN` |
-| `WAIT:` | Block until condition or timeout | `WAIT: All 4 complete OR timeout=300s` |
-| `TRACK:` | Declare persistent variable across state re-entries | `TRACK: clarify_count` |
-| `INCREMENT:` | Increment tracked variable | `INCREMENT: clarify_count` |
-| `SET:` | Assign value to tracked variable | `SET: prior_ready_count = len(ready_tasks)` |
-| `USE:` | Invoke reusable pattern with substitution | `USE: INIT_PATTERN with mode=campaign` |
+| `DO: \|` | Pipe previous stdout to command | `DO: \| python3 lib/foo.py write` |
+| `CHECK:` | Execute, parse JSON, bind variables | `CHECK: ... wait-explorers` → `wait_result` |
+| `EMIT:` | Log event or status | `EMIT: STATE_ENTRY state=INIT` |
+| `IF:` | Conditional branch | `IF: wait_result=="quorum_met" →` |
+| `GOTO:` | Jump to state (locals reset, tracked persist) | `GOTO: PLAN` |
+| `WAIT:` | Block until condition/timeout | `WAIT: All 4 complete OR timeout=300s` |
+| `TRACK:` | Declare persistent variable (init: 0) | `TRACK: clarify_count` |
+| `INCREMENT:` | Add 1 to tracked variable | `INCREMENT: clarify_count` |
+| `SET:` | Assign to tracked variable | `SET: prior_ready_count = len(ready_tasks)` |
+| `USE:` | Invoke pattern with substitution | `USE: INIT_PATTERN with mode=campaign` |
 | `PROCEED` | Fall through to next instruction | `IF: ... → PROCEED` |
-| `PARALLEL` | Execute tasks concurrently in single message | `DO: Task(X) in PARALLEL` |
+| `PARALLEL` | Concurrent execution in single message | `DO: Task(X) in PARALLEL` |
 
-### Variable Binding
-
-`CHECK:` commands parse JSON stdout and expose fields as local variables:
-```
-CHECK: python3 lib/orchestration.py wait-explorers
-# Exposes: wait_result.status, wait_result.completed, wait_result.missing
-IF: wait_result.status=="quorum_met" → ...
-```
-
-### State Context
-
-`GOTO:` creates fresh state context. Tracked variables persist; local variables reset.
-
-### Variable Lifecycle
-
-| Type | Initialized | Persists |
-|------|-------------|----------|
-| Local (from CHECK) | Each state entry | Until GOTO |
-| Tracked (from TRACK) | First declaration (default: 0) | Entire session |
-
-TRACK variables initialize on **first encounter**. Subsequent GOTO re-entries preserve values.
-
-### Variable Scope Reference
-
-| Variable | Scope | Used In | Rationale |
-|----------|-------|---------|-----------|
-| `clarify_count` | TRACK | PLAN_PATTERN | Survives PLAN re-entry; cap at 5 prevents infinite clarification |
-| `iteration_count` | TRACK | CAMPAIGN.EXECUTE | Survives EXECUTE re-entry; cap at 20 bounds execution |
-| `prior_ready_count` | TRACK | CAMPAIGN.EXECUTE | Detects stuck state (unchanged for 3+ iterations) |
-| `wait_result` | Local | EXPLORE_PATTERN | Consumed by IF after CHECK; disposable |
-| `decision` | Local | PLAN_PATTERN | Consumed by IF after CHECK; disposable |
-| `ready_tasks` | Local | CAMPAIGN.EXECUTE | Fresh each iteration; depends on campaign state |
+**Variable rules**: `TRACK` persists across `GOTO`; `CHECK` locals reset on state entry.
+See [STATE_REFERENCE.md](references/STATE_REFERENCE.md) for extended semantics and variable scope.
 
 ---
 
@@ -128,9 +116,9 @@ Reusable initialization for both TASK and CAMPAIGN flows.
 ```
 EMIT: STATE_ENTRY state=INIT [mode={mode}]
 DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
-DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear
+CHECK: session_id = python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py create-session | jq -r .session_id
 EMIT: PHASE_TRANSITION from=init to=explore
-GOTO: EXPLORE
+GOTO: EXPLORE with session_id
 ```
 
 ### EXPLORE_PATTERN
@@ -138,20 +126,20 @@ GOTO: EXPLORE
 Reusable exploration logic for both TASK and CAMPAIGN flows.
 
 ```
-EMIT: STATE_ENTRY state=EXPLORE agents=4
+EMIT: STATE_ENTRY state=EXPLORE session_id={session_id} agents=4
 DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
-    - Task(ftl:ftl-explorer) "mode=structure"
-    - Task(ftl:ftl-explorer) "mode=pattern, objective={objective}"
-    - Task(ftl:ftl-explorer) "mode=memory, objective={objective}"
-    - Task(ftl:ftl-explorer) "mode=delta, objective={objective}"
+    - Task(ftl:ftl-explorer) "mode=structure, session_id={session_id}"
+    - Task(ftl:ftl-explorer) "mode=pattern, session_id={session_id}, objective={objective}"
+    - Task(ftl:ftl-explorer) "mode=memory, session_id={session_id}, objective={objective}"
+    - Task(ftl:ftl-explorer) "mode=delta, session_id={session_id}, objective={objective}"
 WAIT: All 4 complete OR timeout=300s (quorum=3)
-  CHECK: python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --required=3 --timeout=300
+  CHECK: python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --session {session_id} --required=3 --timeout=300
   IF: wait_result=="quorum_met" OR wait_result=="all_complete" → PROCEED
   IF: wait_result=="timeout" → EMIT: PARTIAL_FAILURE missing={missing}, PROCEED
   IF: wait_result=="quorum_failure" → GOTO ERROR with error_type="quorum_failure"
-DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "{objective}"
+DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-session --session {session_id} --objective "{objective}"
 DO: | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
-# Output: .ftl/exploration.json (aggregated from .ftl/cache/explorer_*.json)
+# Output: exploration table in .ftl/ftl.db (aggregated from explorer_result table)
 EMIT: PHASE_TRANSITION from=explore to=plan
 GOTO: PLAN
 ```
@@ -170,22 +158,27 @@ CHECK: decision=$(jq -r .decision decision.json)
 IF: decision=="CLARIFY" → INCREMENT clarify_count, present questions, ASK user, GOTO PLAN
 IF: decision=="CONFIRM" → present selection, confirm with user, GOTO PLAN
 # Note: CONFIRM has no counter - assumes user explicitly wants confirmation loop
-IF: decision=="PROCEED" → extract plan_json to plan.json, GOTO {next_state}
+IF: decision=="PROCEED" →
+    DO: extract plan_json from plan_output.md
+    CHECK: plan_id = echo plan_json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py write | jq -r .id
+    GOTO {next_state} with plan_id
 IF: decision=="UNKNOWN" → EMIT: "Decision unclear, defaulting to CLARIFY", GOTO PLAN
 ```
 
 ### ERROR_PATTERN
 
-Handles orchestration failures gracefully.
+Handles orchestration failures. Error types: `timeout`, `quorum_failure`, `cascade_stuck`, `schema_invalid`.
 
 ```
 STATE: ERROR
   EMIT: STATE_ENTRY state=ERROR error_type={type}
-  IF: error_type=="timeout" → EMIT: "Exploration timeout, using partial data", GOTO PLAN
-  IF: error_type=="quorum_failure" → EMIT: "Insufficient explorer data", RETURN with partial results
-  IF: error_type=="cascade_stuck" → DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py cascade-analysis, RETURN with analysis
-  DEFAULT: EMIT: "Unrecoverable error: {type}", RETURN with error summary
+  IF: error_type=="timeout" → use partial data, GOTO PLAN
+  IF: error_type=="quorum_failure" → RETURN with partial results
+  IF: error_type=="cascade_stuck" → run cascade-analysis, RETURN
+  DEFAULT: EMIT: "Unrecoverable: {type}", RETURN with error summary
 ```
+
+See [ERROR_HANDLING.md](references/ERROR_HANDLING.md) for error taxonomy and recovery strategies.
 
 ---
 
@@ -203,21 +196,21 @@ STATE: PLAN
 
 STATE: BUILD
   EMIT: STATE_ENTRY state=BUILD
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan plan.json
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id}
   DO: Task(ftl:ftl-builder) with workspace path
   EMIT: PHASE_TRANSITION from=build to=observe
   GOTO: OBSERVE
 
 STATE: OBSERVE
   EMIT: STATE_ENTRY state=OBSERVE
-  DO: Task(ftl:ftl-observer)  # Analyzes all workspaces in .ftl/workspace/
+  DO: Task(ftl:ftl-observer)  # Analyzes all workspaces in database (workspace table)
   EMIT: PHASE_TRANSITION from=observe to=complete
   GOTO: COMPLETE
 
 STATE: COMPLETE
   EMIT: STATE_ENTRY state=COMPLETE
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
-  EMIT: "Task complete. See .ftl/workspace/ for deliverables."
+  EMIT: "Task complete. Workspace records stored in .ftl/ftl.db"
   RETURN: Summary to user
 
 STATE: ERROR
@@ -241,9 +234,9 @@ STATE: PLAN
 STATE: REGISTER
   EMIT: STATE_ENTRY state=REGISTER
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
-  DO: cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py read --id {plan_id} | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
   EMIT: PHASE_TRANSITION from=register to=execute
-  GOTO: EXECUTE
+  GOTO: EXECUTE with plan_id
 
 STATE: EXECUTE
   EMIT: STATE_ENTRY state=EXECUTE
@@ -257,7 +250,7 @@ STATE: EXECUTE
   IF: iteration_count > 3 AND len(ready_tasks) == prior_ready_count → EMIT: "Stuck: ready_tasks unchanged for 3+ iterations", GOTO CASCADE
   SET: prior_ready_count = len(ready_tasks)
   DO: FOR EACH task in ready_tasks (launch in PARALLEL):
-        cat plan.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan - --task {SEQ}
+        python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
         Task(ftl:ftl-builder) with workspace
         python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task SEQ complete|blocked
   GOTO: EXECUTE
@@ -305,141 +298,53 @@ STATE: COMPLETE
 ## Workspace Lifecycle
 
 ```
-.ftl/workspace/NNN_slug_status.xml
+Workspace ID format: {SEQ}_{slug}_{status}
+Storage: .ftl/ftl.db (workspace table)
+Virtual paths: workspace.py returns Path-like strings for CLI compatibility
 ```
 
-Workspace transitions: `active` → `complete` | `blocked`
+States: `active` → `complete` | `blocked`
 
-**Blocking captures failure state for learning** - The workspace records what failed and why.
-Blocking is not system failure; it's success at information capture for Observer pattern extraction.
+**Blocking = success**: Captures failure state for learning. Observer extracts patterns from blocked workspaces.
+
+See [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) for schema, lineage structure, and database storage details.
 
 ---
 
-## Constraints
+## Constraints & Error Handling
 
 | Tier | Meaning | Action |
 |------|---------|--------|
 | **Essential** | Critical | Escalate |
 | **Quality** | Important | Note |
 
+**Error Protocol**: On tool failure → EMIT error → classify (transient vs structural) → retry once if transient → `GOTO ERROR` if unrecoverable. Never break protocol; all recovery flows through states.
+
+See [ERROR_HANDLING.md](references/ERROR_HANDLING.md) for complete error taxonomy and recovery decision tree.
+
 ---
 
 ## DAG Parallelization
 
-Tasks with `depends: ["001", "002"]` wait for both 001 AND 002 to complete.
-Tasks with no dependencies or all dependencies complete can run in parallel.
+Tasks form a DAG via `depends` field. Execution rules:
+- `depends: ["001", "002"]` → wait for both 001 AND 002
+- No dependencies or all complete → ready for parallel execution
+- Cycle detected at registration → plan rejected
 
-### DAG Cycle Detection
+**Cascade**: When parent blocks, children become unreachable. If ≥2 unreachable, adaptive re-planning triggers.
 
-The campaign system prevents cycles during task registration:
-
-```
-Algorithm: detect_cycles(tasks)
-  1. Build adjacency list from task.depends
-  2. For each task:
-     - DFS from task
-     - Track visited + recursion_stack
-     - If task in recursion_stack → CYCLE DETECTED
-  3. Return: has_cycle, cycle_path
-
-Implementation: campaign.py::add_tasks()
-  - Validates DAG before accepting tasks
-  - Rejects plan.json if cycle detected
-  - Returns error with cycle path for debugging
-```
-
-### Ready Task Selection
-
-```
-Algorithm: ready_tasks(campaign)
-  1. Get all tasks with task_state = "pending"
-  2. For each pending task:
-     - Get depends[] list
-     - If depends is empty or "none" → ready
-     - If ALL depends have task_state = "complete" → ready
-     - Otherwise → not ready
-  3. Return ready tasks
-
-Complexity: O(T) where T = number of tasks
-```
-
-### Cascade Handling
-
-When a parent task blocks, child tasks become unreachable.
-
-```
-Algorithm: cascade_status(campaign)
-  1. Get all blocked tasks → blocked_set
-  2. For each pending task:
-     - If ANY depends in blocked_set → unreachable
-  3. Return: {state: "stuck" | "progressing", unreachable: [...]}
-
-Algorithm: propagate_blocks(campaign)
-  1. For each unreachable task from cascade_status:
-     - Set task_state = "blocked"
-     - Set blocked_by = blocking parent seq
-     - Record as cascade (not original failure)
-```
-
-**On-Demand Workspace Creation**: Workspaces are created AFTER parent tasks complete.
-This enables proper `<lineage>` population with parent deliveries and sibling failure injection.
+See [DAG_ALGORITHMS.md](references/DAG_ALGORITHMS.md) for cycle detection, ready selection, and cascade algorithms.
 
 ---
 
 ## Sibling Failure Injection
 
-Sibling failures enable intra-campaign learning: failures from one branch inform parallel branches.
+Intra-campaign learning: when Task 001 blocks, its failure is injected into Task 002's workspace at creation time. This enables parallel branches to learn from each other's failures.
 
-### Injection Timing
+- **Memory failures**: Historical, semantic similarity scored, feedback tracked
+- **Sibling failures**: Current campaign, always injected, ephemeral
 
-| Event | What Happens |
-|-------|--------------|
-| Plan created | Tasks defined with dependencies, no workspaces yet |
-| Task 001 starts | Workspace created with memory.get_context() only |
-| Task 001 blocks | Failure recorded in 001_slug_blocked.xml |
-| Task 002 starts | Workspace created with memory failures + sibling failures from 001 |
-
-### Implementation Flow
-
-```
-workspace.create(plan, task_seq):
-  1. Get memory context: memory.get_context(objective)
-  2. Scan for sibling failures: get_sibling_failures(WORKSPACE_DIR)
-     - Glob for *_blocked.xml
-     - Extract trigger from delivered text
-     - Create synthetic failure entries
-  3. Combine: all_failures = memory_failures + sibling_failures
-  4. Inject into <prior_knowledge> section
-
-get_sibling_failures(workspace_dir):
-  FOR each *_blocked.xml in workspace_dir:
-    IF delivered contains "BLOCKED:":
-      YIELD {
-        name: "sibling-{stem}",
-        trigger: first_line_of_reason,
-        fix: "See blocked workspace",
-        cost: 1000,
-        source: [blocked_workspace_id]
-      }
-```
-
-### Why Not During Planning?
-
-The planner runs once BEFORE any building starts. Sibling failures only exist AFTER
-builders encounter them. The dynamic injection at workspace creation time ensures:
-
-1. **Freshness**: Latest failures from concurrent branches
-2. **Relevance**: Only failures from same campaign
-3. **Context**: Failures include workspace stem for traceability
-
-### Sibling vs Memory Failures
-
-| Attribute | Memory Failures | Sibling Failures |
-|-----------|-----------------|------------------|
-| Source | Historical memory.json | Current campaign blocked.xml |
-| Relevance scoring | Semantic similarity | Always injected |
-| injected attribute | "true" | "false" (for feedback tracking) |
-| Feedback tracking | Yes (times_helped/failed) | No (ephemeral) |
+See [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) for injection timing, implementation flow, and comparison.
 
 ---
 
@@ -485,5 +390,11 @@ enabling contextual understanding of completed work.
 
 ## References
 
-- [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) - Complete command syntax
-- [references/MEMORY_SEMANTICS.md](references/MEMORY_SEMANTICS.md) - Memory decay, feedback, and graph traversal
+| Document | Content |
+|----------|---------|
+| [CLI_REFERENCE.md](references/CLI_REFERENCE.md) | Complete command syntax for all lib tools |
+| [MEMORY_SEMANTICS.md](references/MEMORY_SEMANTICS.md) | Memory decay, feedback, graph traversal |
+| [STATE_REFERENCE.md](references/STATE_REFERENCE.md) | Variable scope, DSL verb semantics, pattern binding |
+| [DAG_ALGORITHMS.md](references/DAG_ALGORITHMS.md) | Cycle detection, ready selection, cascade handling |
+| [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) | XML schema, lifecycle, sibling injection |
+| [ERROR_HANDLING.md](references/ERROR_HANDLING.md) | Error taxonomy, recovery strategies, decision tree |

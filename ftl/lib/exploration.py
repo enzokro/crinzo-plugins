@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Exploration aggregation and storage."""
+"""Exploration aggregation and storage with fastsql database backend.
+
+Provides explorer output aggregation, storage, and retrieval.
+"""
 
 from pathlib import Path
 from datetime import datetime
@@ -9,45 +12,57 @@ import sys
 import subprocess
 import re
 
+# Support both standalone execution and module import
+try:
+    from lib.db import get_db, init_db, Exploration
+    from lib.db.schema import ExplorerResult
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from db import get_db, init_db, Exploration
+    from db.schema import ExplorerResult
 
-EXPLORATION_FILE = Path(".ftl/exploration.json")
-
-# Maximum JSON size to parse (1MB) - prevents memory issues with malformed output
+# Maximum JSON size to parse (1MB)
 MAX_JSON_SIZE = 1024 * 1024
 
 
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
+
+
+def _get_active_campaign():
+    """Get active campaign from database."""
+    db = _ensure_db()
+    campaigns = db.t.campaign
+    rows = list(campaigns.rows_where("status = ?", ["active"]))
+    if rows:
+        rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return rows[0]
+    return None
+
+
+# =============================================================================
+# JSON Extraction Helpers
+# =============================================================================
+
 def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
-    """Extract JSON from text that may contain extra content.
-
-    Handles common LLM output issues:
-    - Markdown code blocks (```json ... ```)
-    - Text before/after JSON
-    - Multiple JSON objects (takes first valid one)
-
-    Args:
-        text: Raw text that should contain JSON
-        max_size: Maximum text size to process (default: 1MB)
-
-    Returns:
-        Parsed dict or None if no valid JSON found or text too large
-    """
+    """Extract JSON from text that may contain extra content."""
     if not text:
         return None
 
     text = text.strip()
 
-    # Enforce size limit to prevent memory issues
     if len(text) > max_size:
         return None
 
-    # Try direct parse first (fastest path)
+    # Try direct parse first
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
     # Remove markdown code blocks
-    # Match ```json ... ``` or ``` ... ```
     code_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
     if code_block:
         try:
@@ -55,8 +70,7 @@ def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    # Find JSON object pattern (greedy match from first { to last })
-    # This handles: "Here is JSON: {...}" or "{...}\n\nSome explanation"
+    # Find JSON object pattern
     json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
     if json_match:
         try:
@@ -64,7 +78,7 @@ def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    # Try to find any { ... } pattern (more permissive)
+    # Try any { ... } pattern
     brace_start = text.find('{')
     brace_end = text.rfind('}')
     if brace_start != -1 and brace_end > brace_start:
@@ -77,15 +91,8 @@ def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
     return None
 
 
-def validate_result(result: dict) -> tuple[bool, str]:
-    """Validate an explorer result has required fields.
-
-    Args:
-        result: Explorer output dict
-
-    Returns:
-        (is_valid, error_message)
-    """
+def validate_result(result: dict) -> tuple:
+    """Validate an explorer result has required fields."""
     if not isinstance(result, dict):
         return False, "Result is not a dict"
 
@@ -102,39 +109,21 @@ def validate_result(result: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def aggregate(results: list[dict], objective: str = None) -> dict:
-    """Combine explorer outputs into single exploration dict with deduplication.
+# =============================================================================
+# Core Exploration Operations
+# =============================================================================
 
-    This function merges outputs from the 4 parallel explorer agents into a single
-    exploration.json. It is called by the orchestrator after explorer completion.
-
-    Input Files (read by aggregate-files command):
-        .ftl/cache/explorer_structure.json
-        .ftl/cache/explorer_pattern.json
-        .ftl/cache/explorer_memory.json
-        .ftl/cache/explorer_delta.json
-
-    Output File (written by write command):
-        .ftl/exploration.json
+def aggregate(results: list, objective: str = None) -> dict:
+    """Combine explorer outputs into single exploration dict.
 
     Args:
-        results: List of explorer output dicts (each has 'mode' key)
+        results: List of explorer output dicts
         objective: Original objective text
 
     Returns:
-        Combined exploration dict with _meta and mode sections
-
-    Merge Rules:
-        - Tracks seen modes, keeps first successful result per mode
-        - Status priority: "ok" > "partial" > "error" > "unknown"
-        - Quorum: Proceeds if 3 of 4 modes available (per orchestration.py)
-
-    Validation:
-        - Each result must have "mode" field
-        - Mode must be one of: structure, pattern, memory, delta
-        - Status field required
+        Combined exploration dict
     """
-    # Get git sha if available
+    # Get git sha
     try:
         git_sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -154,27 +143,21 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
         }
     }
 
-    # Track seen modes for deduplication
     seen_modes = set()
-
-    # Status priority: ok > partial > error
     status_priority = {"ok": 3, "partial": 2, "error": 1, "unknown": 0}
 
     for r in results:
         is_valid, error = validate_result(r)
         if not is_valid:
-            # Skip invalid results but continue processing
             continue
 
         mode = r["mode"]
         status = r.get("status", "unknown")
 
-        # Deduplication: keep first successful result per mode
         if mode in seen_modes:
-            # Check if this result is better than existing
             existing_status = exploration.get(mode, {}).get("status", "unknown")
             if status_priority.get(status, 0) <= status_priority.get(existing_status, 0):
-                continue  # Existing is same or better, skip
+                continue
 
         seen_modes.add(mode)
 
@@ -190,71 +173,203 @@ def aggregate(results: list[dict], objective: str = None) -> dict:
     return exploration
 
 
-def write(exploration: dict) -> Path:
-    """Write exploration.json to .ftl directory.
+# =============================================================================
+# Session-Based Explorer Operations
+# =============================================================================
+
+def write_result(session_id: str, mode: str, result: dict) -> dict:
+    """Write individual explorer result to database.
+
+    Args:
+        session_id: UUID linking parallel explorers
+        mode: Explorer mode (structure|pattern|memory|delta)
+        result: Explorer output dict
+
+    Returns:
+        {"session_id": session_id, "mode": mode, "status": "written"}
+    """
+    db = _ensure_db()
+    er = ExplorerResult(
+        session_id=session_id,
+        mode=mode,
+        status=result.get("status", "ok"),
+        result=json.dumps(result),
+        created_at=datetime.now().isoformat()
+    )
+    db.t.explorer_result.insert(er)
+    return {"session_id": session_id, "mode": mode, "status": "written"}
+
+
+def get_session_status(session_id: str) -> dict:
+    """Get completion status for exploration session.
+
+    Args:
+        session_id: UUID linking parallel explorers
+
+    Returns:
+        {"completed": [...], "missing": [...], "total": N, "quorum_met": bool}
+    """
+    db = _ensure_db()
+    rows = list(db.t.explorer_result.rows_where(
+        "session_id = ?", [session_id]
+    ))
+    completed = [r["mode"] for r in rows if r["status"] in ["ok", "partial", "error"]]
+    missing = [m for m in ["structure", "pattern", "memory", "delta"] if m not in completed]
+    return {
+        "completed": completed,
+        "missing": missing,
+        "total": len(completed),
+        "quorum_met": len(completed) >= 3
+    }
+
+
+def aggregate_session(session_id: str, objective: str = None) -> dict:
+    """Aggregate explorer results from database session.
+
+    Args:
+        session_id: UUID linking parallel explorers
+        objective: Original objective text
+
+    Returns:
+        Combined exploration dict
+    """
+    db = _ensure_db()
+    rows = list(db.t.explorer_result.rows_where(
+        "session_id = ?", [session_id]
+    ))
+    results = [json.loads(r["result"]) for r in rows]
+    return aggregate(results, objective)
+
+
+def clear_session(session_id: str) -> dict:
+    """Delete explorer results for a session.
+
+    Args:
+        session_id: UUID to clear
+
+    Returns:
+        {"cleared": count}
+    """
+    db = _ensure_db()
+    rows = list(db.t.explorer_result.rows_where("session_id = ?", [session_id]))
+    for row in rows:
+        db.t.explorer_result.delete(row["id"])
+    return {"cleared": len(rows)}
+
+
+# =============================================================================
+# Core Exploration Write/Read Operations
+# =============================================================================
+
+def write(exploration: dict) -> dict:
+    """Write exploration to database.
 
     Args:
         exploration: Aggregated exploration dict
 
     Returns:
-        Path to written file
+        {"id": exploration_id}
     """
-    EXPLORATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    EXPLORATION_FILE.write_text(json.dumps(exploration, indent=2))
-    return EXPLORATION_FILE
+    db = _ensure_db()
+    explorations = db.t.exploration
+    campaign = _get_active_campaign()
+
+    meta = exploration.get("_meta", {})
+
+    exp = Exploration(
+        campaign_id=campaign["id"] if campaign else None,
+        objective=meta.get("objective", ""),
+        git_sha=meta.get("git_sha", ""),
+        created_at=datetime.now().isoformat(),
+        structure=json.dumps(exploration.get("structure", {})),
+        pattern=json.dumps(exploration.get("pattern", {})),
+        memory=json.dumps(exploration.get("memory", {})),
+        delta=json.dumps(exploration.get("delta", {})),
+        modes_completed=sum(1 for k in ["structure", "pattern", "memory", "delta"]
+                          if exploration.get(k, {}).get("status") in ["ok", "partial"]),
+        status="complete"
+    )
+
+    result = explorations.insert(exp)
+
+    return {"id": result.id}
 
 
 def read() -> dict | None:
-    """Read exploration.json if exists.
+    """Read latest exploration from database.
 
     Returns:
-        Exploration dict or None if file doesn't exist
+        Exploration dict or None
     """
-    if not EXPLORATION_FILE.exists():
+    db = _ensure_db()
+    explorations = db.t.exploration
+
+    rows = list(explorations.rows)
+    if not rows:
         return None
-    return json.loads(EXPLORATION_FILE.read_text())
+
+    rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    row = rows[0]
+
+    return {
+        "_meta": {
+            "git_sha": row.get("git_sha", ""),
+            "objective": row.get("objective", ""),
+            "created_at": row.get("created_at", ""),
+        },
+        "structure": json.loads(row.get("structure") or "{}"),
+        "pattern": json.loads(row.get("pattern") or "{}"),
+        "memory": json.loads(row.get("memory") or "{}"),
+        "delta": json.loads(row.get("delta") or "{}"),
+    }
+
+
+def clear() -> dict:
+    """Clear exploration cache.
+
+    Returns:
+        {"cleared": count}
+    """
+    db = _ensure_db()
+    explorations = db.t.exploration
+
+    # Delete all explorations
+    rows = list(explorations.rows)
+    for row in rows:
+        explorations.delete(row["id"])
+
+    return {"cleared": len(rows)}
 
 
 def get_structure() -> dict:
-    """Get structure section from exploration, with fallback.
-
-    Returns:
-        Structure dict or empty fallback
-    """
+    """Get structure section from exploration."""
     exploration = read()
     if not exploration:
         return {"status": "missing"}
-    return exploration.get("structure", {"status": "missing"})
+    structure = exploration.get("structure", {})
+    if not structure:  # Handle empty dict case
+        return {"status": "missing"}
+    return structure
 
 
 def get_pattern() -> dict:
-    """Get pattern section from exploration, with fallback.
-
-    Returns:
-        Pattern dict or empty fallback
-    """
-    exploration = read()
-    if not exploration:
-        return {
-            "status": "missing",
-            "framework": "none",
-            "idioms": {"required": [], "forbidden": []}
-        }
-    return exploration.get("pattern", {
+    """Get pattern section from exploration."""
+    fallback = {
         "status": "missing",
         "framework": "none",
         "idioms": {"required": [], "forbidden": []}
-    })
+    }
+    exploration = read()
+    if not exploration:
+        return fallback
+    pattern = exploration.get("pattern", {})
+    if not pattern:  # Handle empty dict case
+        return fallback
+    return pattern
 
 
 def get_memory() -> dict:
-    """Get memory section from exploration, with fallback.
-
-    Includes similar campaigns if available.
-
-    Returns:
-        Memory dict with failures, patterns, and similar_campaigns
-    """
+    """Get memory section from exploration."""
     exploration = read()
     base = {
         "status": "missing",
@@ -269,12 +384,10 @@ def get_memory() -> dict:
 
     memory = exploration.get("memory", base)
 
-    # Augment with similar campaigns if not already present
+    # Augment with similar campaigns
     if "similar_campaigns" not in memory:
         try:
-            # Lazy import to avoid circular dependency
-            sys.path.insert(0, str(Path(__file__).parent))
-            from campaign import find_similar
+            from lib.campaign import find_similar
             similar = find_similar(threshold=0.6, max_results=3)
             memory["similar_campaigns"] = [
                 {
@@ -292,61 +405,79 @@ def get_memory() -> dict:
 
 
 def get_delta() -> dict:
-    """Get delta section from exploration, with fallback.
-
-    Returns:
-        Delta dict or empty fallback
-    """
+    """Get delta section from exploration."""
+    fallback = {"status": "missing", "candidates": []}
     exploration = read()
     if not exploration:
-        return {"status": "missing", "candidates": []}
-    return exploration.get("delta", {"status": "missing", "candidates": []})
+        return fallback
+    delta = exploration.get("delta", {})
+    if not delta:  # Handle empty dict case
+        return fallback
+    return delta
 
 
-def clear() -> bool:
-    """Remove exploration.json if exists.
-
-    Returns:
-        True if file was removed, False if didn't exist
-    """
-    if EXPLORATION_FILE.exists():
-        EXPLORATION_FILE.unlink()
-        return True
-    return False
-
+# =============================================================================
+# CLI Interface
+# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description="FTL exploration operations")
     subparsers = parser.add_subparsers(dest="command")
 
-    # aggregate command - reads JSON lines from stdin
-    agg = subparsers.add_parser("aggregate", help="Aggregate explorer outputs")
+    # Session-based commands
+    wr = subparsers.add_parser("write-result", help="Write explorer result to database")
+    wr.add_argument("--session", required=True, help="Session ID")
+    wr.add_argument("--mode", required=True, help="Explorer mode")
+
+    ss = subparsers.add_parser("session-status", help="Get session completion status")
+    ss.add_argument("--session", required=True, help="Session ID")
+
+    ags = subparsers.add_parser("aggregate-session", help="Aggregate session results")
+    ags.add_argument("--session", required=True, help="Session ID")
+    ags.add_argument("--objective", help="Original objective text")
+
+    cs = subparsers.add_parser("clear-session", help="Clear session results")
+    cs.add_argument("--session", required=True, help="Session ID")
+
+    # aggregate command (from stdin)
+    agg = subparsers.add_parser("aggregate", help="Aggregate explorer outputs from stdin")
     agg.add_argument("--objective", help="Original objective text")
 
-    # aggregate-files command - reads from .ftl/cache/explorer_*.json files
-    aggf = subparsers.add_parser("aggregate-files", help="Aggregate from cache files")
-    aggf.add_argument("--objective", help="Original objective text")
+    # write command
+    subparsers.add_parser("write", help="Write exploration to database from stdin")
 
-    # write command - writes exploration dict from stdin
-    w = subparsers.add_parser("write", help="Write exploration.json from stdin")
+    # read command
+    subparsers.add_parser("read", help="Read latest exploration from database")
 
-    # read command - read exploration.json
-    subparsers.add_parser("read", help="Read exploration.json")
-
-    # get commands for each section
+    # get commands
     subparsers.add_parser("get-structure", help="Get structure section")
     subparsers.add_parser("get-pattern", help="Get pattern section")
     subparsers.add_parser("get-memory", help="Get memory section")
     subparsers.add_parser("get-delta", help="Get delta section")
 
     # clear command
-    subparsers.add_parser("clear", help="Remove exploration.json")
+    subparsers.add_parser("clear", help="Clear all explorations")
 
     args = parser.parse_args()
 
-    if args.command == "aggregate":
-        # Read JSON objects from stdin (one per line)
-        # Uses extract_json for robust parsing (handles markdown, extra text)
+    if args.command == "write-result":
+        result = json.load(sys.stdin)
+        output = write_result(args.session, args.mode, result)
+        print(json.dumps(output))
+
+    elif args.command == "session-status":
+        output = get_session_status(args.session)
+        print(json.dumps(output, indent=2))
+
+    elif args.command == "aggregate-session":
+        exploration = aggregate_session(args.session, args.objective)
+        print(json.dumps(exploration, indent=2))
+
+    elif args.command == "clear-session":
+        output = clear_session(args.session)
+        print(json.dumps(output))
+
+    elif args.command == "aggregate":
         results = []
         for line in sys.stdin:
             line = line.strip()
@@ -354,27 +485,13 @@ def main():
                 parsed = extract_json(line)
                 if parsed is not None:
                     results.append(parsed)
-                # Skip unparseable lines silently
-        exploration = aggregate(results, args.objective)
-        print(json.dumps(exploration, indent=2))
-
-    elif args.command == "aggregate-files":
-        # Read from .ftl/cache/explorer_{mode}.json files
-        results = []
-        cache_dir = Path(".ftl/cache")
-        for mode in ["structure", "pattern", "memory", "delta"]:
-            f = cache_dir / f"explorer_{mode}.json"
-            if f.exists():
-                parsed = extract_json(f.read_text())
-                if parsed is not None:
-                    results.append(parsed)
         exploration = aggregate(results, args.objective)
         print(json.dumps(exploration, indent=2))
 
     elif args.command == "write":
         exploration = json.load(sys.stdin)
-        path = write(exploration)
-        print(f"Written: {path}")
+        result = write(exploration)
+        print(f"Written: {result}")
 
     elif args.command == "read":
         exploration = read()
@@ -396,11 +513,8 @@ def main():
         print(json.dumps(get_delta(), indent=2))
 
     elif args.command == "clear":
-        removed = clear()
-        if removed:
-            print("Cleared: .ftl/exploration.json")
-        else:
-            print("No exploration.json to clear")
+        result = clear()
+        print(f"Cleared: {result['cleared']} explorations")
 
     else:
         parser.print_help()

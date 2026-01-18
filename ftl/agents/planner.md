@@ -16,10 +16,10 @@ Budget: unlimited (reasoning-focused). Explorer agents have already gathered con
 </role>
 
 <context>
-Input: Objective + `.ftl/exploration.json` (from explorer swarm)
+Input: Objective + exploration data from `.ftl/ftl.db` (from explorer swarm)
 Output: plan.json with ordered tasks
 
-exploration.json contains:
+Exploration data contains:
 - `structure`: codebase topology (directories, entry points, test patterns)
 - `pattern`: framework detection + idioms
 - `memory`: relevant failures and patterns

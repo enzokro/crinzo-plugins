@@ -70,10 +70,10 @@ class TestExplorationAggregate:
 
 
 class TestExplorationWrite:
-    """Test writing exploration.json."""
+    """Test writing exploration to database."""
 
-    def test_write_creates_file(self, cli, ftl_dir):
-        """Write creates exploration.json in .ftl directory."""
+    def test_write_creates_entry(self, cli, ftl_dir):
+        """Write creates exploration entry in database."""
         exploration = {
             "_meta": {"version": "1.0"},
             "structure": {"status": "ok", "directories": {}}
@@ -83,13 +83,11 @@ class TestExplorationWrite:
         assert code == 0, f"Failed: {err}"
         assert "Written" in out
 
-        # Verify file exists
-        path = ftl_dir / ".ftl" / "exploration.json"
-        assert path.exists()
-
-        # Verify contents
-        data = json.loads(path.read_text())
-        assert data["_meta"]["version"] == "1.0"
+        # Verify entry exists via read
+        code, out, _ = cli.exploration("read")
+        data = json.loads(out)
+        assert data is not None
+        assert data["structure"]["status"] == "ok"
 
 
 class TestExplorationRead:
@@ -221,31 +219,35 @@ class TestExplorationGetters:
 
 
 class TestExplorationClear:
-    """Test clearing exploration.json."""
+    """Test clearing exploration from database."""
 
-    def test_clear_removes_file(self, cli, ftl_dir):
-        """Clear removes exploration.json."""
-        # First create a file
-        exploration = {"_meta": {"version": "1.0"}}
+    def test_clear_removes_entries(self, cli, ftl_dir):
+        """Clear removes exploration entries from database."""
+        # First create an entry
+        exploration = {"_meta": {"version": "1.0"}, "structure": {"status": "ok"}}
         cli.exploration("write", stdin=json.dumps(exploration))
 
-        # Verify it exists
-        path = ftl_dir / ".ftl" / "exploration.json"
-        assert path.exists()
+        # Verify it exists via read
+        code, out, _ = cli.exploration("read")
+        data = json.loads(out)
+        assert data is not None
 
         # Clear it
         code, out, _ = cli.exploration("clear")
         assert code == 0
         assert "Cleared" in out
+        assert "1" in out  # Should report 1 cleared
 
         # Verify it's gone
-        assert not path.exists()
+        code, out, _ = cli.exploration("read")
+        assert out.strip() == "null"
 
-    def test_clear_when_no_file(self, cli, ftl_dir):
-        """Clear handles missing file gracefully."""
+    def test_clear_when_empty(self, cli, ftl_dir):
+        """Clear handles empty database gracefully."""
         code, out, _ = cli.exploration("clear")
         assert code == 0
-        assert "No exploration.json" in out
+        # Database version returns cleared count
+        assert "Cleared" in out
 
 
 class TestExplorationValidation:

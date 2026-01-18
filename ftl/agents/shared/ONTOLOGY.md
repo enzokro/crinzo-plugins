@@ -155,7 +155,9 @@ Score (0.0-1.0) indicating how well a memory entry matches current objective.
 ## Workspace Lifecycle
 
 ```
-.ftl/workspace/{SEQ}_{slug}_{status}.xml
+Workspace ID format: {SEQ}_{slug}
+Storage: workspace table in .ftl/ftl.db
+Status tracking: workspace.status column (active|complete|blocked)
 ```
 
 ### Status Values

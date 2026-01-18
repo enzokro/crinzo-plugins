@@ -1,4 +1,4 @@
-"""Test FTL v2 integration - full workflow tests."""
+"""Test FTL v2 integration - full workflow tests with database backend."""
 
 import json
 from pathlib import Path
@@ -21,12 +21,14 @@ class TestFullWorkflow:
         assert code == 0
 
         # 3. Create workspaces
-        code, out, _ = cli.workspace("create", "--plan", "-", stdin=plan_json)
+        plan_id = cli.create_plan(sample_plan)
+        code, out, _ = cli.workspace("create", "--plan-id", str(plan_id))
         assert code == 0
 
-        # 4. Verify workspaces created
-        ws_files = list((ftl_dir / ".ftl/workspace").glob("*_active.xml"))
-        assert len(ws_files) == 2
+        # 4. Verify workspaces created via database query
+        code, out, _ = cli.workspace("list")
+        workspaces = json.loads(out)
+        assert len(workspaces) == 2
 
         # 5. Get next task
         code, out, _ = cli.campaign("next-task")
@@ -39,12 +41,13 @@ class TestFullWorkflow:
         cli.campaign("create", "Complete flow test")
         plan_json = json.dumps(sample_plan)
         cli.campaign("add-tasks", stdin=plan_json)
-        cli.workspace("create", "--plan", "-", stdin=plan_json)
+        plan_id = cli.create_plan(sample_plan)
+        cli.workspace("create", "--plan-id", str(plan_id))
 
-        # Complete workspace
-        ws_file = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
+        # Complete workspace using path format
+        ws_path = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
         code, _, _ = cli.workspace(
-            "complete", str(ws_file),
+            "complete", str(ws_path),
             "--delivered", "Implemented tests"
         )
         assert code == 0
@@ -63,24 +66,26 @@ class TestFullWorkflow:
         cli.campaign("create", "Block flow test")
         plan_json = json.dumps(sample_plan)
         cli.campaign("add-tasks", stdin=plan_json)
-        cli.workspace("create", "--plan", "-", stdin=plan_json)
+        plan_id = cli.create_plan(sample_plan)
+        cli.workspace("create", "--plan-id", str(plan_id))
 
         # Block workspace
-        ws_file = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
+        ws_path = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
         cli.workspace(
-            "block", str(ws_file),
+            "block", str(ws_path),
             "--reason", "pytest failed: AssertionError in test_main"
         )
 
         # Update campaign
         cli.campaign("update-task", "001", "blocked")
 
-        # Verify blocked workspace exists
-        blocked_files = list((ftl_dir / ".ftl/workspace").glob("*_blocked.xml"))
-        assert len(blocked_files) == 1
+        # Verify blocked workspace exists in database
+        code, out, _ = cli.workspace("list", "--status", "blocked")
+        blocked = json.loads(out)
+        assert len(blocked) == 1
 
         # Parse blocked workspace
-        code, out, _ = cli.workspace("parse", str(blocked_files[0]))
+        code, out, _ = cli.workspace("parse", blocked[0]["workspace_id"])
         data = json.loads(out)
         assert "AssertionError" in data["delivered"]
 
@@ -94,12 +99,13 @@ class TestMemoryIntegration:
         cli.campaign("create", "Failure test")
         plan_json = json.dumps(sample_plan)
         cli.campaign("add-tasks", stdin=plan_json)
-        cli.workspace("create", "--plan", "-", stdin=plan_json)
+        plan_id = cli.create_plan(sample_plan)
+        cli.workspace("create", "--plan-id", str(plan_id))
 
         # Block workspace with error
-        ws_file = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
+        ws_path = ftl_dir / ".ftl/workspace/001_first-task_active.xml"
         cli.workspace(
-            "block", str(ws_file),
+            "block", str(ws_path),
             "--reason", "ModuleNotFoundError: No module named 'fasthtml'"
         )
 
@@ -126,12 +132,13 @@ class TestMemoryIntegration:
         cli.campaign("create", "Pattern test", "--framework", "FastHTML")
         plan_json = json.dumps(sample_plan_with_framework)
         cli.campaign("add-tasks", stdin=plan_json)
-        cli.workspace("create", "--plan", "-", stdin=plan_json)
+        plan_id = cli.create_plan(sample_plan_with_framework)
+        cli.workspace("create", "--plan-id", str(plan_id))
 
         # Complete workspace
-        ws_file = ftl_dir / ".ftl/workspace/001_add-route_active.xml"
+        ws_path = ftl_dir / ".ftl/workspace/001_add-route_active.xml"
         cli.workspace(
-            "complete", str(ws_file),
+            "complete", str(ws_path),
             "--delivered", "Added route using @rt decorator and Div components"
         )
 
@@ -156,32 +163,37 @@ class TestEdgeCases:
 
     def test_empty_plan_tasks(self, cli, ftl_dir):
         """Handle plan with no tasks."""
+        # Need to create a campaign first
+        cli.campaign("create", "Empty plan test")
         plan = {"campaign": "empty", "framework": "none", "tasks": []}
-        plan_json = json.dumps(plan)
+        plan_id = cli.create_plan(plan)
 
-        code, out, _ = cli.workspace("create", "--plan", "-", stdin=plan_json)
+        code, out, _ = cli.workspace("create", "--plan-id", str(plan_id))
         assert code == 0
 
         # No workspaces created
-        ws_files = list((ftl_dir / ".ftl/workspace").glob("*.xml"))
-        assert len(ws_files) == 0
+        code, out, _ = cli.workspace("list")
+        workspaces = json.loads(out)
+        assert len(workspaces) == 0
 
-    def test_invalid_json_rejected(self, cli, ftl_dir):
-        """Invalid JSON is rejected."""
-        code, out, err = cli.workspace("create", "--plan", "-", stdin="not json")
+    def test_missing_plan_id_fails(self, cli, ftl_dir):
+        """Non-existent plan ID fails gracefully."""
+        code, out, err = cli.workspace("create", "--plan-id", "99999")
         assert code != 0
 
     def test_missing_required_fields(self, cli, ftl_dir):
         """Plan missing required fields fails gracefully."""
+        cli.campaign("create", "Incomplete plan test")
         plan = {"campaign": "incomplete"}  # Missing tasks
-        plan_json = json.dumps(plan)
+        plan_id = cli.create_plan(plan)
 
-        code, out, _ = cli.workspace("create", "--plan", "-", stdin=plan_json)
+        code, out, _ = cli.workspace("create", "--plan-id", str(plan_id))
         # Should handle gracefully (create 0 workspaces)
         assert code == 0
 
     def test_duplicate_seq_different_slug(self, cli, ftl_dir):
-        """Different slugs with same seq create separate files."""
+        """Different slugs with same seq create separate workspaces."""
+        cli.campaign("create", "Duplicate seq test")
         plan = {
             "campaign": "dupe",
             "framework": "none",
@@ -192,15 +204,17 @@ class TestEdgeCases:
                  "delta": ["b.py"], "verify": "true", "budget": 3, "depends": "none"}
             ]
         }
-        plan_json = json.dumps(plan)
+        plan_id = cli.create_plan(plan)
 
-        code, out, _ = cli.workspace("create", "--plan", "-", stdin=plan_json)
-        # Different slugs = different files (naming includes slug)
-        ws_files = list((ftl_dir / ".ftl/workspace").glob("001_*.xml"))
-        assert len(ws_files) == 2
-        names = [f.name for f in ws_files]
-        assert "001_first_active.xml" in names
-        assert "001_second_active.xml" in names
+        code, out, _ = cli.workspace("create", "--plan-id", str(plan_id))
+
+        # Different slugs = different workspaces
+        code, out, _ = cli.workspace("list")
+        workspaces = json.loads(out)
+        assert len(workspaces) == 2
+        ws_ids = [ws["workspace_id"] for ws in workspaces]
+        assert "001-first" in ws_ids
+        assert "001-second" in ws_ids
 
 
 class TestCLIHelp:

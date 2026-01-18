@@ -4,7 +4,13 @@ version: 1.0
 
 # Explorer Output Schemas
 
-JSON Schema definitions for each explorer mode output. All modes write to `.ftl/cache/explorer_{mode}.json`.
+JSON Schema definitions for each explorer mode output. All modes write directly to the `explorer_result` table via:
+
+```bash
+python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{json}'
+```
+
+Results are aggregated to the `exploration` table using `aggregate-session --session {session_id}`.
 
 See [ONTOLOGY.md](ONTOLOGY.md#vocabulary-disambiguation) for terminology.
 
@@ -338,13 +344,15 @@ All explorer outputs share these required fields:
 
 ## Validation
 
-Aggregation in `exploration.py` validates:
+When writing to database via `write-result`, minimal validation is performed:
 
 1. `mode` field exists and matches expected value
 2. `status` field exists and is valid enum
 3. Mode-specific required fields present
 
-Validation is minimal to allow flexibility. Schemas above are for documentation; strict validation is not enforced at runtime.
+Aggregation via `aggregate-session` combines all mode results for a session.
+
+Schemas above are for documentation; strict validation is not enforced at runtime.
 
 ---
 

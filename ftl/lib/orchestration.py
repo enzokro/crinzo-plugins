@@ -1,144 +1,144 @@
 #!/usr/bin/env python3
-"""Orchestration utilities for FTL workflow management.
+"""Orchestration utilities with fastsql database backend.
 
 Provides:
+- Session-based exploration management
 - Quorum-based waiting for explorer completion with timeout
 - Phase transition validation
-- Agent coordination helpers
+- Event logging
+
+CLI:
+    python3 lib/orchestration.py create-session                    # Generate new session ID
+    python3 lib/orchestration.py wait-explorers --session ID       # Wait for quorum
+    python3 lib/orchestration.py check-explorers --session ID      # Non-blocking status
+    python3 lib/orchestration.py validate-transition FROM TO       # Validate transition
+    python3 lib/orchestration.py emit-state STATE                  # Emit state event
 """
 
 import argparse
 import json
 import sys
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
+# Support both standalone execution and module import
+try:
+    from lib.db import get_db, init_db, Event
+    from lib.exploration import get_session_status
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from db import get_db, init_db, Event
+    from exploration import get_session_status
 
-CACHE_DIR = Path(".ftl/cache")
+
 EXPLORER_MODES = ["structure", "pattern", "memory", "delta"]
 DEFAULT_TIMEOUT = 300  # 5 minutes
 DEFAULT_QUORUM = 3     # 3 of 4 explorers sufficient
 
 
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
+
+
+def create_session() -> str:
+    """Generate new exploration session ID.
+
+    Returns:
+        8-character UUID string for session tracking
+    """
+    return str(uuid.uuid4())[:8]
+
+
 def wait_explorers(
+    session_id: str,
     required: int = DEFAULT_QUORUM,
     timeout: int = DEFAULT_TIMEOUT,
     poll_interval: float = 2.0
 ) -> dict:
     """Wait for explorer agents to complete with quorum support.
 
+    Uses database polling instead of file system polling.
+
     Args:
-        required: Minimum number of explorers that must complete (default: 3)
-        timeout: Maximum seconds to wait (default: 300)
-        poll_interval: Seconds between checks (default: 2.0)
+        session_id: UUID linking parallel explorers
+        required: Minimum number of explorers that must complete
+        timeout: Maximum seconds to wait
+        poll_interval: Seconds between checks
 
     Returns:
-        {
-            "status": "quorum_met" | "timeout" | "all_complete",
-            "completed": ["structure", "pattern", ...],
-            "missing": ["delta"],
-            "elapsed": 45.2,
-            "exploration_files": {"structure": "path/to/file", ...}
-        }
+        Status dict with completed and missing modes
     """
+    _ensure_db()
     start = time.time()
-    completed = []
-    exploration_files = {}
 
     while True:
         elapsed = time.time() - start
+        status = get_session_status(session_id)
 
-        # Check each explorer's cache file
-        for mode in EXPLORER_MODES:
-            if mode in completed:
-                continue
-
-            cache_file = CACHE_DIR / f"explorer_{mode}.json"
-            if cache_file.exists():
-                try:
-                    data = json.loads(cache_file.read_text())
-                    if data.get("status") in ["ok", "partial", "error"]:
-                        completed.append(mode)
-                        exploration_files[mode] = str(cache_file)
-                except (json.JSONDecodeError, IOError):
-                    pass
-
-        # Check completion conditions
-        missing = [m for m in EXPLORER_MODES if m not in completed]
-
-        if len(completed) >= len(EXPLORER_MODES):
+        if len(status["completed"]) >= len(EXPLORER_MODES):
             return {
                 "status": "all_complete",
-                "completed": completed,
+                "completed": status["completed"],
                 "missing": [],
                 "elapsed": round(elapsed, 2),
-                "exploration_files": exploration_files,
+                "session_id": session_id
             }
 
-        if len(completed) >= required:
+        if len(status["completed"]) >= required:
             return {
                 "status": "quorum_met",
-                "completed": completed,
-                "missing": missing,
+                "completed": status["completed"],
+                "missing": status["missing"],
                 "elapsed": round(elapsed, 2),
-                "exploration_files": exploration_files,
+                "session_id": session_id
             }
 
         if elapsed >= timeout:
             return {
                 "status": "timeout",
-                "completed": completed,
-                "missing": missing,
+                "completed": status["completed"],
+                "missing": status["missing"],
                 "elapsed": round(elapsed, 2),
-                "exploration_files": exploration_files,
+                "session_id": session_id
             }
 
         time.sleep(poll_interval)
 
 
-def check_explorers() -> dict:
+def check_explorers(session_id: str) -> dict:
     """Non-blocking check of explorer status.
 
-    Returns:
-        {
-            "total": 4,
-            "completed": 2,
-            "modes": {"structure": "ok", "pattern": "ok", "memory": "pending", "delta": "pending"}
-        }
-    """
-    modes = {}
-    completed = 0
+    Args:
+        session_id: UUID linking parallel explorers
 
+    Returns:
+        Status dict with mode completion states
+    """
+    _ensure_db()
+    status = get_session_status(session_id)
+
+    modes = {}
     for mode in EXPLORER_MODES:
-        cache_file = CACHE_DIR / f"explorer_{mode}.json"
-        if cache_file.exists():
-            try:
-                data = json.loads(cache_file.read_text())
-                status = data.get("status", "unknown")
-                modes[mode] = status
-                if status in ["ok", "partial", "error"]:
-                    completed += 1
-            except (json.JSONDecodeError, IOError):
-                modes[mode] = "error"
+        if mode in status["completed"]:
+            modes[mode] = "complete"
         else:
             modes[mode] = "pending"
 
     return {
         "total": len(EXPLORER_MODES),
-        "completed": completed,
+        "completed": len(status["completed"]),
+        "quorum_met": status["quorum_met"],
         "modes": modes,
+        "session_id": session_id
     }
 
 
 def validate_transition(from_state: str, to_state: str) -> dict:
     """Validate a state machine transition.
-
-    This validates TASK flow transitions only. CAMPAIGN flow uses additional
-    internal states (REGISTER, EXECUTE, CASCADE) that are orchestrated by
-    SKILL.md state machine logic, not validated here. Those states are
-    CAMPAIGN-internal: they follow PLAN→REGISTER→EXECUTE→CASCADE→OBSERVE
-    but validation happens at the SKILL.md orchestration layer.
 
     Args:
         from_state: Current state
@@ -147,13 +147,11 @@ def validate_transition(from_state: str, to_state: str) -> dict:
     Returns:
         {"valid": bool, "reason": str}
     """
-    # TASK flow transitions. CAMPAIGN states (REGISTER, EXECUTE, CASCADE)
-    # are orchestrated by SKILL.md and bypass this validation.
     valid_transitions = {
         "INIT": ["EXPLORE"],
         "EXPLORE": ["PLAN"],
-        "PLAN": ["BUILD", "EXPLORE"],  # EXPLORE if CLARIFY
-        "BUILD": ["OBSERVE", "BUILD"],  # BUILD for multi-task
+        "PLAN": ["BUILD", "EXPLORE"],
+        "BUILD": ["OBSERVE", "BUILD"],
         "OBSERVE": ["COMPLETE"],
         "COMPLETE": ["INIT"],
     }
@@ -180,35 +178,49 @@ def emit_state(state: str, **kwargs) -> dict:
     Returns:
         Event dict
     """
-    event = {
+    db = _ensure_db()
+    events = db.t.event
+
+    now = datetime.now().isoformat()
+    metadata = {"state": state, **kwargs}
+
+    event = Event(
+        event_type="STATE_ENTRY",
+        timestamp=now,
+        metadata=json.dumps(metadata)
+    )
+    events.insert(event)
+
+    return {
         "event": "STATE_ENTRY",
         "state": state,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": now,
         **kwargs
     }
 
-    # Write to event log
-    log_file = Path(".ftl/events.jsonl")
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    with log_file.open("a") as f:
-        f.write(json.dumps(event) + "\n")
 
-    return event
-
+# =============================================================================
+# CLI Interface
+# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description="FTL orchestration utilities")
     subparsers = parser.add_subparsers(dest="command")
 
+    # create-session command
+    subparsers.add_parser("create-session", help="Generate new session ID")
+
     # wait-explorers command
     we = subparsers.add_parser("wait-explorers", help="Wait for explorers with quorum")
+    we.add_argument("--session", required=True, help="Session ID")
     we.add_argument("--required", type=int, default=DEFAULT_QUORUM,
                     help=f"Minimum explorers required (default: {DEFAULT_QUORUM})")
     we.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                     help=f"Timeout in seconds (default: {DEFAULT_TIMEOUT})")
 
     # check-explorers command
-    subparsers.add_parser("check-explorers", help="Non-blocking explorer status check")
+    ce = subparsers.add_parser("check-explorers", help="Non-blocking explorer status check")
+    ce.add_argument("--session", required=True, help="Session ID")
 
     # validate-transition command
     vt = subparsers.add_parser("validate-transition", help="Validate state transition")
@@ -222,14 +234,17 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "wait-explorers":
-        result = wait_explorers(args.required, args.timeout)
+    if args.command == "create-session":
+        session_id = create_session()
+        print(json.dumps({"session_id": session_id}))
+
+    elif args.command == "wait-explorers":
+        result = wait_explorers(args.session, args.required, args.timeout)
         print(json.dumps(result, indent=2))
-        # Exit with error code if timeout
         sys.exit(0 if result["status"] != "timeout" else 1)
 
     elif args.command == "check-explorers":
-        result = check_explorers()
+        result = check_explorers(args.session)
         print(json.dumps(result, indent=2))
 
     elif args.command == "validate-transition":

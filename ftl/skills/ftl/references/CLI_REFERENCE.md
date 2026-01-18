@@ -3,19 +3,34 @@
 All paths use `${CLAUDE_PLUGIN_ROOT}` - this variable resolves to the plugin installation directory.
 Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require the flag prefix.
 
+**Storage Backend**: All data stored in SQLite database at `.ftl/ftl.db`. See DATABASE_SCHEMA.md for details.
+
 ## exploration.py
 
 | Command | Syntax | Notes |
 |---------|--------|-------|
-| clear | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear` | removes exploration.json |
+| write-result | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write-result --session ID --mode MODE` | stdin: explorer result JSON |
+| session-status | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py session-status --session ID` | returns completion status |
+| aggregate-session | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-session --session ID --objective "text"` | aggregates from DB |
+| clear-session | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear-session --session ID` | removes session results |
+| clear | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear` | clears exploration table |
 | aggregate | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate --objective "text"` | stdin: JSON lines |
-| aggregate-files | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-files --objective "text"` | reads .ftl/cache/explorer_*.json |
-| write | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write` | stdin: exploration dict |
-| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read` | returns exploration.json |
+| write | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write` | stdin: exploration dict, writes to DB |
+| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read` | returns exploration from DB |
 | get-structure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-structure` | |
 | get-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-pattern` | |
 | get-memory | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-memory` | |
 | get-delta | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-delta` | |
+
+## plan.py
+
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| write | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py write` | stdin: plan JSON, returns ID |
+| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py read --id ID` | returns plan dict |
+| get-active | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py get-active` | returns most recent active plan |
+| mark-executed | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py mark-executed --id ID` | marks plan as executed |
+| list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py list [--status STATUS]` | list plans |
 
 ## campaign.py
 
@@ -42,10 +57,11 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 
 | Command | Syntax | Notes |
 |---------|--------|-------|
-| create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan PATH [--task SEQ]` | `--plan` REQUIRED |
+| create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id ID [--task SEQ]` | `--plan-id` REQUIRED (reads from plan table) |
 | parse | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse PATH` | `PATH` is POS |
 | complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete PATH --delivered "text" [--utilized JSON]` | tracks helpful memories |
 | block | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
+| list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py list [--status STATUS]` | list all workspaces |
 
 ## memory.py
 
@@ -71,11 +87,38 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | verify-blocks | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py verify-blocks [--workspace-dir PATH]` | verify all blocked workspaces |
 | score | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py score PATH` | score single workspace |
 | extract-failure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py extract-failure PATH` | extract failure from blocked workspace |
+| list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/observer.py list` | list workspaces by status |
 
 ## benchmark.py
 
 | Command | Syntax | Notes |
 |---------|--------|-------|
-| report | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` | full benchmark report |
-| run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py run` | JSON results |
+| run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py run` | runs all benchmarks, stores in DB, returns JSON |
+| report | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py report` | full benchmark report (from DB) |
+| retrieval | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py retrieval` | retrieval speed benchmark |
+| matching | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py matching` | semantic matching benchmark |
 | learning | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py learning` | efficiency simulation |
+| pruning | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py pruning` | pruning performance |
+| get-run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py get-run --run-id ID` | get run results from DB |
+| compare | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py compare --run-a ID --run-b ID` | compare two runs |
+| list-runs | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py list-runs` | list recent benchmark runs |
+
+## phase.py
+
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| status | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py status` | current phase state |
+| transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition PHASE` | `PHASE` is POS, validates transition |
+| reset | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py reset` | reset to 'none' phase |
+| can-transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py can-transition FROM TO` | both POS, returns valid/invalid |
+| duration | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py duration` | workflow duration in seconds |
+
+## orchestration.py
+
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| create-session | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py create-session` | returns session_id for explorer tracking |
+| wait-explorers | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --session ID [--required N] [--timeout S]` | blocks until quorum (polls explorer_result table) |
+| check-explorers | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py check-explorers --session ID` | non-blocking status check |
+| validate-transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py validate-transition FROM TO` | both POS |
+| emit-state | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py emit-state STATE [--meta JSON]` | `STATE` is POS, logs event |

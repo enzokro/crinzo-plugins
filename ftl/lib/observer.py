@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Automated pattern extraction from completed workspaces."""
+"""Automated pattern extraction with fastsql database backend.
+
+Provides workspace analysis, failure extraction, and pattern scoring.
+"""
 
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -8,18 +11,36 @@ import json
 import argparse
 import subprocess
 import sys
+import re
 
 # Support both standalone execution and module import
 try:
-    from lib.workspace import parse, WORKSPACE_DIR
-    from lib.memory import load_memory, add_failure, add_pattern, add_relationship, add_cross_relationship
-    from lib.embeddings import similarity as semantic_similarity
+    from lib.db import get_db, init_db
+    from lib.workspace import parse, list_workspaces
+    from lib.memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats
+    from lib.db.embeddings import similarity as semantic_similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from workspace import parse, WORKSPACE_DIR
-    from memory import load_memory, add_failure, add_pattern, add_relationship, add_cross_relationship
-    from embeddings import similarity as semantic_similarity
+    from db import get_db, init_db
+    from workspace import parse, list_workspaces as ws_list_workspaces
+    from memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats
+    from db.embeddings import similarity as semantic_similarity
 
+
+# Note: All storage is now in .ftl/ftl.db
+# WORKSPACE_DIR kept for API compatibility (ignored in actual operations)
+WORKSPACE_DIR = None
+
+
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
+
+
+# =============================================================================
+# Workspace Listing (delegated to workspace module where possible)
+# =============================================================================
 
 def list_workspaces(
     workspace_dir: Path = WORKSPACE_DIR,
@@ -28,47 +49,84 @@ def list_workspaces(
     """Categorize workspaces by status with optional age filtering.
 
     Args:
-        workspace_dir: Path to workspace directory
-        max_age_days: Only include workspaces modified within this many days (None = no filter)
+        workspace_dir: Path to workspace directory (ignored, uses DB)
+        max_age_days: Only include workspaces modified within N days
 
     Returns:
-        {"complete": [paths], "blocked": [paths], "active": [paths]}
+        {"complete": [dicts], "blocked": [dicts], "active": [dicts]}
     """
+    db = _ensure_db()
+    workspaces = db.t.workspace
+
     result = {"complete": [], "blocked": [], "active": []}
-    if not workspace_dir.exists():
-        return result
 
     cutoff_time = None
     if max_age_days is not None:
         cutoff_time = datetime.now() - timedelta(days=max_age_days)
 
-    for p in workspace_dir.glob("*.xml"):
-        # Apply age filter if specified
+    for row in workspaces.rows:
+        # Apply age filter
         if cutoff_time is not None:
-            mtime = datetime.fromtimestamp(p.stat().st_mtime)
-            if mtime < cutoff_time:
-                continue
+            created = row.get("created_at", "")
+            if created:
+                try:
+                    created_dt = datetime.fromisoformat(created)
+                    if created_dt < cutoff_time:
+                        continue
+                except ValueError:
+                    pass
 
-        if "_complete.xml" in p.name:
-            result["complete"].append(p)
-        elif "_blocked.xml" in p.name:
-            result["blocked"].append(p)
-        elif "_active.xml" in p.name:
-            result["active"].append(p)
+        status = row.get("status", "active")
+        ws_dict = _row_to_ws_dict(row)
+
+        if status == "complete":
+            result["complete"].append(ws_dict)
+        elif status == "blocked":
+            result["blocked"].append(ws_dict)
+        elif status == "active":
+            result["active"].append(ws_dict)
 
     return result
 
 
-def verify_block(workspace_path: Path, timeout: int = 30) -> dict:
+def _row_to_ws_dict(row) -> dict:
+    """Convert workspace row to dict for observer processing."""
+    return {
+        "id": row.get("workspace_id", ""),
+        "workspace_id": row.get("workspace_id", ""),
+        "status": row.get("status", ""),
+        "delivered": row.get("delivered", ""),
+        "objective": row.get("objective", ""),
+        "delta": json.loads(row.get("delta") or "[]"),
+        "verify": row.get("verify", ""),
+        "budget": row.get("budget", 5),
+        "idioms": json.loads(row.get("idioms") or "{}"),
+        "created_at": row.get("created_at", ""),
+    }
+
+
+# =============================================================================
+# Block Verification
+# =============================================================================
+
+def verify_block(workspace_path_or_id, timeout: int = 30) -> dict:
     """Verify if a blocked workspace is truly blocked by re-running verify.
 
+    Args:
+        workspace_path_or_id: Path, workspace_id, or workspace dict
+        timeout: Verification timeout in seconds
+
     Returns:
-        {"status": "CONFIRMED"|"FALSE_POSITIVE", "reason": str, "output": str}
+        {"status": "CONFIRMED"|"FALSE_POSITIVE"|"ERROR", "reason": str, "output": str}
     """
-    try:
-        ws = parse(workspace_path)
-    except Exception as e:
-        return {"status": "ERROR", "reason": f"Parse error: {e}", "output": ""}
+    # Accept dict directly
+    if isinstance(workspace_path_or_id, dict):
+        ws = workspace_path_or_id
+    else:
+        try:
+            ws = parse(workspace_path_or_id)
+        except Exception as e:
+            return {"status": "ERROR", "reason": f"Parse error: {e}", "output": ""}
 
     verify_cmd = ws.get("verify", "")
     if not verify_cmd:
@@ -97,10 +155,14 @@ def verify_block(workspace_path: Path, timeout: int = 30) -> dict:
         return {"status": "ERROR", "reason": str(e), "output": ""}
 
 
-def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
+# =============================================================================
+# Workspace Scoring
+# =============================================================================
+
+def score_workspace(workspace_path_or_id, memory: dict = None) -> dict:
     """Score a completed workspace for pattern extraction.
 
-    Scoring rules (from observer.md):
+    Scoring rules:
     - Was blocked then fixed: +3
     - Clean first-try success: +2
     - Framework idiom applied: +2
@@ -112,30 +174,36 @@ def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
         {"score": int, "breakdown": dict, "workspace": dict}
     """
     if memory is None:
-        memory = load_memory()
+        stats = get_stats()
+        memory = {"failures": [], "patterns": []}
 
-    ws = parse(workspace_path)
+    # Accept dict directly
+    if isinstance(workspace_path_or_id, dict):
+        ws = workspace_path_or_id
+    else:
+        ws = parse(workspace_path_or_id)
     score = 0
     breakdown = {}
 
-    # Check if this task was blocked then fixed (slug appears in both blocked and complete)
-    workspace_dir = workspace_path.parent
-    slug = workspace_path.stem.replace("_complete", "")
-    blocked_path = workspace_dir / f"{slug}_blocked.xml"
+    # Check if was blocked then fixed
+    db = _ensure_db()
+    workspaces = db.t.workspace
 
-    # Actually check for any blocked workspace with same seq
     seq = ws.get("id", "").split("-")[0] if ws.get("id") else ""
-    was_blocked = any(
-        p.stem.startswith(seq) for p in workspace_dir.glob("*_blocked.xml")
-    ) if seq else False
+    was_blocked = False
+    if seq:
+        blocked = list(workspaces.rows_where(
+            "seq = ? AND status = ?",
+            [seq, "blocked"]
+        ))
+        was_blocked = len(blocked) > 0
 
     if was_blocked:
         score += 3
         breakdown["blocked_then_fixed"] = 3
 
-    # Clean first-try success (no retry/failure patterns in delivered)
+    # Clean first-try success
     delivered = ws.get("delivered", "").lower()
-    # Negative patterns that indicate retries/failures
     retry_patterns = ["retry", "retried", "tried again", "second attempt", "multiple attempt", "failed then"]
     has_retry = any(pattern in delivered for pattern in retry_patterns)
     if not has_retry:
@@ -143,15 +211,14 @@ def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
         breakdown["first_try_success"] = 2
 
     # Framework idiom applied
-    if ws.get("idioms") and ws["idioms"].get("required"):
+    idioms = ws.get("idioms", {})
+    if idioms and idioms.get("required"):
         score += 2
         breakdown["framework_idioms"] = 2
 
-    # Budget efficient (<50% used)
+    # Budget efficient
     budget = ws.get("budget", 5)
-    # Estimate tools used from delivered text (rough heuristic)
-    # In practice, this should be tracked explicitly
-    if budget >= 4:  # Assume efficient if budget was generous
+    if budget >= 4:
         score += 1
         breakdown["budget_efficient"] = 1
 
@@ -161,37 +228,39 @@ def score_workspace(workspace_path: Path, memory: dict = None) -> dict:
         score += 1
         breakdown["multi_file"] = 1
 
-    # Novel approach (trigger not in existing memory)
-    existing_triggers = {f.get("trigger", "") for f in memory.get("failures", [])}
-    existing_triggers.update(p.get("trigger", "") for p in memory.get("patterns", []))
-
-    # Check if objective or key aspects are novel
+    # Novel approach
     objective = ws.get("objective", "")
-    is_novel = not any(
-        _similarity(objective, t) > 0.7 for t in existing_triggers if t
-    )
+    # Skip novelty check if memory is empty
+    is_novel = True
+    if memory.get("failures") or memory.get("patterns"):
+        existing_triggers = {f.get("trigger", "") for f in memory.get("failures", [])}
+        existing_triggers.update(p.get("trigger", "") for p in memory.get("patterns", []))
+        is_novel = not any(
+            semantic_similarity(objective, t) > 0.7 for t in existing_triggers if t
+        )
+
     if is_novel:
         score += 1
         breakdown["novel"] = 1
 
-    return {"score": score, "breakdown": breakdown, "workspace": ws, "path": str(workspace_path)}
+    return {"score": score, "breakdown": breakdown, "workspace": ws}
 
 
-def _similarity(a: str, b: str) -> float:
-    """Similarity check using semantic embeddings when available.
+# =============================================================================
+# Failure/Pattern Extraction
+# =============================================================================
 
-    Falls back to SequenceMatcher if embeddings unavailable.
-    """
-    return semantic_similarity(a, b)
-
-
-def extract_failure(workspace_path: Path, verify_output: str = "") -> dict:
+def extract_failure(workspace_path_or_id, verify_output: str = "") -> dict:
     """Extract failure entry from a blocked workspace.
 
     Returns:
         Failure dict ready for add_failure()
     """
-    ws = parse(workspace_path)
+    # Accept dict directly
+    if isinstance(workspace_path_or_id, dict):
+        ws = workspace_path_or_id
+    else:
+        ws = parse(workspace_path_or_id)
     delivered = ws.get("delivered", "")
 
     # Extract error from BLOCKED: prefix
@@ -199,7 +268,6 @@ def extract_failure(workspace_path: Path, verify_output: str = "") -> dict:
     if "BLOCKED:" in delivered:
         trigger = delivered.split("BLOCKED:", 1)[1].strip().split("\n")[0]
     elif verify_output:
-        # Take first error line from verify output
         for line in verify_output.split("\n"):
             if any(x in line.upper() for x in ["ERROR", "FAIL", "EXCEPTION"]):
                 trigger = line.strip()
@@ -208,10 +276,9 @@ def extract_failure(workspace_path: Path, verify_output: str = "") -> dict:
     if not trigger:
         trigger = delivered[:100] if delivered else "Unknown error"
 
-    # Generate name from trigger
     name = _slugify(trigger[:50])
 
-    # Extract fix hint from "Tried" section if present
+    # Extract fix hint
     fix = "UNKNOWN"
     if "Tried:" in delivered:
         tried = delivered.split("Tried:")[1].split("Unknown:")[0].strip()
@@ -226,11 +293,11 @@ def extract_failure(workspace_path: Path, verify_output: str = "") -> dict:
         "fix": fix,
         "match": _generalize_to_regex(trigger),
         "cost": budget * 1000,
-        "source": [ws.get("id", workspace_path.stem)],
+        "source": [ws.get("id", ws.get("workspace_id", ""))],
     }
 
 
-def extract_pattern(workspace_path: Path, score_data: dict) -> dict:
+def extract_pattern(workspace_path_or_id, score_data: dict) -> dict:
     """Extract pattern entry from a high-scoring workspace.
 
     Returns:
@@ -240,13 +307,9 @@ def extract_pattern(workspace_path: Path, score_data: dict) -> dict:
     delivered = ws.get("delivered", "")
     objective = ws.get("objective", "")
 
-    # Pattern trigger is the objective/task type
     trigger = objective if objective else ws.get("id", "").replace("-", " ")
-
-    # Insight from delivered summary
     insight = delivered[:300] if delivered else "Successful implementation"
 
-    # Enhance with score breakdown
     breakdown = score_data["breakdown"]
     if breakdown:
         insight_parts = []
@@ -266,13 +329,12 @@ def extract_pattern(workspace_path: Path, score_data: dict) -> dict:
         "trigger": trigger,
         "insight": insight[:500],
         "saved": budget * 500,
-        "source": [ws.get("id", workspace_path.stem)],
+        "source": [ws.get("id", ws.get("workspace_id", ""))],
     }
 
 
 def _slugify(text: str) -> str:
     """Convert text to kebab-case slug."""
-    import re
     text = text.lower()
     text = re.sub(r'[^a-z0-9\s-]', '', text)
     text = re.sub(r'[\s_]+', '-', text)
@@ -282,16 +344,16 @@ def _slugify(text: str) -> str:
 
 def _generalize_to_regex(trigger: str) -> str:
     """Generalize trigger to regex pattern."""
-    import re
-    # Escape special chars, replace common variable parts
     pattern = re.escape(trigger)
-    # Replace quoted strings with wildcard
     pattern = re.sub(r"\\'[^']*\\'", ".*", pattern)
     pattern = re.sub(r'\\"[^"]*\\"', ".*", pattern)
-    # Replace numbers with digit pattern
     pattern = re.sub(r'\d+', r'\\d+', pattern)
     return pattern
 
+
+# =============================================================================
+# Analysis
+# =============================================================================
 
 def analyze(
     workspace_dir: Path = WORKSPACE_DIR,
@@ -300,22 +362,10 @@ def analyze(
 ) -> dict:
     """Analyze all workspaces and extract patterns/failures.
 
-    Args:
-        workspace_dir: Path to workspace directory
-        verify_blocks: Whether to verify blocked workspaces by re-running verify
-        max_workers: Maximum parallel workers for verification (default: 4)
-
     Returns:
-        {
-            "workspaces": {"complete": N, "blocked": M, "active": K},
-            "verified": [{"workspace": str, "status": str, "reason": str}],
-            "failures_extracted": [{"name": str, "result": str}],
-            "patterns_extracted": [{"name": str, "result": str}],
-            "relationships_added": N
-        }
+        Analysis results with extracted failures and patterns
     """
     workspaces = list_workspaces(workspace_dir)
-    memory = load_memory()
 
     result = {
         "workspaces": {
@@ -329,44 +379,41 @@ def analyze(
         "relationships_added": 0,
     }
 
-    # Track failures from this campaign for relationship linking
     campaign_failures = []
 
-    # Process blocked workspaces with parallel verification
+    # Process blocked workspaces
     if verify_blocks and workspaces["blocked"]:
-        # Parallel verification using ThreadPoolExecutor
         verified_results = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_path = {
-                executor.submit(verify_block, path): path
-                for path in workspaces["blocked"]
+            future_to_ws = {
+                executor.submit(verify_block, ws["workspace_id"]): ws
+                for ws in workspaces["blocked"]
             }
-            for future in as_completed(future_to_path):
-                blocked_path = future_to_path[future]
+            for future in as_completed(future_to_ws):
+                ws = future_to_ws[future]
                 try:
                     verification = future.result()
-                    verified_results[blocked_path] = verification
+                    verified_results[ws["workspace_id"]] = verification
                     result["verified"].append({
-                        "workspace": blocked_path.stem,
+                        "workspace": ws["workspace_id"],
                         "status": verification["status"],
                         "reason": verification["reason"],
                     })
                 except Exception as e:
                     result["verified"].append({
-                        "workspace": blocked_path.stem,
+                        "workspace": ws["workspace_id"],
                         "status": "ERROR",
                         "reason": str(e),
                     })
-                    verified_results[blocked_path] = {"status": "ERROR", "output": ""}
+                    verified_results[ws["workspace_id"]] = {"status": "ERROR", "output": ""}
 
-        # Extract failures from confirmed blocks
-        for blocked_path in workspaces["blocked"]:
-            verification = verified_results.get(blocked_path, {})
+        for ws in workspaces["blocked"]:
+            verification = verified_results.get(ws["workspace_id"], {})
             if verification.get("status") != "CONFIRMED":
                 continue
 
             verify_output = verification.get("output", "")
-            failure = extract_failure(blocked_path, verify_output)
+            failure = extract_failure(ws["workspace_id"], verify_output)
             add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
@@ -376,9 +423,8 @@ def analyze(
             if add_result == "added":
                 campaign_failures.append(failure["name"])
     else:
-        # No verification - extract from all blocked workspaces
-        for blocked_path in workspaces["blocked"]:
-            failure = extract_failure(blocked_path, "")
+        for ws in workspaces["blocked"]:
+            failure = extract_failure(ws["workspace_id"], "")
             add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
@@ -389,11 +435,11 @@ def analyze(
                 campaign_failures.append(failure["name"])
 
     # Process completed workspaces
-    for complete_path in workspaces["complete"]:
-        score_data = score_workspace(complete_path, memory)
+    for ws in workspaces["complete"]:
+        score_data = score_workspace(ws["workspace_id"])
 
         if score_data["score"] >= 3:
-            pattern = extract_pattern(complete_path, score_data)
+            pattern = extract_pattern(ws["workspace_id"], score_data)
             add_result = add_pattern(pattern)
             result["patterns_extracted"].append({
                 "name": pattern["name"],
@@ -402,10 +448,7 @@ def analyze(
                 "result": add_result,
             })
 
-            # Cross-type relationship: If this was blocked-then-fixed,
-            # link the pattern to the failure it solved
             if "blocked_then_fixed" in score_data["breakdown"] and add_result == "added":
-                # Find the corresponding blocked failure
                 seq = score_data["workspace"].get("id", "").split("-")[0]
                 for failure_info in result["failures_extracted"]:
                     if failure_info["name"].startswith(seq) or seq in failure_info.get("name", ""):
@@ -428,55 +471,66 @@ def analyze(
     return result
 
 
+# =============================================================================
+# CLI Interface
+# =============================================================================
+
 def main():
     parser = argparse.ArgumentParser(description="FTL observer - automated pattern extraction")
     subparsers = parser.add_subparsers(dest="command")
 
     # analyze command
     a = subparsers.add_parser("analyze", help="Analyze all workspaces")
-    a.add_argument("--workspace-dir", help="Workspace directory path")
+    a.add_argument("--workspace-dir", help="Workspace directory path (ignored)")
     a.add_argument("--no-verify", action="store_true", help="Skip block verification")
 
     # verify-blocks command
     vb = subparsers.add_parser("verify-blocks", help="Verify all blocked workspaces")
-    vb.add_argument("--workspace-dir", help="Workspace directory path")
+    vb.add_argument("--workspace-dir", help="Workspace directory path (ignored)")
 
     # score command
     s = subparsers.add_parser("score", help="Score a single workspace")
-    s.add_argument("path", help="Path to workspace XML")
+    s.add_argument("path", help="Path to workspace or workspace_id")
 
     # extract-failure command
     ef = subparsers.add_parser("extract-failure", help="Extract failure from blocked workspace")
-    ef.add_argument("path", help="Path to blocked workspace XML")
+    ef.add_argument("path", help="Path to workspace or workspace_id")
+
+    # list command
+    lst = subparsers.add_parser("list", help="List workspaces by status")
 
     args = parser.parse_args()
 
     if args.command == "analyze":
-        workspace_dir = Path(args.workspace_dir) if args.workspace_dir else WORKSPACE_DIR
-        result = analyze(workspace_dir, verify_blocks=not args.no_verify)
+        result = analyze(verify_blocks=not args.no_verify)
         print(json.dumps(result, indent=2))
 
     elif args.command == "verify-blocks":
-        workspace_dir = Path(args.workspace_dir) if args.workspace_dir else WORKSPACE_DIR
-        workspaces = list_workspaces(workspace_dir)
+        workspaces = list_workspaces()
         results = []
-        for blocked_path in workspaces["blocked"]:
-            verification = verify_block(blocked_path)
+        for ws in workspaces["blocked"]:
+            verification = verify_block(ws["workspace_id"])
             results.append({
-                "workspace": blocked_path.stem,
+                "workspace": ws["workspace_id"],
                 **verification
             })
         print(json.dumps(results, indent=2))
 
     elif args.command == "score":
-        path = Path(args.path)
-        result = score_workspace(path)
+        result = score_workspace(args.path)
         print(json.dumps(result, indent=2))
 
     elif args.command == "extract-failure":
-        path = Path(args.path)
-        result = extract_failure(path)
+        result = extract_failure(args.path)
         print(json.dumps(result, indent=2))
+
+    elif args.command == "list":
+        result = list_workspaces()
+        print(json.dumps({
+            "complete": len(result["complete"]),
+            "blocked": len(result["blocked"]),
+            "active": len(result["active"]),
+        }, indent=2))
 
     else:
         parser.print_help()

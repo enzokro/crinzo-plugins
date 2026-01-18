@@ -7,12 +7,16 @@ Validates efficiency claims and provides metrics for:
 - Learning loop effectiveness
 - Comparison with baseline (no memory)
 
-Usage:
-    python -m lib.benchmark run           # Run all benchmarks
-    python -m lib.benchmark retrieval     # Test retrieval speed
-    python -m lib.benchmark matching      # Test semantic matching quality
-    python -m lib.benchmark learning      # Simulate learning loop
-    python -m lib.benchmark report        # Generate full report
+All results stored in .ftl/ftl.db benchmark table.
+
+CLI:
+    python3 lib/benchmark.py run                          # Run all benchmarks
+    python3 lib/benchmark.py retrieval                    # Test retrieval speed
+    python3 lib/benchmark.py matching                     # Test semantic matching quality
+    python3 lib/benchmark.py learning                     # Simulate learning loop
+    python3 lib/benchmark.py report                       # Generate full report
+    python3 lib/benchmark.py get-run --run-id ID          # Get run results
+    python3 lib/benchmark.py compare --run-a ID --run-b ID  # Compare two runs
 """
 
 import argparse
@@ -20,29 +24,164 @@ import json
 import sys
 import time
 import random
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional
+import tempfile
 
 # Support both standalone execution and module import
 try:
     from lib.memory import (
-        load_memory, save_memory, get_context, add_failure, add_pattern,
-        prune_memory, get_stats, _calculate_importance, _hybrid_score, MEMORY_FILE
+        load_memory, get_context, add_failure, add_pattern,
+        prune_memory, get_stats, _calculate_importance_score, _hybrid_score
     )
-    from lib.embeddings import similarity as semantic_similarity, is_available
+    from lib.db.embeddings import similarity as semantic_similarity, is_available
+    from lib.db import get_db, init_db
+    from lib.db.schema import Benchmark
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from memory import (
-        load_memory, save_memory, get_context, add_failure, add_pattern,
-        prune_memory, get_stats, _calculate_importance, _hybrid_score, MEMORY_FILE
+        load_memory, get_context, add_failure, add_pattern,
+        prune_memory, get_stats, _calculate_importance_score, _hybrid_score
     )
-    from embeddings import similarity as semantic_similarity, is_available
+    from db.embeddings import similarity as semantic_similarity, is_available
+    from db import get_db, init_db
+    from db.schema import Benchmark
+
+# Alias for backward compatibility
+_calculate_importance = _calculate_importance_score
+save_memory = lambda m, p=None: None  # No-op stub (database handles persistence)
 
 
-BENCHMARK_DIR = Path(".ftl/benchmark")
+def _ensure_db():
+    """Ensure database is initialized on first use."""
+    init_db()
+    return get_db()
 
+
+# =============================================================================
+# Database Operations for Benchmark Results
+# =============================================================================
+
+def record_metric(run_id: str, metric: str, value: float, metadata: dict = None) -> dict:
+    """Record benchmark metric to database.
+
+    Args:
+        run_id: UUID for benchmark run
+        metric: Metric name (memory_size, query_time, etc)
+        value: Metric value
+        metadata: Optional additional data
+
+    Returns:
+        {"id": record_id, "run_id": run_id}
+    """
+    db = _ensure_db()
+    record = Benchmark(
+        run_id=run_id,
+        metric=metric,
+        value=value,
+        metadata=json.dumps(metadata or {}),
+        created_at=datetime.now().isoformat()
+    )
+    result = db.t.benchmark.insert(record)
+    return {"id": result.id, "run_id": run_id}
+
+
+def get_run(run_id: str) -> list:
+    """Get all metrics for a benchmark run.
+
+    Args:
+        run_id: UUID for benchmark run
+
+    Returns:
+        List of metric dicts
+    """
+    db = _ensure_db()
+    rows = list(db.t.benchmark.rows_where("run_id = ?", [run_id]))
+    return [
+        {
+            "id": r["id"],
+            "run_id": r["run_id"],
+            "metric": r["metric"],
+            "value": r["value"],
+            "metadata": json.loads(r["metadata"]),
+            "created_at": r["created_at"]
+        }
+        for r in rows
+    ]
+
+
+def compare_runs(run_id_a: str, run_id_b: str) -> dict:
+    """Compare two benchmark runs.
+
+    Args:
+        run_id_a: First run ID
+        run_id_b: Second run ID
+
+    Returns:
+        Comparison dict with metrics from both runs
+    """
+    a_metrics = {r["metric"]: r["value"] for r in get_run(run_id_a)}
+    b_metrics = {r["metric"]: r["value"] for r in get_run(run_id_b)}
+
+    comparison = {}
+    all_metrics = set(a_metrics.keys()) | set(b_metrics.keys())
+
+    for metric in all_metrics:
+        a_val = a_metrics.get(metric)
+        b_val = b_metrics.get(metric)
+        diff = None
+        if a_val is not None and b_val is not None and a_val != 0:
+            diff = round((b_val - a_val) / a_val * 100, 2)
+        comparison[metric] = {
+            "run_a": a_val,
+            "run_b": b_val,
+            "diff_percent": diff
+        }
+
+    return {
+        "run_a": run_id_a,
+        "run_b": run_id_b,
+        "metrics": comparison
+    }
+
+
+def list_runs(limit: int = 10) -> list:
+    """List recent benchmark runs.
+
+    Args:
+        limit: Maximum runs to return
+
+    Returns:
+        List of run summaries
+    """
+    db = _ensure_db()
+    rows = list(db.t.benchmark.rows)
+
+    # Group by run_id
+    runs = {}
+    for r in rows:
+        run_id = r["run_id"]
+        if run_id not in runs:
+            runs[run_id] = {
+                "run_id": run_id,
+                "metrics": 0,
+                "created_at": r["created_at"]
+            }
+        runs[run_id]["metrics"] += 1
+        if r["created_at"] < runs[run_id]["created_at"]:
+            runs[run_id]["created_at"] = r["created_at"]
+
+    # Sort by date and limit
+    sorted_runs = sorted(runs.values(), key=lambda x: x["created_at"], reverse=True)
+    return sorted_runs[:limit]
+
+
+# =============================================================================
+# Benchmark Result Data Class
+# =============================================================================
 
 @dataclass
 class BenchmarkResult:
@@ -61,7 +200,10 @@ class BenchmarkResult:
             self.improvement = round((self.baseline - self.value) / self.baseline * 100, 2)
 
 
-# Sample error triggers for benchmarking
+# =============================================================================
+# Sample Data for Benchmarking
+# =============================================================================
+
 SAMPLE_TRIGGERS = [
     "ModuleNotFoundError: No module named 'pandas'",
     "TypeError: cannot unpack non-iterable NoneType object",
@@ -138,7 +280,11 @@ def generate_test_memory(num_failures: int = 100, num_patterns: int = 50) -> dic
     return {"failures": failures, "patterns": patterns}
 
 
-def benchmark_retrieval_speed(memory_sizes: list = None) -> list:
+# =============================================================================
+# Benchmark Functions
+# =============================================================================
+
+def benchmark_retrieval_speed(memory_sizes: list = None, run_id: str = None) -> list:
     """Benchmark memory retrieval speed at different memory sizes."""
     if memory_sizes is None:
         memory_sizes = [10, 50, 100, 250, 500]
@@ -147,11 +293,11 @@ def benchmark_retrieval_speed(memory_sizes: list = None) -> list:
     test_objective = "Handle database connection timeout with retry"
 
     for size in memory_sizes:
-        # Setup
+        # Setup - use temp file for test
         test_memory = generate_test_memory(num_failures=size, num_patterns=size // 2)
-        test_path = BENCHMARK_DIR / f"test_memory_{size}.json"
-        test_path.parent.mkdir(parents=True, exist_ok=True)
-        test_path.write_text(json.dumps(test_memory, indent=2))
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(test_memory, f)
+            test_path = Path(f.name)
 
         # Benchmark retrieval without objective (fast path)
         iterations = 100
@@ -180,13 +326,20 @@ def benchmark_retrieval_speed(memory_sizes: list = None) -> list:
             baseline=elapsed_no_semantic,
         ))
 
+        # Record to database if run_id provided
+        if run_id:
+            record_metric(run_id, f"retrieval_no_semantic_{size}", elapsed_no_semantic,
+                         {"unit": "ms", "size": size})
+            record_metric(run_id, f"retrieval_semantic_{size}", elapsed_semantic,
+                         {"unit": "ms", "size": size})
+
         # Cleanup
         test_path.unlink()
 
     return results
 
 
-def benchmark_semantic_matching() -> list:
+def benchmark_semantic_matching(run_id: str = None) -> list:
     """Benchmark semantic matching quality and relevance scoring."""
     results = []
 
@@ -208,6 +361,8 @@ def benchmark_semantic_matching() -> list:
             value=0,
             unit="unavailable (fallback mode)",
         ))
+        if run_id:
+            record_metric(run_id, "semantic_available", 0, {"status": "fallback"})
         return results
 
     correct = 0
@@ -238,30 +393,33 @@ def benchmark_semantic_matching() -> list:
             score = _hybrid_score(relevance, cost)
             scores.append(score)
 
+    mean_score = round(sum(scores) / len(scores), 3)
+    max_score = round(max(scores), 3)
+
     results.append(BenchmarkResult(
         name="hybrid_score_mean",
         metric="hybrid_score",
-        value=round(sum(scores) / len(scores), 3),
+        value=mean_score,
         unit="score",
     ))
     results.append(BenchmarkResult(
         name="hybrid_score_max",
         metric="hybrid_score",
-        value=round(max(scores), 3),
+        value=max_score,
         unit="score",
     ))
+
+    # Record to database
+    if run_id:
+        record_metric(run_id, "semantic_accuracy", accuracy, {"unit": "%"})
+        record_metric(run_id, "hybrid_score_mean", mean_score, {"unit": "score"})
+        record_metric(run_id, "hybrid_score_max", max_score, {"unit": "score"})
 
     return results
 
 
-def benchmark_learning_simulation(campaigns: int = 10, tasks_per_campaign: int = 5) -> list:
-    """Simulate learning loop and measure efficiency gains.
-
-    This simulates the claimed 35% efficiency improvement by:
-    1. Running campaigns without memory (baseline)
-    2. Running campaigns with memory (accumulated learning)
-    3. Comparing "token costs" (simulated)
-    """
+def benchmark_learning_simulation(campaigns: int = 10, tasks_per_campaign: int = 5, run_id: str = None) -> list:
+    """Simulate learning loop and measure efficiency gains."""
     results = []
     random.seed(42)
 
@@ -269,9 +427,8 @@ def benchmark_learning_simulation(campaigns: int = 10, tasks_per_campaign: int =
     baseline_total_cost = 0
     for _ in range(campaigns):
         for _ in range(tasks_per_campaign):
-            # Random error occurrence (70% chance)
             if random.random() < 0.7:
-                baseline_total_cost += random.randint(1000, 10000)  # Error resolution cost
+                baseline_total_cost += random.randint(1000, 10000)
 
     # Simulate with memory: learning reduces error probability
     memory_assisted_cost = 0
@@ -279,20 +436,15 @@ def benchmark_learning_simulation(campaigns: int = 10, tasks_per_campaign: int =
 
     for campaign in range(campaigns):
         for task in range(tasks_per_campaign):
-            # Error probability decreases as knowledge accumulates
-            # Formula: base_probability * (1 - learning_factor * knowledge)
             base_prob = 0.7
-            learning_factor = 0.02  # Each knowledge point reduces error by 2%
+            learning_factor = 0.02
             current_prob = max(0.1, base_prob * (1 - learning_factor * accumulated_knowledge))
 
             if random.random() < current_prob:
-                # Error occurred
                 cost = random.randint(1000, 10000)
                 memory_assisted_cost += cost
-                # But we learn from it
                 accumulated_knowledge += 1
             else:
-                # Memory helped avoid error - small overhead for retrieval
                 memory_assisted_cost += 50
 
     improvement = (baseline_total_cost - memory_assisted_cost) / baseline_total_cost * 100
@@ -323,18 +475,25 @@ def benchmark_learning_simulation(campaigns: int = 10, tasks_per_campaign: int =
         unit="entries",
     ))
 
+    # Record to database
+    if run_id:
+        record_metric(run_id, "baseline_cost", baseline_total_cost, {"unit": "tokens"})
+        record_metric(run_id, "memory_assisted_cost", memory_assisted_cost, {"unit": "tokens"})
+        record_metric(run_id, "efficiency_improvement", improvement, {"unit": "%"})
+        record_metric(run_id, "knowledge_accumulated", accumulated_knowledge, {"unit": "entries"})
+
     return results
 
 
-def benchmark_pruning() -> list:
+def benchmark_pruning(run_id: str = None) -> list:
     """Benchmark pruning performance and effectiveness."""
     results = []
 
-    # Create large memory
+    # Create large memory in temp file
     test_memory = generate_test_memory(num_failures=500, num_patterns=200)
-    test_path = BENCHMARK_DIR / "test_prune.json"
-    test_path.parent.mkdir(parents=True, exist_ok=True)
-    test_path.write_text(json.dumps(test_memory, indent=2))
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(test_memory, f)
+        test_path = Path(f.name)
 
     # Measure pruning time
     start = time.perf_counter()
@@ -365,6 +524,12 @@ def benchmark_pruning() -> list:
         unit="entries",
     ))
 
+    # Record to database
+    if run_id:
+        record_metric(run_id, "prune_time", elapsed, {"unit": "ms"})
+        record_metric(run_id, "pruned_failures", prune_result["pruned_failures"], {"unit": "entries"})
+        record_metric(run_id, "pruned_patterns", prune_result["pruned_patterns"], {"unit": "entries"})
+
     # Cleanup
     test_path.unlink()
 
@@ -372,23 +537,24 @@ def benchmark_pruning() -> list:
 
 
 def run_all_benchmarks() -> dict:
-    """Run all benchmarks and return comprehensive results."""
-    BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
+    """Run all benchmarks and store results in database."""
+    _ensure_db()
+    run_id = str(uuid.uuid4())[:8]
 
     all_results = {
-        "retrieval": [asdict(r) for r in benchmark_retrieval_speed()],
-        "semantic": [asdict(r) for r in benchmark_semantic_matching()],
-        "learning": [asdict(r) for r in benchmark_learning_simulation()],
-        "pruning": [asdict(r) for r in benchmark_pruning()],
+        "run_id": run_id,
+        "retrieval": [asdict(r) for r in benchmark_retrieval_speed(run_id=run_id)],
+        "semantic": [asdict(r) for r in benchmark_semantic_matching(run_id=run_id)],
+        "learning": [asdict(r) for r in benchmark_learning_simulation(run_id=run_id)],
+        "pruning": [asdict(r) for r in benchmark_pruning(run_id=run_id)],
         "metadata": {
             "timestamp": datetime.now().isoformat(),
             "embeddings_available": is_available(),
         }
     }
 
-    # Save results
-    results_path = BENCHMARK_DIR / "results.json"
-    results_path.write_text(json.dumps(all_results, indent=2))
+    # Record metadata
+    record_metric(run_id, "_metadata_embeddings", 1 if is_available() else 0, {})
 
     return all_results
 
@@ -396,9 +562,32 @@ def run_all_benchmarks() -> dict:
 def generate_report(results: dict = None) -> str:
     """Generate human-readable benchmark report."""
     if results is None:
-        results_path = BENCHMARK_DIR / "results.json"
-        if results_path.exists():
-            results = json.loads(results_path.read_text())
+        # Get latest run from database
+        runs = list_runs(limit=1)
+        if runs:
+            run_id = runs[0]["run_id"]
+            metrics = get_run(run_id)
+            results = {
+                "run_id": run_id,
+                "retrieval": [],
+                "semantic": [],
+                "learning": [],
+                "pruning": [],
+                "metadata": {
+                    "timestamp": metrics[0]["created_at"] if metrics else datetime.now().isoformat(),
+                    "embeddings_available": any(m["metric"] == "_metadata_embeddings" and m["value"] == 1 for m in metrics)
+                }
+            }
+            # Categorize metrics
+            for m in metrics:
+                if m["metric"].startswith("retrieval"):
+                    results["retrieval"].append({"name": m["metric"], "value": m["value"], **m["metadata"]})
+                elif m["metric"].startswith("semantic") or m["metric"].startswith("hybrid"):
+                    results["semantic"].append({"name": m["metric"], "value": m["value"], **m["metadata"]})
+                elif m["metric"] in ["baseline_cost", "memory_assisted_cost", "efficiency_improvement", "knowledge_accumulated"]:
+                    results["learning"].append({"name": m["metric"], "value": m["value"], **m["metadata"]})
+                elif m["metric"].startswith("prune"):
+                    results["pruning"].append({"name": m["metric"], "value": m["value"], **m["metadata"]})
         else:
             results = run_all_benchmarks()
 
@@ -406,6 +595,7 @@ def generate_report(results: dict = None) -> str:
     report.append("=" * 60)
     report.append("FTL MEMORY BENCHMARK REPORT")
     report.append("=" * 60)
+    report.append(f"Run ID: {results.get('run_id', 'N/A')}")
     report.append(f"Generated: {results['metadata']['timestamp']}")
     report.append(f"Semantic Embeddings: {'Available' if results['metadata']['embeddings_available'] else 'Fallback mode'}")
     report.append("")
@@ -415,10 +605,11 @@ def generate_report(results: dict = None) -> str:
     report.append("RETRIEVAL PERFORMANCE")
     report.append("-" * 40)
     for r in results.get("retrieval", []):
-        line = f"  {r['name']}: {r['value']} {r['unit']}"
+        line = f"  {r['name']}: {r['value']} {r.get('unit', 'ms')}"
         if r.get('improvement'):
-            line += f" (overhead: +{-r['improvement']:.1f}%)"
-        report.append(line)
+            report.append(f"{line} (overhead: +{-r['improvement']:.1f}%)")
+        else:
+            report.append(line)
     report.append("")
 
     # Semantic Matching
@@ -426,7 +617,7 @@ def generate_report(results: dict = None) -> str:
     report.append("SEMANTIC MATCHING QUALITY")
     report.append("-" * 40)
     for r in results.get("semantic", []):
-        report.append(f"  {r['name']}: {r['value']} {r['unit']}")
+        report.append(f"  {r['name']}: {r['value']} {r.get('unit', '')}")
     report.append("")
 
     # Learning Simulation
@@ -434,10 +625,11 @@ def generate_report(results: dict = None) -> str:
     report.append("LEARNING EFFICIENCY (SIMULATED)")
     report.append("-" * 40)
     for r in results.get("learning", []):
-        line = f"  {r['name']}: {r['value']} {r['unit']}"
+        line = f"  {r['name']}: {r['value']} {r.get('unit', '')}"
         if r.get('improvement'):
-            line += f" ({r['improvement']:.1f}% improvement)"
-        report.append(line)
+            report.append(f"{line} ({r['improvement']:.1f}% improvement)")
+        else:
+            report.append(line)
     report.append("")
 
     # Pruning Performance
@@ -445,7 +637,7 @@ def generate_report(results: dict = None) -> str:
     report.append("PRUNING PERFORMANCE")
     report.append("-" * 40)
     for r in results.get("pruning", []):
-        report.append(f"  {r['name']}: {r['value']} {r['unit']}")
+        report.append(f"  {r['name']}: {r['value']} {r.get('unit', '')}")
     report.append("")
 
     # Summary
@@ -458,14 +650,18 @@ def generate_report(results: dict = None) -> str:
         imp = learning_results["efficiency_improvement"]["value"]
         report.append(f"Simulated efficiency improvement: {imp}%")
         if imp >= 30:
-            report.append("✓ Meets claimed 35% efficiency improvement target range")
+            report.append("OK: Meets claimed 35% efficiency improvement target range")
         else:
-            report.append(f"✗ Below claimed 35% target (actual: {imp}%)")
+            report.append(f"Below claimed 35% target (actual: {imp}%)")
 
     report.append("")
 
     return "\n".join(report)
 
+
+# =============================================================================
+# CLI Interface
+# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description="FTL benchmark suite")
@@ -478,6 +674,16 @@ def main():
     subparsers.add_parser("pruning", help="Benchmark pruning")
     subparsers.add_parser("report", help="Generate benchmark report")
 
+    # Database operations
+    gr = subparsers.add_parser("get-run", help="Get run results")
+    gr.add_argument("--run-id", required=True, help="Run ID")
+
+    cr = subparsers.add_parser("compare", help="Compare two runs")
+    cr.add_argument("--run-a", required=True, help="First run ID")
+    cr.add_argument("--run-b", required=True, help="Second run ID")
+
+    subparsers.add_parser("list-runs", help="List recent runs")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -485,23 +691,39 @@ def main():
         print(json.dumps(results, indent=2))
 
     elif args.command == "retrieval":
-        results = benchmark_retrieval_speed()
+        run_id = str(uuid.uuid4())[:8]
+        results = benchmark_retrieval_speed(run_id=run_id)
         print(json.dumps([asdict(r) for r in results], indent=2))
 
     elif args.command == "matching":
-        results = benchmark_semantic_matching()
+        run_id = str(uuid.uuid4())[:8]
+        results = benchmark_semantic_matching(run_id=run_id)
         print(json.dumps([asdict(r) for r in results], indent=2))
 
     elif args.command == "learning":
-        results = benchmark_learning_simulation()
+        run_id = str(uuid.uuid4())[:8]
+        results = benchmark_learning_simulation(run_id=run_id)
         print(json.dumps([asdict(r) for r in results], indent=2))
 
     elif args.command == "pruning":
-        results = benchmark_pruning()
+        run_id = str(uuid.uuid4())[:8]
+        results = benchmark_pruning(run_id=run_id)
         print(json.dumps([asdict(r) for r in results], indent=2))
 
     elif args.command == "report":
         print(generate_report())
+
+    elif args.command == "get-run":
+        results = get_run(args.run_id)
+        print(json.dumps(results, indent=2))
+
+    elif args.command == "compare":
+        results = compare_runs(args.run_a, args.run_b)
+        print(json.dumps(results, indent=2))
+
+    elif args.command == "list-runs":
+        results = list_runs()
+        print(json.dumps(results, indent=2))
 
     else:
         parser.print_help()
