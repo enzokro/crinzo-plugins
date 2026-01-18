@@ -33,7 +33,52 @@ version: 2.7.0
 ## Paths
 
 All CLI commands use `${CLAUDE_PLUGIN_ROOT}` for the plugin installation directory.
-See [CLI_REFERENCE.md](CLI_REFERENCE.md) for complete syntax.
+See the CLI docs: [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) for complete syntax.
+
+---
+
+## DSL Action Verbs
+
+| Verb | Semantics | Example |
+|------|-----------|---------|
+| `DO:` | Execute command, capture stdout | `DO: python3 lib/foo.py cmd` |
+| `DO: \|` | Pipe previous DO's stdout to command | `DO: \| python3 lib/foo.py write` |
+| `CHECK:` | Execute, parse JSON output, set local variables | `CHECK: ... wait-explorers` → `wait_result` |
+| `EMIT:` | Log structured event or status string | `EMIT: STATE_ENTRY state=INIT` |
+| `IF:` | Conditional branch (uses CHECK variables) | `IF: wait_result=="quorum_met" →` |
+| `GOTO:` | Jump to named state (fresh context) | `GOTO: PLAN` |
+| `WAIT:` | Block until condition or timeout | `WAIT: All 4 complete OR timeout=300s` |
+| `TRACK:` | Declare persistent variable across state re-entries | `TRACK: clarify_count` |
+| `INCREMENT:` | Increment tracked variable | `INCREMENT: clarify_count` |
+| `SET:` | Assign value to tracked variable | `SET: prior_ready_count = len(ready_tasks)` |
+| `USE:` | Invoke reusable pattern with substitution | `USE: INIT_PATTERN with mode=campaign` |
+
+### Variable Binding
+
+`CHECK:` commands parse JSON stdout and expose fields as local variables:
+```
+CHECK: python3 lib/orchestration.py wait-explorers
+# Exposes: wait_result.status, wait_result.completed, wait_result.missing
+IF: wait_result.status=="quorum_met" → ...
+```
+
+### State Context
+
+`GOTO:` creates fresh state context. Tracked variables persist; local variables reset.
+
+---
+
+## Constants
+
+| Name | Value | Used In | Rationale |
+|------|-------|---------|-----------|
+| `EXPLORER_TIMEOUT` | 300s | EXPLORE_PATTERN | 5 min for parallel exploration |
+| `EXPLORER_QUORUM` | 3 | EXPLORE_PATTERN | 75% (3/4) required for partial success |
+| `MAX_CLARIFICATIONS` | 5 | PLAN_PATTERN | Prevent infinite clarification loops |
+| `MAX_CAMPAIGN_ITERATIONS` | 20 | CAMPAIGN.EXECUTE | Upper bound on task execution rounds |
+| `STUCK_THRESHOLD` | 3 | CAMPAIGN.EXECUTE | Iterations unchanged before cascade |
+
+To modify: Update this table and corresponding pattern references.
 
 ---
 
@@ -386,5 +431,5 @@ enabling contextual understanding of completed work.
 
 ## References
 
-- [CLI_REFERENCE.md](CLI_REFERENCE.md) - Complete command syntax
-- [MEMORY_SEMANTICS.md](MEMORY_SEMANTICS.md) - Memory decay, feedback, and graph traversal
+- [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) - Complete command syntax
+- [references/MEMORY_SEMANTICS.md](references/MEMORY_SEMANTICS.md) - Memory decay, feedback, and graph traversal

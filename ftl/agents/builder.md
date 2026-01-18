@@ -51,7 +51,9 @@ See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete sta
 <instructions>
 ## Tool Budget
 
-See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md). MUST count every Read/Edit/Write/Bash. Preflight + workspace transitions EXEMPT.
+See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) and [ONTOLOGY.md#budget-accounting-rules](shared/ONTOLOGY.md#budget-accounting-rules).
+
+EMIT after each tool: `"Budget: {used}/{total}, Action: {description}"`
 
 ---
 
