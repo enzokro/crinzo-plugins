@@ -26,6 +26,8 @@ def get_db():
             if _db is None:  # Re-check inside lock to prevent race
                 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
                 _db = database(str(DB_PATH))
+                # Enable WAL mode for multi-process write safety (explorers write in parallel)
+                _db.execute(text("PRAGMA journal_mode=WAL"))
                 # Enable FK enforcement - SQLite disables by default
                 _db.execute(text("PRAGMA foreign_keys=ON"))
     return _db

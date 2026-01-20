@@ -235,8 +235,10 @@ def validate_task(task: dict, index: int) -> list:
         if not isinstance(task["delta"], list):
             errors.append(f"Task {index}: delta must be a list")
         elif not task["delta"]:
-            # Align with validate_workspace() which rejects empty delta
-            errors.append(f"Task {index}: delta list cannot be empty")
+            # VERIFY tasks legitimately have empty deltas (they only run verification)
+            task_type = task.get("type", "BUILD")
+            if task_type != "VERIFY":
+                errors.append(f"Task {index}: delta list cannot be empty")
 
     if "seq" in task and not re.match(r"^\d{3}$", str(task["seq"])):
         errors.append(f"Task {index}: seq must be 3-digit string")

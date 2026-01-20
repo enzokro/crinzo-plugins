@@ -158,6 +158,9 @@ def wait_explorers(
             }
 
         if elapsed >= timeout:
+            # Grace poll: one final check to catch late writes (WAL flush lag)
+            time.sleep(0.5)
+            status = get_session_status(session_id)
             # Distinguish timeout with partial results vs complete failure
             if len(status["completed"]) == 0:
                 # Critical failure: no explorers completed at all

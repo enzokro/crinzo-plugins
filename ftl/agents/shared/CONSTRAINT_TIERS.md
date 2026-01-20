@@ -23,7 +23,7 @@ version: 1.0
 - Delta must be specific file paths, not globs
 
 ### Builder
-- Tool budget from workspace XML is absolute limit
+- Tool budget from workspace record is absolute limit
 - Framework idioms: required MUST appear, forbidden MUST NOT
 - Block if same error appears twice (already retried)
 - Block if error not in prior_knowledge (discovery needed)

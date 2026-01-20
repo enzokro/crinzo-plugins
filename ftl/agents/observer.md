@@ -172,7 +172,7 @@ The automation marks blocks as CONFIRMED or FALSE_POSITIVE.
 
 **Override if needed:**
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/observer.py" extract-failure .ftl/workspace/NNN_slug_blocked.xml
+python3 "$(cat .ftl/plugin_root)/lib/observer.py" extract-failure NNN-slug
 python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-failure --json '{...}'
 ```
 
@@ -207,8 +207,8 @@ python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{
 Read 1-3 workspaces using selection criteria above:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse .ftl/workspace/NNN_slug_complete.xml
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse .ftl/workspace/MMM_other_blocked.xml
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse NNN-slug
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse MMM-other
 ```
 
 **Synthesize:**

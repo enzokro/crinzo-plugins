@@ -10,7 +10,7 @@ Machine-readable state definitions for the Builder agent. See [ONTOLOGY.md](ONTO
 
 | State | Tool Cost | Precondition | Action | Success → | Failure → |
 |-------|-----------|--------------|--------|-----------|-----------|
-| READ | 1 | workspace_path | Parse workspace XML | PLAN | BLOCK |
+| READ | 1 | workspace_path | Parse workspace record | PLAN | BLOCK |
 | PLAN | 0 | workspace parsed | Validate idioms, plan approach | IMPLEMENT or READ_TESTS | BLOCK |
 | READ_TESTS | 1 | verify_source exists, budget >= 2 | Read test file for expectations | IMPLEMENT | IMPLEMENT (skip) |
 | IMPLEMENT | N | plan valid | Write delta files | PREFLIGHT | BLOCK |
@@ -26,7 +26,7 @@ Machine-readable state definitions for the Builder agent. See [ONTOLOGY.md](ONTO
 ### READ
 
 ```
-Input: workspace_path (e.g., `.ftl/workspace/001_slug_active.xml` or `001-slug`)
+Input: workspace_path (e.g., `001-slug`)
 Note: workspace.py parse reads from database, not filesystem. Paths are virtual.
 Output: Extracted workspace data
 Tool: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}

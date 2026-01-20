@@ -167,7 +167,7 @@ def create(plan: dict, task_seq: str = None) -> list:
             }
 
             # Validate workspace before insert - FATAL on failure
-            is_valid, missing = validate_workspace(ws_dict)
+            is_valid, missing = validate_workspace(ws_dict, task_type=task_type)
             if not is_valid:
                 raise ValueError(f"Workspace {ws_id} validation failed: missing {missing}")
 
@@ -710,12 +710,13 @@ def extract_code_context(
     }
 
 
-def validate_workspace(workspace: dict, check_delta_exists: bool = True) -> tuple:
+def validate_workspace(workspace: dict, check_delta_exists: bool = True, task_type: str = "BUILD") -> tuple:
     """Validate a workspace has required fields.
 
     Args:
         workspace: Workspace dict to validate
         check_delta_exists: If True, verify delta files exist on filesystem
+        task_type: Task type (BUILD, SPEC, VERIFY) - affects validation rules
 
     Returns:
         (is_valid, issues) where issues is a list of validation problems
@@ -728,10 +729,14 @@ def validate_workspace(workspace: dict, check_delta_exists: bool = True) -> tupl
         if field not in workspace or workspace[field] is None:
             issues.append(f"missing:{field}")
         elif field == "delta" and not workspace[field]:
-            issues.append("empty:delta")
+            # VERIFY tasks legitimately have empty deltas (they only run verification)
+            if task_type != "VERIFY":
+                issues.append("empty:delta")
 
     # Delta file existence check
-    if check_delta_exists and "delta" in workspace and workspace["delta"]:
+    # Skip for SPEC tasks (they create files that don't exist yet)
+    # Skip for VERIFY tasks (empty delta means nothing to check)
+    if check_delta_exists and task_type == "BUILD" and "delta" in workspace and workspace["delta"]:
         delta_files = workspace["delta"]
         if isinstance(delta_files, str):
             delta_files = [delta_files]

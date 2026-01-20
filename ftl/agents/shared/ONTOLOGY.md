@@ -106,7 +106,7 @@ EMIT: "{Human-readable status string}"
 
 ```
 EMIT: STATE_ENTRY state=BUILD
-EMIT: "Budget: 2/5, Action: Read workspace XML"
+EMIT: "Budget: 2/5, Action: Read workspace record"
 EMIT: PHASE_TRANSITION from=build to=observe
 EMIT: "Step: complexity, Status: calculating C=18"
 ```

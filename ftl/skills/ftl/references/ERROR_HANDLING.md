@@ -75,7 +75,7 @@ IF: retry fails → treat as structural
 ```
 EMIT: STATE_ENTRY state=ERROR error_type={type}
 # Attempt recovery WITHIN state machine:
-#   - For workspace creation: use manual workspace XML generation
+#   - For workspace creation: use manual workspace record generation
 #   - For plan parsing: validate JSON schema before use
 IF: unrecoverable → GOTO ERROR with context
 ```
@@ -153,7 +153,7 @@ STATE: ERROR
 | `budget_exhausted` | Builder used all tool calls | BLOCK workspace |
 | `verify_failed` | Tests fail after retries | BLOCK workspace |
 | `idiom_violation` | Code violates framework idioms | BLOCK workspace |
-| `workspace_invalid` | Malformed workspace XML | Regenerate workspace |
+| `workspace_invalid` | Malformed workspace record | Regenerate workspace |
 
 ### Campaign Errors
 
