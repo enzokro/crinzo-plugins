@@ -6,6 +6,7 @@ Provides:
 - Quorum-based waiting for explorer completion with timeout
 - Phase transition validation
 - Event logging
+- Error state triggering for critical failures
 
 CLI:
     python3 lib/orchestration.py create-session                    # Generate new session ID
@@ -17,6 +18,7 @@ CLI:
 
 import argparse
 import json
+import logging
 import sys
 import time
 import uuid
@@ -27,15 +29,23 @@ from pathlib import Path
 try:
     from lib.db import get_db, init_db, Event
     from lib.exploration import get_session_status
+    from lib.phase import trigger_error
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db, Event
     from exploration import get_session_status
+    from phase import trigger_error
 
 
-EXPLORER_MODES = ["structure", "pattern", "memory", "delta"]
-DEFAULT_TIMEOUT = 300  # 5 minutes
-DEFAULT_QUORUM = 3     # 3 of 4 explorers sufficient
+# =============================================================================
+# Configuration Constants (Hardcoded Defaults)
+# =============================================================================
+# These thresholds control orchestration behavior. Documented here per Pass 6.
+
+EXPLORER_MODES = ["structure", "pattern", "memory", "delta"]  # The 4 parallel explorer agents
+DEFAULT_TIMEOUT = 300     # 5 minutes - maximum wait time for explorer completion
+DEFAULT_QUORUM = 3        # 3 of 4 explorers must complete (75% threshold)
+SESSION_MAX_AGE_HOURS = 24  # Cleanup explorer results older than this
 
 
 def _ensure_db():
@@ -44,12 +54,59 @@ def _ensure_db():
     return get_db()
 
 
+def _cleanup_old_sessions(max_age_hours: int = SESSION_MAX_AGE_HOURS) -> int:
+    """Remove explorer results from sessions older than max_age_hours.
+
+    Args:
+        max_age_hours: Maximum session age before cleanup
+
+    Returns:
+        Number of rows deleted
+    """
+    from datetime import timedelta
+    try:
+        from lib.exploration import clear_session
+    except ImportError:
+        from exploration import clear_session
+
+    db = _ensure_db()
+    cutoff = datetime.now() - timedelta(hours=max_age_hours)
+    cutoff_str = cutoff.isoformat()
+
+    # Find distinct old session IDs
+    rows = list(db.t.explorer_result.rows)
+    old_sessions = set()
+    for row in rows:
+        created = row.get("created_at", "")
+        if created and created < cutoff_str:
+            old_sessions.add(row.get("session_id"))
+
+    # Clear each old session
+    total_cleared = 0
+    for session_id in old_sessions:
+        if session_id:
+            result = clear_session(session_id)
+            total_cleared += result.get("cleared", 0)
+
+    return total_cleared
+
+
 def create_session() -> str:
     """Generate new exploration session ID.
+
+    Performs opportunistic cleanup of sessions older than SESSION_MAX_AGE_HOURS
+    to prevent indefinite accumulation of explorer results.
 
     Returns:
         8-character UUID string for session tracking
     """
+    # Cleanup old sessions opportunistically
+    try:
+        _cleanup_old_sessions()
+    except Exception as e:
+        # Non-critical; log warning but don't fail session creation
+        logging.warning(f"Session cleanup failed (non-critical): {e}")
+
     return str(uuid.uuid4())[:8]
 
 
@@ -57,7 +114,8 @@ def wait_explorers(
     session_id: str,
     required: int = DEFAULT_QUORUM,
     timeout: int = DEFAULT_TIMEOUT,
-    poll_interval: float = 2.0
+    poll_interval: float = 2.0,
+    trigger_error_on_failure: bool = True
 ) -> dict:
     """Wait for explorer agents to complete with quorum support.
 
@@ -68,9 +126,15 @@ def wait_explorers(
         required: Minimum number of explorers that must complete
         timeout: Maximum seconds to wait
         poll_interval: Seconds between checks
+        trigger_error_on_failure: If True, trigger error state on quorum_failure
 
     Returns:
-        Status dict with completed and missing modes
+        Status dict with completed and missing modes.
+        Possible status values:
+        - "all_complete": All 4 explorers finished
+        - "quorum_met": Required number completed
+        - "timeout": Time ran out but some explorers completed
+        - "quorum_failure": Time ran out with zero completions (critical failure)
     """
     _ensure_db()
     start = time.time()
@@ -98,13 +162,30 @@ def wait_explorers(
             }
 
         if elapsed >= timeout:
-            return {
-                "status": "timeout",
-                "completed": status["completed"],
-                "missing": status["missing"],
-                "elapsed": round(elapsed, 2),
-                "session_id": session_id
-            }
+            # Distinguish timeout with partial results vs complete failure
+            if len(status["completed"]) == 0:
+                # Critical failure: no explorers completed at all
+                if trigger_error_on_failure:
+                    trigger_error(
+                        error_type="quorum_failure",
+                        error_message=f"No explorers completed within {timeout}s for session {session_id}"
+                    )
+                return {
+                    "status": "quorum_failure",
+                    "completed": [],
+                    "missing": status["missing"],
+                    "elapsed": round(elapsed, 2),
+                    "session_id": session_id
+                }
+            else:
+                # Partial completion: some results available
+                return {
+                    "status": "timeout",
+                    "completed": status["completed"],
+                    "missing": status["missing"],
+                    "elapsed": round(elapsed, 2),
+                    "session_id": session_id
+                }
 
         time.sleep(poll_interval)
 

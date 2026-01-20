@@ -8,6 +8,7 @@ requires:
   - shared/ONTOLOGY.md@1.1
   - shared/TOOL_BUDGET_REFERENCE.md@2.1
   - shared/FRAMEWORK_IDIOMS.md@1.1
+  - shared/CONSTRAINT_TIERS.md@1.0
 ---
 
 <role>
@@ -86,10 +87,10 @@ Question: "Can I write a verify command using only this task's Delta?"
 | No delta candidates | **CLARIFY** |
 | No test pattern | **CLARIFY** |
 | Objective contains "or" with multiple candidates | **CLARIFY** |
-| Multiple high-relevance candidates | **VERIFY** |
+| Multiple high-relevance candidates | **CONFIRM** |
 | At least one high/medium candidate | **PROCEED** |
 
-EMIT: `PHASE_TRANSITION from=COHERENCE to={PROCEED|VERIFY|CLARIFY}`
+EMIT: `PHASE_TRANSITION from=COHERENCE to={PROCEED|CONFIRM|CLARIFY}`
 
 If CLARIFY: Output questions per [PLANNER_PHASES.md#clarify-output-format](shared/PLANNER_PHASES.md#clarify-output-format). **STOP**.
 

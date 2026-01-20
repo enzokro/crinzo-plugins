@@ -17,40 +17,62 @@ import base64
 
 # Support both standalone execution and module import
 try:
-    from lib.db import get_db, init_db, Memory, MemoryEdge
+    from lib.db import get_db, init_db, Memory, MemoryEdge, db_write_lock
     from lib.db.embeddings import (
         embed, embed_to_blob, blob_to_embed,
         similarity as semantic_similarity,
         cosine_similarity_blob, is_available
     )
+    from lib.phase import error_boundary
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from db import get_db, init_db, Memory, MemoryEdge
+    from db import get_db, init_db, Memory, MemoryEdge, db_write_lock
     from db.embeddings import (
         embed, embed_to_blob, blob_to_embed,
         similarity as semantic_similarity,
         cosine_similarity_blob, is_available
     )
+    from phase import error_boundary
 
 
 # Note: All storage is now in .ftl/ftl.db
 # The 'path' parameters in functions below are deprecated and ignored.
 
 
-# Pruning configuration
-DEFAULT_MAX_FAILURES = 500
-DEFAULT_MAX_PATTERNS = 200
-DEFAULT_DECAY_HALF_LIFE_DAYS = 30
-DEFAULT_MIN_IMPORTANCE_THRESHOLD = 0.1
+# =============================================================================
+# Configuration Constants (Hardcoded Defaults)
+# =============================================================================
+# These thresholds control memory system behavior. Documented here per Pass 6.
 
-# Tiered injection thresholds
-TIER_CRITICAL_THRESHOLD = 0.6
-TIER_PRODUCTIVE_THRESHOLD = 0.4
-TIER_EXPLORATION_THRESHOLD = 0.25
+# Pruning configuration - controls memory size limits and decay
+DEFAULT_MAX_FAILURES = 500       # Maximum failure entries before pruning
+DEFAULT_MAX_PATTERNS = 200       # Maximum pattern entries before pruning
+DEFAULT_DECAY_HALF_LIFE_DAYS = 30  # Age decay: entries lose 50% importance after this many days
+DEFAULT_MIN_IMPORTANCE_THRESHOLD = 0.1  # Entries below this importance are pruned
 
-# Quality gate minimums
-MIN_TRIGGER_LENGTH = 10
-MIN_FAILURE_COST = 100
+# Tiered injection thresholds - categorize memories by relevance score
+# These map semantic similarity scores to injection tiers for builder context
+TIER_CRITICAL_THRESHOLD = 0.6    # >= 0.6: Critical, always injected
+TIER_PRODUCTIVE_THRESHOLD = 0.4  # >= 0.4: Productive, injected if space permits
+TIER_EXPLORATION_THRESHOLD = 0.25  # >= 0.25: Exploration, injected for novel tasks
+
+# Quality gate minimums - prevent low-quality entries
+MIN_TRIGGER_LENGTH = 10          # Minimum characters for trigger text
+MIN_FAILURE_COST = 100           # Minimum cost value for failures
+
+# Semantic duplicate threshold (hardcoded in _is_duplicate)
+# DUPLICATE_THRESHOLD = 0.85     # Entries above this similarity are merged
+#
+# THRESHOLD DESIGN (intentional gap with NOVELTY_THRESHOLD=0.7 in observer.py):
+# - 0.00-0.70: Novel (observer gives +1 score bonus)
+# - 0.71-0.84: Related but distinct (no bonus, stored separately)
+# - 0.85-1.00: Duplicate (merged into existing entry here)
+#
+# The 0.71-0.84 zone ensures related-but-distinct entries are preserved
+# while preventing true duplicates from inflating memory.
+
+# Framework confidence default (hardcoded in workspace.py:502)
+# DEFAULT_FRAMEWORK_CONFIDENCE = 0.5  # Default when exploration doesn't provide confidence
 
 # Valid relationship types
 RELATIONSHIP_TYPES = {"co_occurs", "causes", "solves", "prerequisite", "variant"}
@@ -109,57 +131,61 @@ def add_failure(failure: dict, path: Path = None, validate: bool = True) -> str:
     related_typed = failure.get("related_typed", {})
     cross_rels = failure.get("cross_relationships", {})
 
-    # Check for duplicate by name
-    existing = list(memories.rows_where("name = ? AND type = ?", [name, "failure"]))
-    if existing:
-        old = existing[0]
-        # Merge: combine sources, keep higher cost
-        old_source = json.loads(old["source"]) if old["source"] else []
-        new_source = list(set(old_source + source))
-        new_cost = max(old["cost"], cost)
-        memories.update({"source": json.dumps(new_source), "cost": new_cost}, old["id"])
-        return f"merged:{name}"
-
-    # Check for semantic duplicate
-    is_dup, existing_name = _is_duplicate(trigger, "failure", 0.85)
-    if is_dup:
-        # Merge with semantically similar entry
-        dup_rows = list(memories.rows_where("name = ? AND type = ?", [existing_name, "failure"]))
-        if dup_rows:
-            old = dup_rows[0]
+    # Use lock to prevent TOCTOU race in duplicate check + insert
+    with db_write_lock:
+        # Check for duplicate by name
+        existing = list(memories.rows_where("name = ? AND type = ?", [name, "failure"]))
+        if existing:
+            old = existing[0]
+            # Merge: combine sources, keep higher cost
             old_source = json.loads(old["source"]) if old["source"] else []
             new_source = list(set(old_source + source))
             new_cost = max(old["cost"], cost)
             memories.update({"source": json.dumps(new_source), "cost": new_cost}, old["id"])
-        return f"merged:{existing_name}"
+            return f"merged:{name}"
 
-    # Generate embedding
-    emb = embed(trigger)
-    emb_blob = embed_to_blob(emb) if emb else None
+        # Check for semantic duplicate
+        is_dup, existing_name = _is_duplicate(trigger, "failure", 0.85)
+        if is_dup:
+            # Merge with semantically similar entry
+            dup_rows = list(memories.rows_where("name = ? AND type = ?", [existing_name, "failure"]))
+            if dup_rows:
+                old = dup_rows[0]
+                old_source = json.loads(old["source"]) if old["source"] else []
+                new_source = list(set(old_source + source))
+                new_cost = max(old["cost"], cost)
+                memories.update({"source": json.dumps(new_source), "cost": new_cost}, old["id"])
+            return f"merged:{existing_name}"
 
-    # Compute initial importance
-    importance = _calculate_importance_score(cost, 0, 0, 0)
+        # Generate embedding (inside lock to maintain atomicity)
+        emb = embed(trigger)
+        emb_blob = embed_to_blob(emb) if emb else None
 
-    # Insert new entry
-    now = failure.get("created_at", datetime.now().isoformat())
-    memories.insert(Memory(
-        name=name,
-        type="failure",
-        trigger=trigger,
-        resolution=fix,
-        match=match_regex,
-        cost=cost,
-        source=json.dumps(source),
-        created_at=now,
-        last_accessed="",
-        access_count=0,
-        times_helped=0,
-        times_failed=0,
-        importance=importance,
-        related_typed=json.dumps(related_typed),
-        cross_relationships=json.dumps(cross_rels),
-        embedding=emb_blob
-    ))
+        # Insert new entry
+        now = failure.get("created_at", datetime.now().isoformat())
+
+        # Compute initial importance with age_decay for consistency with pruning
+        importance = _calculate_importance_full(
+            cost, 0, 0, 0, now, DEFAULT_DECAY_HALF_LIFE_DAYS
+        )
+        memories.insert(Memory(
+            name=name,
+            type="failure",
+            trigger=trigger,
+            resolution=fix,
+            match=match_regex,
+            cost=cost,
+            source=json.dumps(source),
+            created_at=now,
+            last_accessed="",
+            access_count=0,
+            times_helped=0,
+            times_failed=0,
+            importance=importance,
+            related_typed=json.dumps(related_typed),
+            cross_relationships=json.dumps(cross_rels),
+            embedding=emb_blob
+        ))
 
     return "added"
 
@@ -192,41 +218,46 @@ def add_pattern(pattern: dict, path: Path = None, validate: bool = True) -> str:
     related_typed = pattern.get("related_typed", {})
     cross_rels = pattern.get("cross_relationships", {})
 
-    # Check for duplicate by name
-    existing = list(memories.rows_where("name = ? AND type = ?", [name, "pattern"]))
-    if existing:
-        return f"duplicate:{name}"
+    # Use lock to prevent TOCTOU race in duplicate check + insert
+    with db_write_lock:
+        # Check for duplicate by name
+        existing = list(memories.rows_where("name = ? AND type = ?", [name, "pattern"]))
+        if existing:
+            return f"duplicate:{name}"
 
-    # Check for semantic duplicate
-    is_dup, existing_name = _is_duplicate(trigger, "pattern", 0.85)
-    if is_dup:
-        return f"duplicate:{existing_name}"
+        # Check for semantic duplicate
+        is_dup, existing_name = _is_duplicate(trigger, "pattern", 0.85)
+        if is_dup:
+            return f"duplicate:{existing_name}"
 
-    # Generate embedding
-    emb = embed(trigger)
-    emb_blob = embed_to_blob(emb) if emb else None
+        # Generate embedding (inside lock to maintain atomicity)
+        emb = embed(trigger)
+        emb_blob = embed_to_blob(emb) if emb else None
 
-    importance = _calculate_importance_score(saved, 0, 0, 0)
+        now = pattern.get("created_at", datetime.now().isoformat())
 
-    now = pattern.get("created_at", datetime.now().isoformat())
-    memories.insert(Memory(
-        name=name,
-        type="pattern",
-        trigger=trigger,
-        resolution=insight,
-        match=None,
-        cost=saved,  # Store 'saved' in cost field for patterns
-        source=json.dumps(source),
-        created_at=now,
-        last_accessed="",
-        access_count=0,
-        times_helped=0,
-        times_failed=0,
-        importance=importance,
-        related_typed=json.dumps(related_typed),
-        cross_relationships=json.dumps(cross_rels),
-        embedding=emb_blob
-    ))
+        # Compute initial importance with age_decay for consistency with pruning
+        importance = _calculate_importance_full(
+            saved, 0, 0, 0, now, DEFAULT_DECAY_HALF_LIFE_DAYS
+        )
+        memories.insert(Memory(
+            name=name,
+            type="pattern",
+            trigger=trigger,
+            resolution=insight,
+            match=None,
+            cost=saved,  # Store 'saved' in cost field for patterns
+            source=json.dumps(source),
+            created_at=now,
+            last_accessed="",
+            access_count=0,
+            times_helped=0,
+            times_failed=0,
+            importance=importance,
+            related_typed=json.dumps(related_typed),
+            cross_relationships=json.dumps(cross_rels),
+            embedding=emb_blob
+        ))
 
     return "added"
 
@@ -237,7 +268,7 @@ def get_context(
     objective: str = None,
     max_failures: int = 5,
     max_patterns: int = 3,
-    relevance_threshold: float = 0.25,
+    relevance_threshold: float = 0.5,
     min_results: int = 1,
     expand_related: bool = False,
     track_access: bool = True,
@@ -251,7 +282,7 @@ def get_context(
         objective: Semantic anchor for relevance scoring
         max_failures: Maximum failures to return
         max_patterns: Maximum patterns to return
-        relevance_threshold: Minimum relevance score
+        relevance_threshold: Minimum relevance score (aligned with find_similar threshold)
         min_results: Minimum results even if below threshold
         expand_related: If True, include related entries
         track_access: If True, update access counts
@@ -274,6 +305,9 @@ def get_context(
         def score_entry(entry, value_key):
             trigger = entry.get("trigger", "")
             value = entry.get(value_key, 0)
+            times_helped = entry.get("times_helped", 0)
+            times_failed = entry.get("times_failed", 0)
+            created_at = entry.get("created_at", "")
 
             # Compute relevance via embedding similarity
             if obj_emb and entry.get("_embedding_blob"):
@@ -284,7 +318,7 @@ def get_context(
             else:
                 relevance = semantic_similarity(objective, trigger)
 
-            return relevance, _hybrid_score(relevance, value)
+            return relevance, _hybrid_score(relevance, value, times_helped, times_failed, created_at)
 
         # Score failures
         scored_failures = []
@@ -463,24 +497,36 @@ def prune_memory(
     keep_failures = {f["id"] for f, _ in scored_failures[:max_failures]}
     keep_patterns = {p["id"] for p, _ in scored_patterns[:max_patterns]}
 
-    # Delete entries not in keep sets
-    pruned_failures = 0
-    for row in failures:
-        if row["id"] not in keep_failures:
-            memories.delete(row["id"])
-            pruned_failures += 1
+    # Use lock to protect multi-delete operations
+    with db_write_lock:
+        # Delete entries not in keep sets
+        pruned_failures = 0
+        for row in failures:
+            if row["id"] not in keep_failures:
+                memories.delete(row["id"])
+                pruned_failures += 1
 
-    pruned_patterns = 0
-    for row in patterns:
-        if row["id"] not in keep_patterns:
-            memories.delete(row["id"])
-            pruned_patterns += 1
+        pruned_patterns = 0
+        for row in patterns:
+            if row["id"] not in keep_patterns:
+                memories.delete(row["id"])
+                pruned_patterns += 1
+
+        # Clean up orphaned edges (FK integrity)
+        edges = db.t.memory_edge
+        remaining_ids = {m["id"] for m in memories.rows}
+        orphaned_edges = 0
+        for edge in list(edges.rows):
+            if edge["from_id"] not in remaining_ids or edge["to_id"] not in remaining_ids:
+                edges.delete(edge["id"])
+                orphaned_edges += 1
 
     return {
         "pruned_failures": pruned_failures,
         "pruned_patterns": pruned_patterns,
         "remaining_failures": len(keep_failures),
         "remaining_patterns": len(keep_patterns),
+        "orphaned_edges_removed": orphaned_edges,
     }
 
 
@@ -506,73 +552,77 @@ def add_relationship(
 
     Returns: "added" | "exists" | "not_found:{name}" | "invalid_type:{type}"
     """
-    if relationship_type not in RELATIONSHIP_TYPES:
-        return f"invalid_type:{relationship_type}"
+    with error_boundary("add_relationship"):
+        if relationship_type not in RELATIONSHIP_TYPES:
+            return f"invalid_type:{relationship_type}"
 
-    db = _ensure_db()
-    memories = db.t.memory
-    edges = db.t.memory_edge
+        db = _ensure_db()
+        memories = db.t.memory
+        edges = db.t.memory_edge
 
-    type_filter = "failure" if entry_type == "failure" else "pattern"
+        type_filter = "failure" if entry_type == "failure" else "pattern"
 
-    source = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
-    target = list(memories.rows_where("name = ? AND type = ?", [related_name, type_filter]))
+        source = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
+        target = list(memories.rows_where("name = ? AND type = ?", [related_name, type_filter]))
 
-    if not source:
-        return f"not_found:{entry_name}"
-    if not target:
-        return f"not_found:{related_name}"
+        if not source:
+            return f"not_found:{entry_name}"
+        if not target:
+            return f"not_found:{related_name}"
 
-    source_id = source[0]["id"]
-    target_id = target[0]["id"]
+        source_id = source[0]["id"]
+        target_id = target[0]["id"]
 
-    # Check if edge exists
-    existing = list(edges.rows_where(
-        "from_id = ? AND to_id = ? AND rel_type = ?",
-        [source_id, target_id, relationship_type]
-    ))
-    if existing:
-        return "exists"
+        # Check if edge exists
+        existing = list(edges.rows_where(
+            "from_id = ? AND to_id = ? AND rel_type = ?",
+            [source_id, target_id, relationship_type]
+        ))
+        if existing:
+            return "exists"
 
-    # Add bidirectional edges
-    weight = DEFAULT_RELATIONSHIP_WEIGHTS.get(relationship_type, 0.8)
-    now = datetime.now().isoformat()
+        # Use lock for atomic bidirectional edge insertion
+        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+        with db_write_lock:
+            # Add bidirectional edges
+            weight = DEFAULT_RELATIONSHIP_WEIGHTS.get(relationship_type, 0.8)
+            now = datetime.now().isoformat()
 
-    edges.insert(MemoryEdge(
-        from_id=source_id,
-        to_id=target_id,
-        rel_type=relationship_type,
-        weight=weight,
-        created_at=now
-    ))
+            edges.insert(MemoryEdge(
+                from_id=source_id,
+                to_id=target_id,
+                rel_type=relationship_type,
+                weight=weight,
+                created_at=now
+            ))
 
-    inverse_type = _inverse_relationship(relationship_type)
-    edges.insert(MemoryEdge(
-        from_id=target_id,
-        to_id=source_id,
-        rel_type=inverse_type,
-        weight=weight,
-        created_at=now
-    ))
+            inverse_type = _inverse_relationship(relationship_type)
+            edges.insert(MemoryEdge(
+                from_id=target_id,
+                to_id=source_id,
+                rel_type=inverse_type,
+                weight=weight,
+                created_at=now
+            ))
 
-    # Also update the JSON field for backwards compatibility
-    source_row = source[0]
-    source_typed = json.loads(source_row.get("related_typed") or "{}")
-    if relationship_type not in source_typed:
-        source_typed[relationship_type] = []
-    if related_name not in source_typed[relationship_type]:
-        source_typed[relationship_type].append(related_name)
-    memories.update({"related_typed": json.dumps(source_typed)}, source_id)
+            # Also update the JSON field for backwards compatibility
+            source_row = source[0]
+            source_typed = json.loads(source_row.get("related_typed") or "{}")
+            if relationship_type not in source_typed:
+                source_typed[relationship_type] = []
+            if related_name not in source_typed[relationship_type]:
+                source_typed[relationship_type].append(related_name)
+            memories.update({"related_typed": json.dumps(source_typed)}, source_id)
 
-    target_row = target[0]
-    target_typed = json.loads(target_row.get("related_typed") or "{}")
-    if inverse_type not in target_typed:
-        target_typed[inverse_type] = []
-    if entry_name not in target_typed[inverse_type]:
-        target_typed[inverse_type].append(entry_name)
-    memories.update({"related_typed": json.dumps(target_typed)}, target_id)
+            target_row = target[0]
+            target_typed = json.loads(target_row.get("related_typed") or "{}")
+            if inverse_type not in target_typed:
+                target_typed[inverse_type] = []
+            if entry_name not in target_typed[inverse_type]:
+                target_typed[inverse_type].append(entry_name)
+            memories.update({"related_typed": json.dumps(target_typed)}, target_id)
 
-    return "added"
+        return "added"
 
 
 def get_related_entries(
@@ -669,41 +719,46 @@ def add_cross_relationship(
 
     Returns: "added" | "exists" | "not_found:{name}" | "invalid_type:{type}"
     """
-    valid_cross_types = {"solves", "causes"}
-    if relationship_type not in valid_cross_types:
-        return f"invalid_type:{relationship_type}"
+    with error_boundary("add_cross_relationship"):
+        valid_cross_types = {"solves", "causes"}
+        if relationship_type not in valid_cross_types:
+            return f"invalid_type:{relationship_type}"
 
-    db = _ensure_db()
-    memories = db.t.memory
+        db = _ensure_db()
+        memories = db.t.memory
 
-    failure = list(memories.rows_where("name = ? AND type = ?", [failure_name, "failure"]))
-    pattern = list(memories.rows_where("name = ? AND type = ?", [pattern_name, "pattern"]))
+        failure = list(memories.rows_where("name = ? AND type = ?", [failure_name, "failure"]))
+        pattern = list(memories.rows_where("name = ? AND type = ?", [pattern_name, "pattern"]))
 
-    if not failure:
-        return f"not_found:failure:{failure_name}"
-    if not pattern:
-        return f"not_found:pattern:{pattern_name}"
+        if not failure:
+            return f"not_found:failure:{failure_name}"
+        if not pattern:
+            return f"not_found:pattern:{pattern_name}"
 
-    failure_row = failure[0]
-    pattern_row = pattern[0]
+        failure_row = failure[0]
+        pattern_row = pattern[0]
 
-    # Update cross_relationships JSON field
-    failure_cross = json.loads(failure_row.get("cross_relationships") or "{}")
-    if relationship_type not in failure_cross:
-        failure_cross[relationship_type] = []
-    if pattern_name in failure_cross[relationship_type]:
-        return "exists"
-    failure_cross[relationship_type].append(pattern_name)
-    memories.update({"cross_relationships": json.dumps(failure_cross)}, failure_row["id"])
+        # Update cross_relationships JSON field
+        failure_cross = json.loads(failure_row.get("cross_relationships") or "{}")
+        if relationship_type not in failure_cross:
+            failure_cross[relationship_type] = []
+        if pattern_name in failure_cross[relationship_type]:
+            return "exists"
 
-    inverse_type = "solved_by" if relationship_type == "solves" else "caused_by"
-    pattern_cross = json.loads(pattern_row.get("cross_relationships") or "{}")
-    if inverse_type not in pattern_cross:
-        pattern_cross[inverse_type] = []
-    pattern_cross[inverse_type].append(failure_name)
-    memories.update({"cross_relationships": json.dumps(pattern_cross)}, pattern_row["id"])
+        # Use lock for atomic bidirectional update
+        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+        with db_write_lock:
+            failure_cross[relationship_type].append(pattern_name)
+            memories.update({"cross_relationships": json.dumps(failure_cross)}, failure_row["id"])
 
-    return "added"
+            inverse_type = "solved_by" if relationship_type == "solves" else "caused_by"
+            pattern_cross = json.loads(pattern_row.get("cross_relationships") or "{}")
+            if inverse_type not in pattern_cross:
+                pattern_cross[inverse_type] = []
+            pattern_cross[inverse_type].append(failure_name)
+            memories.update({"cross_relationships": json.dumps(pattern_cross)}, pattern_row["id"])
+
+        return "added"
 
 
 def get_solutions(failure_name: str, path: Path = None) -> list:
@@ -761,26 +816,29 @@ def record_feedback(
     memories = db.t.memory
 
     type_filter = "failure" if entry_type == "failure" else "pattern"
-    rows = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
 
-    if not rows:
-        return "not_found"
+    # Use lock to protect read-modify-write sequence
+    with db_write_lock:
+        rows = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
 
-    row = rows[0]
-    if helped:
-        memories.update({"times_helped": (row.get("times_helped", 0) or 0) + 1}, row["id"])
-    else:
-        memories.update({"times_failed": (row.get("times_failed", 0) or 0) + 1}, row["id"])
+        if not rows:
+            return "not_found"
 
-    # Recalculate importance
-    updated = list(memories.rows_where("id = ?", [row["id"]]))[0]
-    new_importance = _calculate_importance_score(
-        updated.get("cost", 0) or 0,
-        updated.get("times_helped", 0) or 0,
-        updated.get("times_failed", 0) or 0,
-        updated.get("access_count", 0) or 0
-    )
-    memories.update({"importance": new_importance}, row["id"])
+        row = rows[0]
+        if helped:
+            memories.update({"times_helped": (row.get("times_helped", 0) or 0) + 1}, row["id"])
+        else:
+            memories.update({"times_failed": (row.get("times_failed", 0) or 0) + 1}, row["id"])
+
+        # Recalculate importance
+        updated = list(memories.rows_where("id = ?", [row["id"]]))[0]
+        new_importance = _calculate_importance_score(
+            updated.get("cost", 0) or 0,
+            updated.get("times_helped", 0) or 0,
+            updated.get("times_failed", 0) or 0,
+            updated.get("access_count", 0) or 0
+        )
+        memories.update({"importance": new_importance}, row["id"])
 
     return "updated"
 
@@ -799,40 +857,27 @@ def record_feedback_batch(
 
     Returns: {"helped": N, "not_helped": M, "error": str (if failed)}
     """
-    from sqlalchemy import text
+    with error_boundary("record_feedback_batch"):
+        utilized_set = {(m["name"], m["type"]) for m in utilized}
+        injected_set = {(m["name"], m["type"]) for m in injected}
 
-    utilized_set = {(m["name"], m["type"]) for m in utilized}
-    injected_set = {(m["name"], m["type"]) for m in injected}
+        result = {"helped": 0, "not_helped": 0}
 
-    result = {"helped": 0, "not_helped": 0}
-
-    db = _ensure_db()
-
-    try:
-        # Begin transaction for atomicity
-        db.execute(text("BEGIN IMMEDIATE"))
-
-        for name, entry_type in injected_set:
-            helped = (name, entry_type) in utilized_set
-            status = record_feedback(name, entry_type, helped)
-            if status == "updated":
-                if helped:
-                    result["helped"] += 1
-                else:
-                    result["not_helped"] += 1
-
-        # Commit transaction
-        db.execute(text("COMMIT"))
-
-    except Exception as e:
-        # Rollback on any error
+        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+        # Each record_feedback call is atomic; batch is protected by error_boundary
         try:
-            db.execute(text("ROLLBACK"))
-        except Exception:
-            pass  # Rollback may fail if no transaction active
-        result["error"] = str(e)
+            for name, entry_type in injected_set:
+                helped = (name, entry_type) in utilized_set
+                status = record_feedback(name, entry_type, helped)
+                if status == "updated":
+                    if helped:
+                        result["helped"] += 1
+                    else:
+                        result["not_helped"] += 1
+        except Exception as e:
+            result["error"] = str(e)
 
-    return result
+        return result
 
 
 def _track_access(entry_names: list, entry_type: str = "failure", path: Path = None) -> None:
@@ -845,14 +890,17 @@ def _track_access(entry_names: list, entry_type: str = "failure", path: Path = N
     now = datetime.now().isoformat()
 
     type_filter = "failure" if entry_type == "failure" else "pattern"
-    for name in entry_names:
-        rows = list(memories.rows_where("name = ? AND type = ?", [name, type_filter]))
-        if rows:
-            row = rows[0]
-            memories.update({
-                "access_count": (row.get("access_count", 0) or 0) + 1,
-                "last_accessed": now
-            }, row["id"])
+
+    # Use lock to protect multi-update loop
+    with db_write_lock:
+        for name in entry_names:
+            rows = list(memories.rows_where("name = ? AND type = ?", [name, type_filter]))
+            if rows:
+                row = rows[0]
+                memories.update({
+                    "access_count": (row.get("access_count", 0) or 0) + 1,
+                    "last_accessed": now
+                }, row["id"])
 
 
 # Public alias
@@ -1153,9 +1201,45 @@ def _calculate_importance_full(
     return base_score * age_decay * access_boost * help_ratio
 
 
-def _hybrid_score(relevance: float, value: int) -> float:
-    """Compute hybrid score balancing relevance and value."""
-    return relevance * math.log2(value + 1) if value > 0 else 0
+def _hybrid_score(
+    relevance: float,
+    value: int,
+    times_helped: int = 0,
+    times_failed: int = 0,
+    created_at: str = "",
+    half_life_days: float = DEFAULT_DECAY_HALF_LIFE_DAYS
+) -> float:
+    """Compute hybrid score balancing relevance, value, feedback, and age decay.
+
+    Incorporates:
+    - times_helped/times_failed to close the feedback loop
+    - Age decay to demote stale entries
+
+    Args:
+        relevance: Semantic similarity score (0-1)
+        value: Cost/saved value
+        times_helped: Count of times memory was utilized successfully
+        times_failed: Count of times memory was injected but not utilized
+        created_at: ISO timestamp of entry creation
+        half_life_days: Days until entry importance decays to 50%
+    """
+    if value <= 0:
+        return 0
+    base = relevance * math.log2(value + 1)
+    # Help ratio: 0.5 with no feedback, trends toward 1.0 for helpful, 0.0 for unhelpful
+    help_ratio = (times_helped + 1) / (times_helped + times_failed + 2)
+
+    # Age decay: entries lose relevance over time
+    age_decay = 1.0
+    if created_at:
+        try:
+            created = datetime.fromisoformat(created_at)
+            age_days = (datetime.now() - created).days
+            age_decay = math.pow(0.5, age_days / half_life_days)
+        except ValueError:
+            pass
+
+    return base * help_ratio * age_decay
 
 
 def _classify_tier(relevance: float) -> str:

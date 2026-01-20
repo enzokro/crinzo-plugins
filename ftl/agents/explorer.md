@@ -9,6 +9,7 @@ requires:
   - shared/ONTOLOGY.md@1.1
   - shared/TOOL_BUDGET_REFERENCE.md@2.1
   - shared/FRAMEWORK_IDIOMS.md@1.1
+  - shared/CONSTRAINT_TIERS.md@1.0
 ---
 
 <role>

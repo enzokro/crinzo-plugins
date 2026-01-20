@@ -12,25 +12,26 @@ import sys
 
 # Support both standalone execution and module import
 try:
-    from lib.db import get_db, init_db, PhaseState
+    from lib.db import get_db, init_db, PhaseState, db_write_lock
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from db import get_db, init_db, PhaseState
+    from db import get_db, init_db, PhaseState, db_write_lock
 
 
 # Note: All storage is now in .ftl/ftl.db
 
 # Valid phases in workflow order
-PHASES = ["none", "explore", "plan", "build", "observe", "complete"]
+PHASES = ["none", "explore", "plan", "build", "observe", "complete", "error"]
 
 # Valid transitions (from -> [valid destinations])
 VALID_TRANSITIONS = {
     "none": ["explore"],
-    "explore": ["plan"],
-    "plan": ["build", "explore"],  # Can go back to explore if CLARIFY
-    "build": ["observe", "build"],  # Can stay in build for multi-task
-    "observe": ["complete"],
-    "complete": ["none"],  # Reset for next campaign
+    "explore": ["plan", "error"],
+    "plan": ["build", "explore", "error"],
+    "build": ["observe", "build", "error"],
+    "observe": ["complete", "error"],
+    "complete": ["none"],
+    "error": ["explore", "complete"],  # Can retry or abort
 }
 
 
@@ -41,22 +42,34 @@ def _ensure_db():
 
 
 def _get_phase_state():
-    """Get or create the phase state singleton."""
+    """Get or create the phase state singleton.
+
+    Uses lock to prevent race condition where multiple concurrent calls
+    could each see no rows and both try to create initial state.
+    """
     db = _ensure_db()
     phase_states = db.t.phase_state
 
+    # Check without lock first (fast path for common case)
     rows = list(phase_states.rows)
     if rows:
         return rows[0]
 
-    # Create initial state
-    state = PhaseState(
-        phase="none",
-        started_at=None,
-        transitions="[]"
-    )
-    phase_states.insert(state)
-    return list(phase_states.rows)[0]
+    # Use lock to protect TOCTOU race in singleton creation
+    with db_write_lock:
+        # Re-check inside lock to handle race condition
+        rows = list(phase_states.rows)
+        if rows:
+            return rows[0]
+
+        # Create initial state
+        state = PhaseState(
+            phase="none",
+            started_at=None,
+            transitions="[]"
+        )
+        phase_states.insert(state)
+        return list(phase_states.rows)[0]
 
 
 def get_state() -> dict:
@@ -167,6 +180,8 @@ def get_duration() -> float | None:
     Returns:
         Duration in seconds or None if no workflow started
     """
+    import logging
+
     state = get_state()
     if not state.get("started_at"):
         return None
@@ -174,8 +189,70 @@ def get_duration() -> float | None:
     try:
         started = datetime.fromisoformat(state["started_at"])
         return (datetime.now() - started).total_seconds()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logging.warning(f"Failed to parse started_at timestamp: {e}")
         return None
+
+
+def trigger_error(error_type: str = "unknown", error_message: str = "") -> dict:
+    """Transition to error state from any valid phase.
+
+    Convenience function for exception handlers to trigger error state.
+    Attempts transition to 'error' from current phase; if invalid transition,
+    records error context without transitioning.
+
+    Args:
+        error_type: Classification of error (timeout, quorum_failure, etc.)
+        error_message: Descriptive error message
+
+    Returns:
+        State dict with error context, or error dict if transition invalid
+    """
+    state = get_state()
+    current = state["phase"]
+
+    # Check if we can transition to error
+    if can_transition(current, "error"):
+        result = transition("error")
+        result["error_type"] = error_type
+        result["error_message"] = error_message
+        return result
+    else:
+        # Already in error or complete; just return context
+        return {
+            "phase": current,
+            "error_type": error_type,
+            "error_message": error_message,
+            "transition_attempted": False,
+            "reason": f"Cannot transition from {current} to error"
+        }
+
+
+class error_boundary:
+    """Context manager that transitions to error state on exception.
+
+    Usage:
+        with error_boundary("operation_name"):
+            # code that might raise
+            risky_operation()
+
+    If an exception occurs, transitions to error phase and re-raises.
+    """
+
+    def __init__(self, operation: str = "unknown"):
+        self.operation = operation
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            error_msg = f"{self.operation}: {exc_type.__name__}: {exc_val}"
+            try:
+                trigger_error(error_type=exc_type.__name__, error_message=error_msg)
+            except Exception:
+                pass  # Don't mask original exception
+        return False  # Re-raise exception
 
 
 # =============================================================================

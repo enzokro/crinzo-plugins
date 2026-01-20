@@ -46,7 +46,8 @@ def detect_decision(text: str) -> dict:
             "decision": "PROCEED" | "CLARIFY" | "CONFIRM" | "UNKNOWN",
             "markers_found": ["marker1", ...],
             "questions": [...] if CLARIFY,
-            "plan_json": {...} if PROCEED
+            "plan_json": {...} if PROCEED,
+            "validation": {"valid": bool, "errors": [...]} if plan present
         }
     """
     result = {
@@ -89,12 +90,17 @@ def detect_decision(text: str) -> dict:
                 result["decision"] = "PROCEED"
                 break
 
-    # If no explicit marker, check for plan.json presence
-    if result["decision"] == "UNKNOWN":
-        plan_json = extract_plan_json(text)
-        if plan_json:
+    # Extract plan JSON if present
+    plan_json = extract_plan_json(text)
+    if plan_json:
+        result["plan_json"] = plan_json
+        # If no explicit marker but plan found, set decision to PROCEED
+        if result["decision"] == "UNKNOWN":
             result["decision"] = "PROCEED"
-            result["plan_json"] = plan_json
+
+    # Always validate plan if present (unconditional validation)
+    if result.get("plan_json"):
+        result["validation"] = validate_plan(result["plan_json"])
 
     return result
 
@@ -218,14 +224,18 @@ def validate_task(task: dict, index: int) -> list:
         List of error strings
     """
     errors = []
-    required = ["seq", "delta", "verify"]
+    required = ["seq", "slug", "delta", "verify"]
 
     for field in required:
         if field not in task:
             errors.append(f"Task {index}: missing required field: {field}")
 
-    if "delta" in task and not isinstance(task["delta"], list):
-        errors.append(f"Task {index}: delta must be a list")
+    if "delta" in task:
+        if not isinstance(task["delta"], list):
+            errors.append(f"Task {index}: delta must be a list")
+        elif not task["delta"]:
+            # Align with validate_workspace() which rejects empty delta
+            errors.append(f"Task {index}: delta list cannot be empty")
 
     if "seq" in task and not re.match(r"^\d{3}$", str(task["seq"])):
         errors.append(f"Task {index}: seq must be 3-digit string")

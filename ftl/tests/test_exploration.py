@@ -74,6 +74,9 @@ class TestExplorationWrite:
 
     def test_write_creates_entry(self, cli, ftl_dir):
         """Write creates exploration entry in database."""
+        # Create campaign first (required for exploration write)
+        cli.campaign("create", "Test exploration write")
+
         exploration = {
             "_meta": {"version": "1.0"},
             "structure": {"status": "ok", "directories": {}}
@@ -95,6 +98,9 @@ class TestExplorationRead:
 
     def test_read_returns_contents(self, cli, ftl_dir):
         """Read returns exploration.json contents."""
+        # Create campaign first (required for exploration write)
+        cli.campaign("create", "Test exploration read")
+
         # First write
         exploration = {
             "_meta": {"version": "1.0"},
@@ -121,6 +127,7 @@ class TestExplorationGetters:
 
     def test_get_structure(self, cli, ftl_dir):
         """Get-structure returns structure section."""
+        cli.campaign("create", "Test get-structure")
         exploration = {
             "_meta": {"version": "1.0"},
             "structure": {"status": "ok", "directories": {"lib": True, "tests": True}}
@@ -135,6 +142,7 @@ class TestExplorationGetters:
 
     def test_get_pattern(self, cli, ftl_dir):
         """Get-pattern returns pattern section."""
+        cli.campaign("create", "Test get-pattern")
         exploration = {
             "_meta": {"version": "1.0"},
             "pattern": {
@@ -154,6 +162,7 @@ class TestExplorationGetters:
 
     def test_get_memory(self, cli, ftl_dir):
         """Get-memory returns memory section."""
+        cli.campaign("create", "Test get-memory")
         exploration = {
             "_meta": {"version": "1.0"},
             "memory": {
@@ -174,6 +183,7 @@ class TestExplorationGetters:
 
     def test_get_delta(self, cli, ftl_dir):
         """Get-delta returns delta section."""
+        cli.campaign("create", "Test get-delta")
         exploration = {
             "_meta": {"version": "1.0"},
             "delta": {
@@ -195,6 +205,7 @@ class TestExplorationGetters:
 
     def test_get_missing_section_returns_fallback(self, cli, ftl_dir):
         """Get returns fallback when section missing."""
+        cli.campaign("create", "Test missing section fallback")
         exploration = {"_meta": {"version": "1.0"}}
         cli.exploration("write", stdin=json.dumps(exploration))
 
@@ -223,6 +234,9 @@ class TestExplorationClear:
 
     def test_clear_removes_entries(self, cli, ftl_dir):
         """Clear removes exploration entries from database."""
+        # Create campaign first (required for exploration write)
+        cli.campaign("create", "Test clear exploration")
+
         # First create an entry
         exploration = {"_meta": {"version": "1.0"}, "structure": {"status": "ok"}}
         cli.exploration("write", stdin=json.dumps(exploration))
@@ -379,12 +393,8 @@ class TestSimilarCampaigns:
         # No archives exist, so similar_campaigns should be empty
         assert data["similar_campaigns"] == []
 
-    def test_find_similar_with_archived_campaigns(self, cli, ftl_dir, lib_path):
+    def test_find_similar_with_archived_campaigns(self, cli, ftl_dir, campaign_module):
         """Find similar returns matching archived campaigns."""
-        import sys
-        sys.path.insert(0, str(lib_path))
-        import campaign
-
         # Create and complete a campaign to generate an archive
         cli.campaign("create", "Authentication with OAuth", "--framework", "FastHTML")
         plan = {
@@ -404,7 +414,7 @@ class TestSimilarCampaigns:
         cli.campaign("create", "User authentication system", "--framework", "FastHTML")
 
         # Find similar - should match the archived OAuth campaign
-        similar = campaign.find_similar(threshold=0.3)
+        similar = campaign_module.find_similar(threshold=0.3)
 
         # Should find the archived campaign (both about authentication + same framework)
         # Note: match depends on semantic similarity of objectives
@@ -412,11 +422,13 @@ class TestSimilarCampaigns:
         # The archived campaign exists, so we should have potential matches
         # (actual matching depends on embedding similarity threshold)
 
-    def test_find_similar_requires_framework_match(self, cli, ftl_dir, lib_path):
+    def test_find_similar_requires_framework_match(self, cli, ftl_dir, campaign_module):
         """Find similar requires framework match."""
-        import sys
-        sys.path.insert(0, str(lib_path))
-        import campaign
+        # Debug: Check DB state
+        from db import connection
+        print(f"\n[DEBUG] ftl_dir: {ftl_dir}")
+        print(f"[DEBUG] connection.DB_PATH: {connection.DB_PATH}")
+        print(f"[DEBUG] DB file exists: {connection.DB_PATH.exists()}")
 
         # Create and archive a FastHTML campaign
         cli.campaign("create", "Build REST API", "--framework", "FastHTML")
@@ -437,7 +449,51 @@ class TestSimilarCampaigns:
         cli.campaign("create", "Build REST API", "--framework", "Django")
 
         # Find similar - framework mismatch should filter out
-        similar = campaign.find_similar(threshold=0.1)
+        print(f"[DEBUG] Before find_similar, DB_PATH: {connection.DB_PATH}")
+
+        # Debug: Check what's actually in the database file
+        import sqlite3
+        conn = sqlite3.connect(str(connection.DB_PATH))
+        cursor = conn.execute("SELECT id, objective, framework, fingerprint FROM archive")
+        rows = cursor.fetchall()
+        print(f"[DEBUG] Archives in DB file: {rows}")
+        for row in rows:
+            print(f"[DEBUG] Archive {row[0]} fingerprint: {row[3]}")
+        conn.close()
+
+        # Debug: Check if connection module is the same object
+        from db import connection as campaign_conn
+        print(f"[DEBUG] connection module id: {id(connection)}")
+        print(f"[DEBUG] campaign's connection id: {id(campaign_conn)}")
+        print(f"[DEBUG] _db before reset: {connection._db}")
+        print(f"[DEBUG] campaign's _db: {campaign_conn._db}")
+
+        # Reset connection to force fresh read
+        connection._db = None
+        campaign_conn._db = None
+        print(f"[DEBUG] After reset, _db: {connection._db}, campaign's _db: {campaign_conn._db}")
+        print(f"[DEBUG] DB_PATH before find_similar: {connection.DB_PATH}")
+
+        # Import get_db to see what it uses
+        from db import get_db
+        print(f"[DEBUG] get_db module's DB_PATH: {get_db.__globals__['DB_PATH']}")
+
+        # Get db and check what's in archive table
+        from db import get_db
+        db = get_db()
+        print(f"[DEBUG] db object id (from test): {id(db)}")
+        archive_rows = list(db.t.archive.rows)
+        print(f"[DEBUG] archive rows from get_db(): {[(r['id'], r['objective'], r.get('fingerprint', '')[:50]) for r in archive_rows]}")
+
+        # Check campaign_module's db
+        campaign_db = campaign_module._ensure_db()
+        print(f"[DEBUG] campaign_module._ensure_db() id: {id(campaign_db)}")
+        campaign_archive_rows = list(campaign_db.t.archive.rows)
+        print(f"[DEBUG] archive rows from campaign_module: {[(r['id'], r['objective'], r.get('fingerprint', '')[:50]) for r in campaign_archive_rows]}")
+
+        similar = campaign_module.find_similar(threshold=0.1)
+        print(f"[DEBUG] DB_PATH after find_similar: {connection.DB_PATH}")
+        print(f"[DEBUG] similar results: {similar}")
 
         # No matches expected due to framework mismatch
         fasthtml_matches = [s for s in similar if s.get("fingerprint", {}).get("framework") == "FastHTML"]

@@ -1,7 +1,6 @@
-# ftl
+# ftl (v2.4.16)
 
 A Claude Code orchestrator that builds knowledge over time.
-
 
 ## Introduction
 
@@ -9,7 +8,7 @@ Before Opus 4.5, agentic harnesses focused on working *around* the two worst ten
 
 Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
 
-`ftl` is built on this shift. While previous harnesses constrained models to prevent drift, `ftl` persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
+`ftl` builds on this shift. While previous harnesses were mostly meant to keep the models from drifting, `ftl` persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
 
 ## Philosophy
 
@@ -22,7 +21,7 @@ Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the
 | **Edit over create**    | Modify what exists before creating something new                  |
 | **Blocking is success** | Informed handoff creates learning data, prevents budget waste     |
 
-These aren't new. In fact, they read like the 101s of good software development. But anyone who's worked with coding agents knows that the models like to work and stay busy. Every part of `ftl` is built around these principles to turn them into the orchestrator's north star.
+These read like the basics of good software development. However, anyone who's worked with coding agents knows that the models often work mindlessly just to stay busy. `ftl` is built directly around these principles, making them the orchestrator's north star.
 
 ## Quick Start
 
@@ -76,42 +75,134 @@ Or from inside of Claude Code:
 
 Each completed task makes the system smarter. Patterns emerge over time to influence future work.
 
+## State Model
+
+FTL uses two complementary state systems:
+
+| Layer | Location | Purpose | States |
+|-------|----------|---------|--------|
+| **Database Phases** | `phase.py` | Persistent workflow tracking | `none` → `explore` → `plan` → `build` → `observe` → `complete` \| `error` |
+| **DSL States** | `SKILL.md` | Behavioral orchestration | `INIT` → `EXPLORE` → `PLAN` → [`REGISTER` → `EXECUTE` → `CASCADE`] → `BUILD` → `OBSERVE` → `COMPLETE` \| `ERROR` |
+
+**Why two layers?**
+- `phase.py` provides persistent, queryable state for tooling and debugging
+- DSL states are behavioral prompts guiding orchestration flow
+
+**Key distinction**: `REGISTER`, `EXECUTE`, and `CASCADE` exist only in the DSL—they're campaign management behaviors, not database-tracked phases. The `phase.py` machine uses a simpler vocabulary for agent coordination.
+
+**Phase transitions** (O(1) dispatch):
+```
+none → explore
+explore → plan | error
+plan → build | explore | error
+build → observe | build | error
+observe → complete | error
+complete → none
+error → explore | complete
+```
+
 ## Agents
 
 Four agents with distinct roles:
 
 | Agent | Model | Role | Budget |
 |-------|-------|------|--------|
-| **Explorer** | Haiku | Parallel codebase reconnaissance (4 modes) | 4 |
-| **Planner** | Opus | Decompose objectives into verifiable tasks | — |
+| **Explorer** | Haiku | Parallel codebase reconnaissance (4 modes) | 4+1 |
+| **Planner** | Opus | Decompose objectives into verifiable tasks | unlimited |
 | **Builder** | Opus | Transform workspace spec into code | 3-7 |
 | **Observer** | Opus | Extract patterns, update memory | 10 |
 
-**Explorer modes** run in parallel:
-- **structure**: Maps directories, entry points, test patterns, language
-- **pattern**: Detects framework, extracts idioms (required/forbidden)
-- **memory**: Retrieves semantically relevant failures and patterns
-- **delta**: Identifies candidate files and functions for modification
+### Explorer (haiku, budget: 4+1)
 
-**Constraints:**
-- Explorers write to `explorer_result` table in `.ftl/ftl.db` for session-based aggregation
-- Planner validates DAG structure — cyclic dependencies are rejected at registration
-- Builder reads test file (`verify_source`) before implementing to match expectations
-- Builder enforces framework idioms as non-negotiable — blocks even if tests pass
-- Multi-file tasks get code context for all delta files, not just the first
-- Blocked sibling tasks inject failures into subsequent workspaces (intra-campaign learning)
-- Observer verifies blocked workspaces before extracting failures (prevents false positives)
-- Blocking is success — informed handoff, not failure
+4 parallel modes with session-based quorum:
+- **structure**: Maps directories, entry points, test patterns, language (WHERE)
+- **pattern**: Detects framework, extracts idioms (HOW)
+- **memory**: Retrieves semantically relevant failures and patterns (WHAT BEFORE)
+- **delta**: Identifies candidate files and functions for modification (WHAT CHANGES)
 
-**Shared References**: Agents share common specifications via `agents/shared/`:
+**Quorum**: 3/4 required (75%), 2s polling interval, 300s timeout. Proceeds when structure + delta complete, or 3+ explorers with adequate coverage.
+
+### Planner (opus, unlimited)
+
+8-phase planning flow:
+1. `READ_EXPLORATION` — Ingest explorer outputs
+2. `CALCULATE_COMPLEXITY` — Score task scope
+3. `COHERENCE_CHECK` — Validate requirements
+4. `DESIGN_SEQUENCE` — Order dependencies
+5. `LOCATE_TARGETS` — Map files to tasks
+6. `SET_BUDGETS` — Allocate per-task budgets
+7. `EXTRACT_IDIOMS` — Pull framework requirements
+8. `OUTPUT_PLAN` — Emit structured plan.json
+
+**CLARIFY gate**: Stops planning when delta ambiguous, test pattern unknown, or multiple valid approaches. `clarify_count` tracked across re-entries (max 5).
+
+**Complexity formula**:
+```
+C = (sections × 2) + (failure_cost_k / 5) + (framework_level × 3)
+task_count = min(7, max(1, ceil(C / 5)))
+```
+
+**Framework confidence**: ≥0.6 strict idiom enforcement; <0.6 warn only.
+
+### Builder (opus, budget: 3-7)
+
+10-state FSM:
+```
+READ(1) → PLAN(0) → READ_TESTS(1) → IMPLEMENT(N) → PREFLIGHT(exempt)
+    → VERIFY(1) → RETRY(1) → QUALITY(0) → COMPLETE(exempt) | BLOCK(exempt)
+```
+
+**Budget counting**: Per tool invocation, not per resource. Exempt: preflight checks, state transitions, memory operations.
+
+**BLOCK triggers**:
+- Budget exhausted
+- Retry limit exceeded
+- Error not in prior_knowledge
+- Idiom violation (strict enforcement if confidence ≥0.6)
+- Same error twice
+
+**Idiom enforcement**: Non-negotiable. Blocks even if tests pass when framework idioms violated.
+
+### Observer (opus, budget: 10)
+
+7-phase analysis pipeline:
+1. `list_workspaces` — Enumerate complete/blocked
+2. `verify_blocks` — ThreadPoolExecutor(max_workers=4), 30s timeout per workspace
+3. `extract_failures` — From CONFIRMED blocks only
+4. `score_patterns` — Apply 6-criteria scoring
+5. `link_patterns_to_failures` — Cross-relationships (solves)
+6. `record_feedback` — Update help_ratio via feedback_batch
+7. `link_co_occurring` — Same-campaign failure relationships
+
+**Verification statuses**:
+- `CONFIRMED` — Extract failure
+- `FALSE_POSITIVE` — Skip (tests pass now)
+- `INDETERMINATE` — Skip (timeout, may pass with more time)
+- `ERROR` — Log only
+
+**Pattern scoring** (6 criteria):
+| Criterion | Points | Condition |
+|-----------|--------|-----------|
+| blocked_then_fixed | +3 | Was blocked, now complete |
+| first_try_success | +2 | No retry patterns in delivered |
+| framework_idioms | +2 | Required idioms applied |
+| budget_efficient | +1 | Remaining budget ≥4 |
+| multi_file | +1 | Delta contains ≥2 files |
+| novel | +1 | Similarity to existing < NOVELTY_THRESHOLD |
+
+**MIN_PATTERN_SCORE**: 3 (extraction threshold)
+
+### Shared References
+
+Agents share specifications via `agents/shared/`:
 - `ONTOLOGY.md` — Canonical definitions (budget, BLOCK status, framework confidence)
 - `BUILDER_STATE_MACHINE.md` — 10-state builder FSM with transitions
 - `PLANNER_PHASES.md` — 8-phase planning flow
 - `EXPLORER_SCHEMAS.md` — JSON output schemas for 4 explorer modes
-- `CONSTRAINT_TIERS.md` — Essential/Quality tiers with per-agent constraints
+- `CONSTRAINT_TIERS.md` — Essential (BLOCK) / Quality (note) tiers
 - `FRAMEWORK_IDIOMS.md` — Detection rules and idiom requirements
 - `TOOL_BUDGET_REFERENCE.md` — Budget counting rules and exemptions
-- `ERROR_MATCHING_RULES.md` — Judgment-based matching with flaky retry guidance
+- `ERROR_MATCHING_RULES.md` — Judgment-based matching ("0.5 with obvious applicability beats 0.7 with tangential relevance")
 - `OUTPUT_TEMPLATES.md` — Standard output formats
 
 ## Commands
@@ -128,6 +219,13 @@ Four agents with distinct roles:
 | `/ftl similar` | Find similar past campaigns |
 | `/ftl observe` | Run automated analysis pipeline |
 | `/ftl benchmark` | Performance metrics report |
+
+**Utility commands** (not in entry table):
+- `verify-loop` — Diagnose learning loop status
+- `add-cross-relationship` — Link failure to solving pattern
+- `get-solutions` — Get patterns that solve a failure
+- `get-replan-input` — Generate context for adaptive re-planning
+- `merge-revised-plan` — Integrate revised plan without losing completed work
 
 ## Workspace Format
 
@@ -206,7 +304,7 @@ A unified system capturing what went wrong and what worked:
 
 **Failures** — Observable errors with executable fixes. Each failure includes: a trigger (the error message), a fix (the action that resolves it), a regex match pattern (to catch in logs), and a cost estimate. Injected into builder's `prior_knowledge` to prevent repeats.
 
-**Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scored on: blocked→fixed (+3), idiom applied (+2), multi-file (+1), novel approach (+1). Scores are **heuristic guidance** — extract when the workspace demonstrates a transferable technique, skip high scores that succeeded by luck.
+**Patterns** — Reusable approaches that saved significant tokens. High bar: non-obvious insights a senior dev would appreciate. Scores are **heuristic guidance** — extract when the workspace demonstrates a transferable technique, skip high scores that succeeded by luck.
 
 ### Embedding-Based Retrieval
 
@@ -217,25 +315,38 @@ Memory uses 384-dimensional embeddings (`all-MiniLM-L6-v2` model) for semantic s
 When retrieving context, memories are scored by a hybrid formula:
 
 ```
-score = relevance × log₂(cost + 1)
+score = relevance × log₂(cost + 1) × help_ratio × age_decay
 ```
 
-This balances "how relevant is this to my current task?" with "how expensive was this to discover?" — ensuring you don't repeat expensive mistakes while avoiding irrelevant-but-costly noise.
+Where:
+- `relevance` — Semantic similarity to current objective (0-1)
+- `help_ratio` — Bayesian smoothed: `(helped + 1) / (helped + failed + 2)` (neutral starts at 0.5)
+- `age_decay` — `0.5^(age_days / 30)` (30-day half-life)
 
-**Comparison to alternatives:**
-- Mem0: Triplet ranking (separate relevance/value)
-- MAGMA: 4 orthogonal graphs (temporal/causal/entity/semantic)
-- FTL: Single integrated formula
+This balances "how relevant is this to my current task?" with "how expensive was this to discover?" and "has it actually helped before?" — ensuring you don't repeat expensive mistakes while avoiding irrelevant-but-costly noise.
 
-### Tiered Injection (Based on Agent judgement)
+### Importance Scoring
+
+Full importance for pruning decisions:
+
+```
+importance = log₂(value + 1) × age_decay × access_boost × help_ratio
+
+where:
+  age_decay = 0.5^(age_days / 30)           # 30-day half-life
+  access_boost = 1 + 0.05 × √(access_count) # Diminishing returns
+  help_ratio = (helped + 1) / (helped + failed + 2)  # Bayesian smoothing
+```
+
+### Tiered Injection
 
 Memories are classified into injection tiers. Similarity scores are **guidance, not gates**:
 
-| Tier | Typical Range | Guidance |
-|------|---------------|----------|
-| **Critical** | ~0.6+ | Strong candidates for injection |
-| **Productive** | ~0.4-0.6 | Evaluate based on task complexity |
-| **Exploration** | ~0.25-0.4 | Consider for novel/complex work |
+| Tier | Threshold | Guidance |
+|------|-----------|----------|
+| **Critical** | ≥0.6 | Strong candidates for injection |
+| **Productive** | ≥0.4 | Evaluate based on task complexity |
+| **Exploration** | ≥0.25 | Consider for novel/complex work |
 | **Archive** | <0.25 | Rarely relevant |
 
 **Override automation when:**
@@ -250,6 +361,11 @@ Select prior knowledge based on task complexity, track record (helped/failed rat
 
 85% semantic similarity threshold prevents near-duplicate entries. Sources are merged when duplicates detected.
 
+**Threshold design** (intentional gap with NOVELTY_THRESHOLD=0.7):
+- 0.00-0.70: Novel (observer gives +1 score bonus)
+- 0.71-0.84: Related but distinct (no bonus, stored separately)
+- 0.85-1.00: Duplicate (merged into existing entry)
+
 ### Memory Feedback Loop
 
 Memories that help persist longer; memories that don't decay faster:
@@ -259,20 +375,8 @@ Memories that help persist longer; memories that don't decay faster:
 complete(..., utilized_memories=["import-error", "jwt-refresh"])
 
 # Observer records feedback
-record_feedback("import-error", "failure", helped=True)   # → 1.5× persistence
-record_feedback("jwt-refresh", "pattern", helped=False)   # → 0.5× decay
-```
-
-Importance scoring combines multiple factors:
-
-```
-importance = log₂(value + 1) × age_decay × access_boost × effectiveness × exploration_bonus
-
-where:
-  age_decay = 0.5^(age_days / 30)           # 30-day half-life
-  access_boost = 1 + 0.05 × √(access_count) # Diminishing returns
-  effectiveness = 0.5 + (helped / total)     # [0.5, 1.5] range
-  exploration_bonus = 1.1 if age < 7 days    # Encourage discovery
+record_feedback("import-error", "failure", helped=True)   # → higher help_ratio
+record_feedback("jwt-refresh", "pattern", helped=False)   # → lower help_ratio
 ```
 
 ### Graph Relationships
@@ -287,7 +391,7 @@ python3 lib/memory.py related auth-timeout --max-hops 2
 # Returns: database-connection (1 hop), connection-retry (2 hops)
 ```
 
-**Relationship types:**
+**Relationship types and weights:**
 | Type | Weight | Meaning |
 |------|--------|---------|
 | `solves` | 1.5 | Pattern fixes failure |
@@ -296,7 +400,7 @@ python3 lib/memory.py related auth-timeout --max-hops 2
 | `co_occurs` | 0.8 | Correlation, not causation |
 | `variant` | 0.7 | Similar but different |
 
-**Path pruning**: Weak transitive chains (weight product < 0.5) are pruned.
+**Path pruning**: BFS traversal with weight product pruning (< 0.5 pruned). Default max_hops=2.
 
 This enables discovery across related issues: "I'm seeing auth timeouts — what caused those, and what fixed the cause?"
 
@@ -397,13 +501,13 @@ Campaigns support multi-parent task dependencies:
 
 ### Cycle Detection
 
-Dependencies are validated at registration using DFS:
+Dependencies are validated at registration using DFS with three-color marking:
 
 ```
 Algorithm: detect_cycles(tasks)
   1. Build adjacency list from task.depends
-  2. For each task: DFS with recursion_stack
-  3. If task in recursion_stack → CYCLE DETECTED
+  2. For each task: DFS with path tracking
+  3. If task in current path → CYCLE DETECTED
   4. Return: has_cycle, cycle_path
 ```
 
@@ -418,17 +522,29 @@ Algorithm: cascade_status(campaign)
   1. Get all blocked tasks → blocked_set
   2. For each pending task:
      - If ANY depends in blocked_set → unreachable
-  3. Return: {state: "stuck" | "progressing", unreachable: [...]}
+  3. Return: {state: "stuck" | "in_progress" | "complete" | "all_blocked", unreachable: [...]}
 ```
 
-The orchestrator detects stuck campaigns. When ≥2 tasks become unreachable, **adaptive re-planning** triggers:
+### Adaptive Re-planning
 
-1. `get-replan-input` collects completed work, blocked reasons, and pending tasks
-2. Planner generates revised plan with alternative paths around blockers
-3. `merge-revised-plan` updates dependencies without losing completed work
-4. Campaign resumes from EXECUTE state with revised DAG
+When ≥2 tasks become unreachable, **adaptive re-planning** triggers:
 
-If re-planning isn't viable, blocks propagate to unreachable tasks with `blocked_by` references. Campaigns complete gracefully with partial success rather than hanging indefinitely.
+```
+1. cascade_status() detects "stuck" (≥1 unreachable task)
+2. propagate_blocks() marks cascade victims with blocked_by references
+3. get_replan_input() collects evidence:
+   - completed_tasks: seq, slug, delivered (first 200 chars)
+   - blocked_tasks: seq, slug, reason
+   - remaining_tasks: seq, slug, type, depends
+4. Planner generates revised plan with alternative paths
+5. merge_revised_plan() validates:
+   - No cycles introduced
+   - No dangling dependencies
+   - Resets blocked → pending for revised tasks
+6. Campaign resumes from EXECUTE state with revised DAG
+```
+
+If re-planning isn't viable, blocks propagate to unreachable tasks. Campaigns complete gracefully with partial success rather than hanging indefinitely.
 
 ### Sibling Failure Injection
 
@@ -444,7 +560,9 @@ When a task blocks, its failure is injected into subsequent tasks *at workspace 
 ```json
 {
   "prior_knowledge": {
-    "failures": [
+    "failures": [...],
+    "patterns": [...],
+    "sibling_failures": [
       {
         "name": "sibling-001_auth-impl",
         "trigger": "ImportError: fasthtml.core not found",
@@ -466,7 +584,32 @@ Similar past campaigns are discovered through semantic fingerprinting:
 python3 lib/campaign.py find-similar --threshold 0.5 --max 3
 ```
 
+**Similarity formula**:
+```
+similarity = 0.6 × objective_embedding_similarity
+           + 0.3 × delta_file_overlap
+           + 0.1 × task_count_similarity
+```
+
 Returns campaigns with similar objectives, framework, and delta patterns — providing context on what worked (and what didn't) for comparable requests.
+
+## Configuration Constants
+
+| Constant | Value | Location | Purpose |
+|----------|-------|----------|---------|
+| `TIER_CRITICAL_THRESHOLD` | 0.6 | memory.py | Always inject |
+| `TIER_PRODUCTIVE_THRESHOLD` | 0.4 | memory.py | Inject if space permits |
+| `TIER_EXPLORATION_THRESHOLD` | 0.25 | memory.py | Inject for novel tasks |
+| `DUPLICATE_THRESHOLD` | 0.85 | memory.py | Merge entries above this |
+| `MIN_PATTERN_SCORE` | 3 | observer.py | Extraction threshold |
+| `NOVELTY_THRESHOLD` | 0.7 | observer.py | Score bonus cutoff |
+| `DEFAULT_DECAY_HALF_LIFE_DAYS` | 30 | memory.py | Age decay half-life |
+| `DEFAULT_MAX_FAILURES` | 500 | memory.py | Pruning limit |
+| `DEFAULT_MAX_PATTERNS` | 200 | memory.py | Pruning limit |
+| `DEFAULT_MIN_WEIGHT_PRODUCT` | 0.5 | memory.py | Graph path pruning |
+| `EXPLORER_TIMEOUT` | 300s | SKILL.md | Explorer quorum timeout |
+| `MAX_CLARIFICATIONS` | 5 | SKILL.md | Planner CLARIFY limit |
+| `MAX_ITERATIONS` | 20 | SKILL.md | Campaign execution limit |
 
 ## CLI Tools
 
@@ -476,19 +619,25 @@ The `lib/` directory provides Python utilities for orchestration. All data store
 |---------|---------|--------------|
 | `exploration.py` | Aggregate explorer outputs | `aggregate-files`, `read`, `write`, `clear` |
 | `campaign.py` | Campaign lifecycle and DAG | `create`, `add-tasks`, `ready-tasks`, `cascade-status`, `propagate-blocks`, `complete`, `find-similar`, `get-replan-input`, `merge-revised-plan` |
-| `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse`, `list` |
-| `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query`, `prune`, `feedback`, `add-relationship`, `related`, `stats`, `add-cross-relationship`, `get-solutions` |
-| `observer.py` | Automated extraction | `analyze`, `extract-failure`, `verify-blocks` |
-| `phase.py` | State transitions | O(1) dispatch |
+| `workspace.py` | Task workspace management | `create`, `complete`, `block`, `parse`, `list`, `get-injected` |
+| `memory.py` | Pattern/failure storage | `context`, `add-failure`, `add-pattern`, `query`, `prune`, `feedback`, `feedback-batch`, `add-relationship`, `related`, `stats`, `verify-loop`, `add-cross-relationship`, `get-solutions` |
+| `observer.py` | Automated extraction | `analyze`, `extract-failure`, `verify-blocks`, `score`, `list` |
+| `phase.py` | State transitions | `status`, `transition`, `reset`, `can-transition`, `duration` |
+| `orchestration.py` | Explorer quorum management | `create-session`, `wait-explorers`, `emit-state` |
+| `benchmark.py` | Performance metrics | `report` |
 | `db/` | Database schema and connection | fastsql-based SQLite storage |
 
-**Adaptive Re-Planning:** `get-replan-input` generates context when campaigns get stuck. `merge-revised-plan` integrates revised task dependencies without losing completed work.
+## Hooks
 
-**DAG Scheduling:** `ready-tasks` returns all tasks whose dependencies are complete, enabling parallel execution. `cascade-status` detects stuck campaigns. `propagate-blocks` marks unreachable tasks.
+FTL uses Claude Code hooks for lifecycle management:
 
-**Semantic Memory:** `context --objective "text"` retrieves memories ranked by semantic relevance. `query "topic"` searches with semantic ranking.
+| Hook | Trigger | Script | Purpose |
+|------|---------|--------|---------|
+| SessionStart | First tool invocation | `setup-env.sh` | Create venv, persist plugin_root |
+| SessionEnd | Session cleanup | `cleanup-env.sh` | Log session |
+| PostToolUse | `Write\|Edit` commands | `inject-learning.sh` | Extract failures mid-campaign |
 
-**Concurrency:** All database operations use SQLite transactions for ACID compliance. Explorer sessions use `session_id` for quorum coordination.
+**inject-learning.sh**: Monitors builder tool output during campaigns. When a task blocks, extracts failure patterns and injects them into subsequent workspaces via `sibling_failures`. Enables parallel branches to learn from each other's failures within a single campaign execution.
 
 ## Examples
 
@@ -567,6 +716,9 @@ The `lib/` directory provides Python utilities for orchestration. All data store
 
 # Graph traversal: what's related to a specific failure?
 /ftl related "database-connection-pool"
+
+# Verify learning loop is functioning
+python3 lib/memory.py verify-loop
 ```
 
 ## What's Automated vs. What's Documented
@@ -580,12 +732,11 @@ FTL operates on two layers:
 
 **Automated (100% reliable):**
 - Semantic memory retrieval and hybrid scoring
-- Bloom filter duplicate detection
 - Tiered injection classification
 - DAG scheduling and cycle detection
 - Cascade handling for blocked parents
 - Sibling failure injection at workspace creation
-- **Mid-campaign learning injection** (PostToolUse hook extracts failures immediately on block)
+- Mid-campaign learning injection (PostToolUse hook on Write|Edit)
 - Block verification in Observer
 - Pattern/failure deduplication (85% threshold)
 - Memory feedback recording
@@ -593,7 +744,7 @@ FTL operates on two layers:
 - Session-based explorer coordination (quorum detection)
 - Pruning based on importance scores
 - Graph relationship traversal with weight pruning
-- **Adaptive re-planning** trigger when ≥2 tasks unreachable
+- Adaptive re-planning trigger when ≥2 tasks unreachable
 
 **Documented (agent judgment):**
 - Cross-workspace synthesis and relationship discovery
@@ -629,7 +780,7 @@ The automated layer provides reliable intra-campaign learning. The instruction l
 
 | Module | Purpose | Status |
 |--------|---------|--------|
-| `lib/memory.py` | Semantic memory with Bloom filter, decay, pruning, graph | Production |
+| `lib/memory.py` | Semantic memory with decay, pruning, graph | Production |
 | `lib/campaign.py` | DAG scheduling, cycle detection, cascade handling, fingerprinting | Production |
 | `lib/workspace.py` | Workspace lifecycle, lineage, sibling injection (database-backed) | Production |
 | `lib/observer.py` | Parallelized pattern/failure extraction | Production |

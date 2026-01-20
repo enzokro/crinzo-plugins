@@ -102,7 +102,7 @@ All explorer outputs share these required fields:
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["mode", "status", "framework", "confidence"],
+  "required": ["mode", "status", "framework"],
   "properties": {
     "mode": {"const": "pattern"},
     "status": {"enum": ["ok", "partial", "error"]},
@@ -114,7 +114,8 @@ All explorer outputs share these required fields:
       "type": "number",
       "minimum": 0.0,
       "maximum": 1.0,
-      "description": "Framework detection confidence (see ONTOLOGY.md#framework-confidence)"
+      "default": 0.5,
+      "description": "Framework detection confidence (optional, default 0.5; see ONTOLOGY.md#framework-confidence)"
     },
     "idioms": {
       "type": "object",
@@ -310,7 +311,9 @@ All explorer outputs share these required fields:
           "confidence": {
             "type": "number",
             "minimum": 0.0,
-            "maximum": 1.0
+            "maximum": 1.0,
+            "default": 0.5,
+            "description": "Candidate confidence (optional, default 0.5)"
           }
         }
       }

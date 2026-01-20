@@ -24,6 +24,22 @@ def ftl_dir(tmp_path, monkeypatch):
     (ftl / "workspace").mkdir(parents=True)
     (ftl / "cache").mkdir(parents=True)
 
+    # Create common delta files used by sample_plan fixtures
+    # These must exist for workspace.create() validation
+    (tmp_path / "test_file.py").write_text("# Test file\n")
+    (tmp_path / "main.py").write_text("# Main file\n")
+    (tmp_path / "a.py").write_text("# A file\n")
+    (tmp_path / "b.py").write_text("# B file\n")
+
+    # Create nested paths for more complex test plans
+    (tmp_path / "tests").mkdir(exist_ok=True)
+    (tmp_path / "tests" / "test_auth.py").write_text("# Auth tests\n")
+    (tmp_path / "tests" / "test_api.py").write_text("# API tests\n")
+    (tmp_path / "lib").mkdir(exist_ok=True)
+    (tmp_path / "lib" / "auth.py").write_text("# Auth lib\n")
+    (tmp_path / "lib" / "api.py").write_text("# API lib\n")
+    (tmp_path / "lib" / "main.py").write_text("# Main lib\n")
+
     # Change to tmp directory so .ftl/ftl.db is created there
     monkeypatch.chdir(tmp_path)
 
@@ -37,20 +53,20 @@ def test_db(ftl_dir, lib_path, monkeypatch):
 
     This fixture:
     1. Changes to tmp directory (via ftl_dir)
-    2. Resets the database singleton
-    3. Initializes fresh database
-    4. Yields the database connection
-    5. Cleans up after test
+    2. Closes any existing database connection
+    3. Sets database path to test-specific location
+    4. Initializes fresh database
+    5. Yields the database connection
+    6. Cleans up after test
     """
     # Add lib to path
     if str(lib_path) not in sys.path:
         sys.path.insert(0, str(lib_path))
 
-    # Import and reset connection
     from db import connection
     from db import init_db, get_db, reset_db
 
-    # Reset singleton to force new connection
+    # Close existing connection and set path for this test
     connection._db = None
     connection.DB_PATH = ftl_dir / ".ftl" / "ftl.db"
 
@@ -60,74 +76,100 @@ def test_db(ftl_dir, lib_path, monkeypatch):
 
     yield db
 
-    # Cleanup
+    # Cleanup: close connection and delete database file
     reset_db()
 
 
+def _reload_module_with_fresh_db(lib_path, module_name, db_path):
+    """Reload a module ensuring it uses the correct database.
+
+    Ensures db.connection points to the test's database path,
+    then reloads the target module to pick up fresh state.
+
+    IMPORTANT: We intentionally do NOT call get_db() here. If we create
+    a connection now, it will cache SQLite's view of the database. When
+    CLI subprocess writes to the same file later, our cached connection
+    won't see those changes. By leaving _db=None, the first actual use
+    will create a fresh connection that sees all data.
+
+    Args:
+        lib_path: Path to lib directory
+        module_name: Name of module to reload
+        db_path: Database path for this test
+    """
+    if str(lib_path) not in sys.path:
+        sys.path.insert(0, str(lib_path))
+    import importlib
+    from db import connection
+
+    # Reset connection state and set path
+    # Do NOT create connection here - let it be created on first use
+    connection._db = None
+    connection.DB_PATH = db_path
+
+    # Now reload the target module
+    module = importlib.import_module(module_name)
+    importlib.reload(module)
+    return module
+
+
 @pytest.fixture
-def memory_module(lib_path, test_db):
+def memory_module(lib_path, test_db, ftl_dir):
     """Import and return memory module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import memory
-    importlib.reload(memory)
-    return memory
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "memory", db_path)
 
 
 @pytest.fixture
-def workspace_module(lib_path, test_db):
+def workspace_module(lib_path, test_db, ftl_dir):
     """Import and return workspace module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import workspace
-    importlib.reload(workspace)
-    return workspace
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "workspace", db_path)
 
 
 @pytest.fixture
-def campaign_module(lib_path, test_db):
+def campaign_module(lib_path, test_db, ftl_dir):
     """Import and return campaign module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import campaign
-    importlib.reload(campaign)
-    return campaign
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "campaign", db_path)
 
 
 @pytest.fixture
-def exploration_module(lib_path, test_db):
+def exploration_module(lib_path, test_db, ftl_dir):
     """Import and return exploration module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import exploration
-    importlib.reload(exploration)
-    return exploration
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "exploration", db_path)
 
 
 @pytest.fixture
-def phase_module(lib_path, test_db):
+def phase_module(lib_path, test_db, ftl_dir):
     """Import and return phase module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import phase
-    importlib.reload(phase)
-    return phase
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    module = _reload_module_with_fresh_db(lib_path, "phase", db_path)
+    # Reset state to ensure clean state for each test
+    module.reset()
+    return module
 
 
 @pytest.fixture
-def plan_module(lib_path, test_db):
+def plan_module(lib_path, test_db, ftl_dir):
     """Import and return plan module with fresh database."""
-    if str(lib_path) not in sys.path:
-        sys.path.insert(0, str(lib_path))
-    import importlib
-    import plan
-    importlib.reload(plan)
-    return plan
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "plan", db_path)
+
+
+@pytest.fixture
+def orchestration_module(lib_path, test_db, ftl_dir):
+    """Import and return orchestration module with fresh database."""
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "orchestration", db_path)
+
+
+@pytest.fixture
+def decision_parser_module(lib_path, test_db, ftl_dir):
+    """Import and return decision_parser module with fresh database."""
+    db_path = ftl_dir / ".ftl" / "ftl.db"
+    return _reload_module_with_fresh_db(lib_path, "decision_parser", db_path)
 
 
 class CLIRunner:

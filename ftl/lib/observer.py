@@ -12,24 +12,43 @@ import argparse
 import subprocess
 import sys
 import re
-import threading
-
-# Module-level lock for thread-safe database writes
-_db_write_lock = threading.Lock()
 
 # Support both standalone execution and module import
 try:
     from lib.db import get_db, init_db
     from lib.workspace import parse, list_workspaces
-    from lib.memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats
+    from lib.memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats, record_feedback_batch
     from lib.db.embeddings import similarity as semantic_similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db
     from workspace import parse, list_workspaces as ws_list_workspaces
-    from memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats
+    from memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats, record_feedback_batch
     from db.embeddings import similarity as semantic_similarity
 
+# Note: Memory operations (add_failure, add_pattern, add_relationship) now handle
+# their own locking internally using the shared db_write_lock from lib.db.locks
+
+
+# =============================================================================
+# Configuration Constants (Hardcoded Defaults)
+# =============================================================================
+# These thresholds control observer behavior. Documented here per Pass 6.
+
+# Novelty threshold for scoring: entries with similarity > 0.7 to existing memory
+# are NOT considered novel (no +1 score bonus)
+#
+# THRESHOLD DESIGN (intentional gap with DUPLICATE_THRESHOLD=0.85 in memory.py):
+# - 0.00-0.70: Novel (gets +1 score bonus, added as new entry)
+# - 0.71-0.84: Related but distinct (no bonus, added as separate entry)
+# - 0.85-1.00: Duplicate (merged into existing entry)
+#
+# The 0.71-0.84 zone captures entries that are semantically related but
+# sufficiently different to warrant separate storage without novelty bonus.
+NOVELTY_THRESHOLD = 0.7
+
+# Minimum score for pattern extraction (score_workspace must return >= 3)
+MIN_PATTERN_SCORE = 3
 
 # Note: All storage is now in .ftl/ftl.db
 # WORKSPACE_DIR kept for API compatibility (ignored in actual operations)
@@ -156,7 +175,9 @@ def verify_block(workspace_path_or_id, timeout: int = 30) -> dict:
             return {"status": "CONFIRMED", "reason": f"exit {result.returncode}", "output": output}
 
     except subprocess.TimeoutExpired:
-        return {"status": "CONFIRMED", "reason": "Timeout", "output": ""}
+        # Timeout should NOT be treated as confirmed - slow tests may still pass
+        # Return INDETERMINATE so observer can handle appropriately
+        return {"status": "INDETERMINATE", "reason": "Verify command timed out", "output": ""}
     except Exception as e:
         return {"status": "ERROR", "reason": str(e), "output": ""}
 
@@ -180,7 +201,6 @@ def score_workspace(workspace_path_or_id, memory: dict = None) -> dict:
         {"score": int, "breakdown": dict, "workspace": dict}
     """
     if memory is None:
-        stats = get_stats()
         memory = {"failures": [], "patterns": []}
 
     # Accept dict directly
@@ -242,7 +262,7 @@ def score_workspace(workspace_path_or_id, memory: dict = None) -> dict:
         existing_triggers = {f.get("trigger", "") for f in memory.get("failures", [])}
         existing_triggers.update(p.get("trigger", "") for p in memory.get("patterns", []))
         is_novel = not any(
-            semantic_similarity(objective, t) > 0.7 for t in existing_triggers if t
+            semantic_similarity(objective, t) > NOVELTY_THRESHOLD for t in existing_triggers if t
         )
 
     if is_novel:
@@ -318,15 +338,17 @@ def extract_pattern(workspace_path_or_id, score_data: dict) -> dict:
 
     breakdown = score_data["breakdown"]
     if breakdown:
-        insight_parts = []
-        if "blocked_then_fixed" in breakdown:
-            insight_parts.append("Recovered from block")
-        if "first_try_success" in breakdown:
-            insight_parts.append("First-try success")
-        if "framework_idioms" in breakdown:
-            insight_parts.append("Used framework idioms")
-        if insight_parts:
-            insight = f"{', '.join(insight_parts)}. {insight}"
+        insight_parts = [
+            ("blocked_then_fixed", "Recovered from block"),
+            ("first_try_success", "First-try success"),
+            ("framework_idioms", "Used framework idioms"),
+            ("budget_efficient", "Under budget"),
+            ("multi_file", "Cross-file coordination"),
+            ("novel", "Novel approach"),
+        ]
+        parts = [desc for key, desc in insight_parts if key in breakdown]
+        if parts:
+            insight = f"{', '.join(parts)}. {insight}"
 
     budget = ws.get("budget", 5)
 
@@ -349,11 +371,38 @@ def _slugify(text: str) -> str:
 
 
 def _generalize_to_regex(trigger: str) -> str:
-    """Generalize trigger to regex pattern."""
-    pattern = re.escape(trigger)
-    pattern = re.sub(r"\\'[^']*\\'", ".*", pattern)
-    pattern = re.sub(r'\\"[^"]*\\"', ".*", pattern)
-    pattern = re.sub(r'\d+', r'\\d+', pattern)
+    """Generalize trigger to regex pattern.
+
+    Replaces quoted strings and digit sequences with regex wildcards
+    to enable matching similar but not identical error messages.
+
+    Handles escaped quotes within strings (e.g., "foo\"bar" or 'foo\'bar').
+    Whitespace is normalized to allow flexible matching (fixes over-escaping issue).
+    """
+    # Use placeholders to handle escaping correctly
+    placeholder_sq = "\x00SQ\x00"  # Single-quoted string placeholder
+    placeholder_dq = "\x00DQ\x00"  # Double-quoted string placeholder
+    placeholder_num = "\x00NUM\x00"  # Digit sequence placeholder
+    placeholder_ws = "\x00WS\x00"  # Whitespace placeholder
+
+    # Replace patterns BEFORE escaping (work on original trigger)
+    # Use patterns that handle escaped quotes: match either non-quote/non-backslash,
+    # or a backslash followed by any character (including escaped quotes)
+    generalized = re.sub(r"'(?:[^'\\]|\\.)*'", placeholder_sq, trigger)
+    generalized = re.sub(r'"(?:[^"\\]|\\.)*"', placeholder_dq, generalized)
+    generalized = re.sub(r'\d+', placeholder_num, generalized)
+    # Normalize whitespace sequences to placeholder BEFORE escaping
+    generalized = re.sub(r'\s+', placeholder_ws, generalized)
+
+    # Escape remaining special regex characters
+    pattern = re.escape(generalized)
+
+    # Restore placeholders with actual regex patterns
+    pattern = pattern.replace(placeholder_sq, ".*")
+    pattern = pattern.replace(placeholder_dq, ".*")
+    pattern = pattern.replace(placeholder_num, r"\d+")
+    pattern = pattern.replace(placeholder_ws, r"\s+")  # Match flexible whitespace
+
     return pattern
 
 
@@ -415,13 +464,19 @@ def analyze(
 
         for ws in workspaces["blocked"]:
             verification = verified_results.get(ws["workspace_id"], {})
-            if verification.get("status") != "CONFIRMED":
+            # DESIGN DECISION: Only extract failures from CONFIRMED blocks.
+            # INDETERMINATE (timeout) blocks are NOT treated as failures because:
+            #   1. Slow tests may pass on retry with more time
+            #   2. Recording timeouts as failures would pollute memory with transient issues
+            #   3. True failures will eventually be CONFIRMED on re-run
+            # FALSE_POSITIVE blocks are also skipped as verification proved them non-blocking.
+            if verification.get("status") not in ["CONFIRMED"]:
                 continue
 
             verify_output = verification.get("output", "")
             failure = extract_failure(ws["workspace_id"], verify_output)
-            with _db_write_lock:
-                add_result = add_failure(failure)
+            # Note: add_failure() handles its own locking internally
+            add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
                 "result": add_result,
@@ -432,8 +487,8 @@ def analyze(
     else:
         for ws in workspaces["blocked"]:
             failure = extract_failure(ws["workspace_id"], "")
-            with _db_write_lock:
-                add_result = add_failure(failure)
+            # Note: add_failure() handles its own locking internally
+            add_result = add_failure(failure)
             result["failures_extracted"].append({
                 "name": failure["name"],
                 "result": add_result,
@@ -446,10 +501,10 @@ def analyze(
     for ws in workspaces["complete"]:
         score_data = score_workspace(ws["workspace_id"])
 
-        if score_data["score"] >= 3:
+        if score_data["score"] >= MIN_PATTERN_SCORE:
             pattern = extract_pattern(ws["workspace_id"], score_data)
-            with _db_write_lock:
-                add_result = add_pattern(pattern)
+            # Note: add_pattern() handles its own locking internally
+            add_result = add_pattern(pattern)
             result["patterns_extracted"].append({
                 "name": pattern["name"],
                 "score": score_data["score"],
@@ -461,21 +516,51 @@ def analyze(
                 seq = score_data["workspace"].get("id", "").split("-")[0]
                 for failure_info in result["failures_extracted"]:
                     if failure_info["name"].startswith(seq) or seq in failure_info.get("name", ""):
-                        with _db_write_lock:
-                            cross_result = add_cross_relationship(
-                                failure_info["name"],
-                                pattern["name"],
-                                "solves"
-                            )
+                        # Note: add_cross_relationship() handles db operations internally
+                        cross_result = add_cross_relationship(
+                            failure_info["name"],
+                            pattern["name"],
+                            "solves"
+                        )
                         if cross_result == "added":
                             result["relationships_added"] += 1
                         break
 
+    # Close learning loop: record feedback for utilized memories
+    result["feedback_recorded"] = {"helped": 0, "not_helped": 0}
+    for ws in workspaces["complete"]:
+        ws_data = parse(ws["workspace_id"]) if isinstance(ws, dict) else parse(ws)
+        if "error" in ws_data:
+            continue
+
+        # Get utilized memories from workspace completion
+        utilized = ws_data.get("utilized_memories", [])
+        if not utilized:
+            continue
+
+        # Get injected memories from prior_knowledge
+        prior_knowledge = ws_data.get("prior_knowledge", {})
+        injected = []
+        for f in prior_knowledge.get("failures", []):
+            if f.get("name"):
+                injected.append({"name": f["name"], "type": "failure"})
+        for p in prior_knowledge.get("patterns", []):
+            if p.get("name"):
+                injected.append({"name": p["name"], "type": "pattern"})
+        for sf in prior_knowledge.get("sibling_failures", []):
+            if sf.get("name"):
+                injected.append({"name": sf["name"], "type": "failure"})
+
+        if injected:
+            feedback_result = record_feedback_batch(utilized, injected)
+            result["feedback_recorded"]["helped"] += feedback_result.get("helped", 0)
+            result["feedback_recorded"]["not_helped"] += feedback_result.get("not_helped", 0)
+
     # Link co-occurring failures
     for i, f1 in enumerate(campaign_failures):
         for f2 in campaign_failures[i+1:]:
-            with _db_write_lock:
-                rel_result = add_relationship(f1, f2, "failure")
+            # Note: add_relationship() uses transactions internally
+            rel_result = add_relationship(f1, f2, "failure")
             if rel_result == "added":
                 result["relationships_added"] += 1
 

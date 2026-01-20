@@ -8,8 +8,9 @@ requires:
   - shared/TOOL_BUDGET_REFERENCE.md@2.1
   - shared/BUILDER_STATE_MACHINE.md@1.0
   - shared/FRAMEWORK_IDIOMS.md@1.1
-  - shared/ERROR_MATCHING_RULES.md@1.0
+  - shared/ERROR_MATCHING_RULES.md@2.0
   - shared/OUTPUT_TEMPLATES.md@1.0
+  - shared/CONSTRAINT_TIERS.md@1.0
 ---
 
 <role>
@@ -56,6 +57,10 @@ See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) and [ONTOLOGY.md
 
 EMIT after each tool: `"Budget: {used}/{total}, Action: {description}"`
 
+## File Scope
+
+You may ONLY modify files listed in workspace `delta`. If correct implementation requires changes to files not in delta, BLOCK with reason: "delta insufficient - requires {file}".
+
 ---
 
 ## Prior Knowledge Matching
@@ -83,7 +88,7 @@ Enforcement thresholds defined in [ONTOLOGY.md#framework-confidence](shared/ONTO
 
 ## Error Recovery
 
-See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete recovery flow. **Maximum 1 retry attempt**.
+See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete recovery flow. **Default 1 retry; up to 2 for flaky tests (builder judgment)**.
 </instructions>
 
 <constraints>

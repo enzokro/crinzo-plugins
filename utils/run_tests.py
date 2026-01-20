@@ -2,7 +2,7 @@
 """
 Parallel test runner for FTL tests.
 
-Groups 158 tests by conceptual overlap and runs them concurrently using
+Groups 247 tests by conceptual overlap and runs them concurrently using
 subprocess workers. All tests are fully isolated (each gets its own tmp_path
 + SQLite database via conftest.py), so they can safely run in parallel.
 
@@ -27,11 +27,12 @@ from typing import Optional
 
 # Test file groupings by conceptual area
 GROUPS: dict[int, list[str]] = {
-    1: ["test_campaign.py"],  # Campaign lifecycle, DAG, cascade (47 tests)
+    1: ["test_campaign.py"],  # Campaign lifecycle, DAG, cascade (62 tests)
     2: ["test_memory.py"],  # Memory system, semantic matching (32 tests)
     3: ["test_exploration.py", "test_benchmark.py"],  # Exploration, benchmarks (33 tests)
     4: ["test_observer.py", "test_workspace.py"],  # Observer, workspace CRUD (34 tests)
-    5: ["test_integration.py"],  # Full workflows, CLI help (12 tests)
+    5: ["test_integration.py", "test_decision_parser.py"],  # Integration, decision parsing (23 tests)
+    6: ["test_orchestration.py", "test_phase.py"],  # Orchestration, phase transitions (63 tests)
 }
 
 # Path to ftl/tests directory (relative to this script in utils/)

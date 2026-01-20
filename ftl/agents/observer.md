@@ -7,6 +7,7 @@ requires:
   - shared/ONTOLOGY.md@1.1
   - shared/TOOL_BUDGET_REFERENCE.md@2.1
   - shared/OUTPUT_TEMPLATES.md@1.0
+  - shared/CONSTRAINT_TIERS.md@1.0
 ---
 
 <role>
@@ -84,6 +85,7 @@ Scoring criteria (from `lib/observer.py:score_workspace()`):
 | Framework idioms applied | +2 | idioms.required field present |
 | Budget efficient | +1 | budget >= 4 (generous allocation) |
 | Multi-file delta | +1 | len(delta) >= 2 |
+| Novel approach | +1 | Objective not similar (>0.7) to existing triggers |
 
 ### Pattern Extraction Decision (Your Judgment)
 

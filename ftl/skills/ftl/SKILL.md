@@ -40,6 +40,20 @@ to `.ftl/plugin_root` at session start, allowing sub-agents to locate the plugin
 
 See the CLI docs: [references/CLI_REFERENCE.md](references/CLI_REFERENCE.md) for complete syntax.
 
+## Hooks
+
+FTL uses Claude Code hooks for session lifecycle management and mid-campaign learning:
+
+| Hook | Trigger | Script | Purpose |
+|------|---------|--------|---------|
+| PreToolUse (session start) | First tool invocation | `setup-env.sh` | Create venv, persist plugin_root |
+| PostToolUse (session end) | Session cleanup | `cleanup-env.sh` | Log session, cleanup |
+| PostToolUse (inject-learning) | Bash commands | `inject-learning.sh` | Extract failures mid-campaign |
+
+**inject-learning.sh**: Monitors builder tool output during campaigns. When a task blocks, extracts
+failure patterns and injects them into subsequent workspaces via `sibling_failures`. This enables
+parallel branches to learn from each other's failures within a single campaign execution.
+
 ---
 
 ## Orchestrator Identity
@@ -57,6 +71,25 @@ Your cognitive process while orchestrating:
 - "What does this state's protocol specify?"
 - "If something fails, what state handles it?"
 - "Am I about to break protocol? If so, emit first."
+
+---
+
+## Architecture: Two-Layer State Model
+
+FTL uses two complementary state systems:
+
+| Layer | Location | Purpose | States |
+|-------|----------|---------|--------|
+| **Agent Coordination** | `phase.py` | Track workflow phases in database | none, explore, plan, build, observe, complete, error |
+| **Orchestration DSL** | This file | Guide Claude's behavioral flow | INIT, EXPLORE, PLAN, REGISTER, EXECUTE, CASCADE, BUILD, OBSERVE, COMPLETE, ERROR |
+
+**Why two layers?**
+- `phase.py` provides persistent, queryable state for tooling and debugging
+- SKILL.md states are behavioral prompts that guide orchestration flow
+
+**Key distinction**: REGISTER, EXECUTE, and CASCADE exist only in this DSL—they're campaign management behaviors, not database-tracked phases. The `phase.py` machine intentionally uses a simpler vocabulary (explore→plan→build→observe) for agent coordination.
+
+**ERROR state**: Present in both layers. `phase.py` tracks it for recovery; this DSL defines the recovery protocol.
 
 ---
 
@@ -139,9 +172,9 @@ DO: Launch 4x Task(ftl:ftl-explorer) in PARALLEL (single message):
     - Task(ftl:ftl-explorer) "mode=delta, session_id={session_id}, objective={objective}"
 WAIT: All 4 complete OR timeout=300s (quorum=3)
   CHECK: python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --session {session_id} --required=3 --timeout=300
-  IF: wait_result=="quorum_met" OR wait_result=="all_complete" → PROCEED
-  IF: wait_result=="timeout" → EMIT: PARTIAL_FAILURE missing={missing}, PROCEED
-  IF: wait_result=="quorum_failure" → GOTO ERROR with error_type="quorum_failure"
+  IF: wait_result.status=="quorum_met" OR wait_result.status=="all_complete" → PROCEED
+  IF: wait_result.status=="timeout" → EMIT: PARTIAL_FAILURE missing={wait_result.missing}, PROCEED
+  IF: wait_result.status=="quorum_failure" → GOTO ERROR with error_type="quorum_failure"
 DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate-session --session {session_id} --objective "{objective}"
 DO: | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write
 # Output: exploration table in .ftl/ftl.db (aggregated from explorer_result table)
@@ -160,12 +193,20 @@ IF: clarify_count > 5 → EMIT: "Max clarifications (5) reached", RETURN with qu
 DO: Task(ftl:ftl-planner) with {input} + exploration data > plan_output.md
 DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/decision_parser.py plan_output.md > decision.json
 CHECK: decision=$(jq -r .decision decision.json)
+CHECK: validation=$(jq -r '.validation // {}' decision.json)
 IF: decision=="CLARIFY" → INCREMENT clarify_count, present questions, ASK user, GOTO PLAN
 IF: decision=="CONFIRM" → present selection, confirm with user, GOTO PLAN
 # Note: CONFIRM has no counter - assumes user explicitly wants confirmation loop
 IF: decision=="PROCEED" →
-    DO: extract plan_json from plan_output.md
-    CHECK: plan_id = echo plan_json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py write | jq -r .id
+    # Validate plan structure before proceeding
+    CHECK: is_valid=$(jq -r '.validation.valid // true' decision.json)
+    IF: is_valid==false →
+        CHECK: errors=$(jq -r '.validation.errors[]' decision.json)
+        EMIT: PLAN_VALIDATION_FAILED errors={errors}
+        INCREMENT clarify_count
+        ASK user: "Plan validation failed: {errors}. Please clarify or revise."
+        GOTO PLAN
+    CHECK: plan_id = jq -c '.plan_json' decision.json | python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py write | jq -r .id
     GOTO {next_state} with plan_id
 IF: decision=="UNKNOWN" → EMIT: "Decision unclear, defaulting to CLARIFY", GOTO PLAN
 ```
@@ -223,7 +264,6 @@ STATE: OBSERVE
 
 STATE: COMPLETE
   EMIT: STATE_ENTRY state=COMPLETE
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
   EMIT: "Task complete. Workspace records stored in .ftl/ftl.db"
   RETURN: Summary to user
 
@@ -311,7 +351,6 @@ STATE: OBSERVE
 
 STATE: COMPLETE
   EMIT: STATE_ENTRY state=COMPLETE
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition complete
   DO: status = python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py status
   EMIT: "Campaign complete. {status.summary.complete} complete, {status.summary.blocked} blocked."
   RETURN: Summary to user

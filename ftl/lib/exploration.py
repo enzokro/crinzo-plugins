@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import argparse
+import logging
 import sys
 import subprocess
 import re
@@ -23,6 +24,10 @@ except ImportError:
 
 # Maximum JSON size to parse (1MB)
 MAX_JSON_SIZE = 1024 * 1024
+
+# Git SHA timeout in seconds (configurable via environment)
+import os
+GIT_SHA_TIMEOUT = int(os.environ.get("FTL_GIT_SHA_TIMEOUT", "5"))
 
 
 def _ensure_db():
@@ -91,8 +96,28 @@ def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
     return None
 
 
-def validate_result(result: dict) -> tuple:
-    """Validate an explorer result has required fields."""
+def validate_result(result: dict, strict: bool = True) -> tuple:
+    """Validate an explorer result has required fields.
+
+    Validates common fields (mode, status) are present and valid.
+    Mode-specific fields are enforced when strict=True and status is ok/partial.
+    For error status, validates any mode-specific fields that are present.
+
+    Args:
+        result: Explorer result dict to validate
+        strict: If True, reject missing mode-specific fields for ok/partial status
+
+    Expected mode-specific fields:
+    - structure: directories (dict of {dir_name: exists_bool})
+    - pattern: framework (str), confidence (float - has fallback to 0.5)
+    - delta: candidates (list)
+    - memory: (no additional required fields)
+
+    Returns:
+        (is_valid, error_message)
+    """
+    import logging
+
     if not isinstance(result, dict):
         return False, "Result is not a dict"
 
@@ -100,11 +125,43 @@ def validate_result(result: dict) -> tuple:
         return False, "Missing required field: mode"
 
     valid_modes = {"structure", "pattern", "memory", "delta"}
-    if result["mode"] not in valid_modes:
-        return False, f"Invalid mode: {result['mode']}"
+    mode = result["mode"]
+    if mode not in valid_modes:
+        return False, f"Invalid mode: {mode}"
 
     if "status" not in result:
         return False, "Missing required field: status"
+
+    status = result.get("status", "")
+
+    # Mode-specific field type validation (applies to all statuses)
+    mode_field_types = {
+        "structure": {"directories": dict},  # {dir_name: exists_bool}
+        "pattern": {"framework": str, "confidence": (int, float)},
+        "delta": {"candidates": list},
+        "memory": {},
+    }
+
+    # Validate types for any mode-specific fields that are present
+    for field, expected_type in mode_field_types.get(mode, {}).items():
+        if field in result:
+            if not isinstance(result[field], expected_type):
+                return False, f"Mode {mode} field '{field}' has wrong type: expected {expected_type}, got {type(result[field]).__name__}"
+
+    # Mode-specific presence validation (only for ok/partial status)
+    if status in ("ok", "partial"):
+        mode_requirements = {
+            "structure": ["directories"],
+            "pattern": ["framework"],  # confidence optional (has fallback)
+            "delta": ["candidates"],
+            "memory": [],  # No additional required fields
+        }
+        missing = [f for f in mode_requirements.get(mode, []) if f not in result]
+        if missing:
+            if strict:
+                return False, f"Mode {mode} missing required fields: {missing}"
+            else:
+                logging.debug(f"Mode {mode} missing recommended fields: {missing}")
 
     return True, ""
 
@@ -123,13 +180,13 @@ def aggregate(results: list, objective: str = None) -> dict:
     Returns:
         Combined exploration dict
     """
-    # Get git sha
+    # Get git sha (timeout configurable via FTL_GIT_SHA_TIMEOUT env var)
     try:
         git_sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=GIT_SHA_TIMEOUT
         ).stdout.strip()
     except Exception:
         git_sha = "unknown"
@@ -147,28 +204,47 @@ def aggregate(results: list, objective: str = None) -> dict:
     status_priority = {"ok": 3, "partial": 2, "error": 1, "unknown": 0}
 
     for r in results:
-        is_valid, error = validate_result(r)
+        is_valid, error = validate_result(r, strict=False)
         if not is_valid:
+            mode = r.get("mode", "unknown") if isinstance(r, dict) else "invalid"
+            logging.warning(f"Dropping explorer result for mode '{mode}': {error}")
             continue
 
         mode = r["mode"]
         status = r.get("status", "unknown")
 
         if mode in seen_modes:
-            existing_status = exploration.get(mode, {}).get("status", "unknown")
-            if status_priority.get(status, 0) <= status_priority.get(existing_status, 0):
+            existing = exploration.get(mode, {})
+            existing_status = existing.get("status", "unknown")
+            new_priority = status_priority.get(status, 0)
+            old_priority = status_priority.get(existing_status, 0)
+
+            # Only replace if strictly better status, or same status but new has valid content
+            if new_priority < old_priority:
                 continue
+            if new_priority == old_priority:
+                # Same status: prefer result with valid mode-specific content
+                new_valid, _ = validate_result(r, strict=True)
+                old_valid, _ = validate_result(existing, strict=True)
+                if old_valid and not new_valid:
+                    continue  # Keep existing valid result
 
         seen_modes.add(mode)
 
         if status in ["ok", "partial"]:
             exploration[mode] = r
         else:
-            exploration[mode] = {
+            # Preserve partial data even on error - don't discard mode-specific fields
+            error_entry = {
                 "mode": mode,
                 "status": "error",
                 "_error": r.get("error", "unknown error")
             }
+            # Copy any mode-specific data that was provided despite error status
+            for key in ["directories", "framework", "confidence", "candidates", "idioms"]:
+                if key in r:
+                    error_entry[key] = r[key]
+            exploration[mode] = error_entry
 
     return exploration
 
@@ -189,6 +265,13 @@ def write_result(session_id: str, mode: str, result: dict) -> dict:
         {"session_id": session_id, "mode": mode, "status": "written"}
     """
     db = _ensure_db()
+
+    # Apply defaults in write path for consistency
+    # Pattern mode: confidence defaults to 0.5 (neutral/unknown) if not specified
+    if mode == "pattern" and "confidence" not in result:
+        result = dict(result)  # Don't mutate input
+        result["confidence"] = 0.5
+
     er = ExplorerResult(
         session_id=session_id,
         mode=mode,
@@ -261,7 +344,7 @@ def clear_session(session_id: str) -> dict:
 # Core Exploration Write/Read Operations
 # =============================================================================
 
-def write(exploration: dict, require_campaign: bool = True) -> dict:
+def write(exploration: dict, require_campaign: bool = False) -> dict:
     """Write exploration to database.
 
     Args:
@@ -370,10 +453,24 @@ def get_structure() -> dict:
 
 
 def get_pattern() -> dict:
-    """Get pattern section from exploration."""
+    """Get pattern section from exploration.
+
+    Returns:
+        Pattern dict with framework, confidence, and idioms.
+
+    Confidence Semantics (P7 Decision):
+        - 0.0: Framework explicitly NOT detected (confident negative)
+        - 0.5: Unknown/neutral (no pattern data or not specified) - DEFAULT
+        - 1.0: Framework confidently detected
+
+        The 0.5 default represents "insufficient data to determine" rather than
+        "definitely no framework". This prevents false negatives when explorer
+        data is missing or incomplete.
+    """
     fallback = {
         "status": "missing",
         "framework": "none",
+        "confidence": 0.5,  # Neutral: insufficient data (not confident negative)
         "idioms": {"required": [], "forbidden": []}
     }
     exploration = read()
@@ -382,6 +479,9 @@ def get_pattern() -> dict:
     pattern = exploration.get("pattern", {})
     if not pattern:  # Handle empty dict case
         return fallback
+    # Ensure confidence field exists - use 0.5 for neutral/unknown
+    if "confidence" not in pattern:
+        pattern["confidence"] = 0.5
     return pattern
 
 
@@ -405,7 +505,8 @@ def get_memory() -> dict:
     if "similar_campaigns" not in memory:
         try:
             from lib.campaign import find_similar
-            similar = find_similar(threshold=0.6, max_results=3)
+            # Threshold 0.5 per explorer.md MEMORY mode spec (line 79)
+            similar = find_similar(threshold=0.5, max_results=3)
             memory["similar_campaigns"] = [
                 {
                     "objective": s.get("objective", ""),
@@ -415,7 +516,9 @@ def get_memory() -> dict:
                 }
                 for s in similar
             ]
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning(f"Failed to find similar campaigns: {e}")
             memory["similar_campaigns"] = []
 
     return memory

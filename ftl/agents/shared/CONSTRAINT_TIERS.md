@@ -27,6 +27,7 @@ version: 1.0
 - Framework idioms: required MUST appear, forbidden MUST NOT
 - Block if same error appears twice (already retried)
 - Block if error not in prior_knowledge (discovery needed)
+- Modify ONLY files listed in workspace `delta` array; BLOCK if scope insufficient
 
 ### Observer
 - Run automated analysis pipeline first (foundation before judgment)

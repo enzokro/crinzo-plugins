@@ -89,7 +89,7 @@ EMIT: "{Human-readable status string}"
 |-------|---------------|------|
 | `STATE_ENTRY` | `state` | Entering new state |
 | `PHASE_TRANSITION` | `from`, `to` | Moving between phases |
-| `DECISION` | `decision` | CLARIFY/PROCEED/VERIFY |
+| `DECISION` | `decision` | CLARIFY/PROCEED/CONFIRM |
 | `PARTIAL_FAILURE` | `missing` | Timeout with quorum |
 | `READY_TASKS` | `count`, `iteration` | Tasks available for execution |
 | `CASCADE_PROPAGATE` | (none) | Block cascade triggered |
@@ -220,6 +220,19 @@ Terms that appear across multiple contexts with different meanings:
 | `decision` | decision_parser.py | Planner's output classification | `"PROCEED"`, `"CLARIFY"`, `"CONFIRM"`, `"UNKNOWN"` |
 | `workspace_state` | workspace.py | Workspace lifecycle position | `"active"`, `"complete"`, `"blocked"` |
 | `task_state` | campaign.py | Task execution status | `"pending"`, `"complete"`, `"blocked"`, `"stuck"` |
+| `CONFIRM` | decision_parser.py | Planner wants user to select from options | Decision state in planning flow |
+| `CONFIRMED` | observer.py | Block re-verified as genuine | Verification status after re-running verify command |
+
+### CONFIRM vs CONFIRMED Disambiguation
+
+These terms are related linguistically but represent distinct concepts:
+
+| Term | Layer | Meaning | Used When |
+|------|-------|---------|-----------|
+| `CONFIRM` | Planning | Planner presents options; user must select | Ambiguous requirements with multiple valid approaches |
+| `CONFIRMED` | Verification | Block verified as genuine (not false positive) | Observer re-ran verify command and it still fails |
+
+**Mnemonic**: `CONFIRM` = asking for confirmation; `CONFIRMED` = verification completed (past tense).
 
 **Avoid**: Using bare `status` without context. Always use the namespaced term in prose and variable names.
 

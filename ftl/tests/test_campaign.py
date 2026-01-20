@@ -161,7 +161,8 @@ class TestCampaignArchive:
 
         archive = data["archives"][0]
         assert archive["objective"] == "Data test"
-        assert archive["summary"] == "All done"
+        # Summary is stored as dict with text field
+        assert archive["summary"]["text"] == "All done"
         assert "completed_at" in archive
 
 
@@ -188,7 +189,8 @@ class TestCampaignHistory:
         assert len(data["archives"]) == 1
         archive = data["archives"][0]
         assert archive["objective"] == "First campaign"
-        assert archive["summary"] == "First done"
+        # Summary is stored as dict with text field
+        assert archive["summary"]["text"] == "First done"
         assert "completed_at" in archive
 
     def test_history_sorted_by_date(self, cli, ftl_dir):
@@ -687,3 +689,384 @@ class TestCascadeHandling:
         code, out, _ = cli.campaign("propagate-blocks")
         assert code == 0
         assert "No blocks to propagate" in out
+
+
+class TestMergeRevisedPlan:
+    """Test merge_revised_plan for plan revision."""
+
+    def test_merge_basic(self, cli, ftl_dir, sample_dag_plan, tmp_path):
+        """Basic merge updates task dependencies."""
+        cli.campaign("create", "Merge test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Create revised plan
+        revised = {
+            "tasks": [
+                {"seq": "003", "depends": "none"},  # Change dependency
+            ]
+        }
+        revised_path = tmp_path / "revised.json"
+        revised_path.write_text(json.dumps(revised))
+
+        code, out, err = cli.campaign("merge-revised-plan", str(revised_path))
+        assert code == 0, f"Failed: {err}"
+
+        data = json.loads(out)
+        assert data["merged"] >= 1
+
+    def test_merge_preserves_complete_tasks(self, cli, ftl_dir, sample_dag_plan, tmp_path):
+        """Merge skips completed tasks."""
+        cli.campaign("create", "Preserve test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+        cli.campaign("update-task", "001", "complete")
+
+        # Try to revise completed task
+        revised = {
+            "tasks": [
+                {"seq": "001", "depends": "002"},  # Try to change deps
+            ]
+        }
+        revised_path = tmp_path / "revised.json"
+        revised_path.write_text(json.dumps(revised))
+
+        code, out, _ = cli.campaign("merge-revised-plan", str(revised_path))
+        assert code == 0
+
+        data = json.loads(out)
+        assert data["unchanged"] >= 1
+
+        # Verify task 001 unchanged
+        code, status_out, _ = cli.campaign("status")
+        status_data = json.loads(status_out)
+        task_001 = next(t for t in status_data["tasks"] if t["seq"] == "001")
+        assert task_001["status"] == "complete"
+
+    def test_merge_rejects_cycle(self, cli, ftl_dir, sample_dag_plan, tmp_path):
+        """Merge rejects plan that would create cycle."""
+        cli.campaign("create", "Cycle reject test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Create cyclic revision: 001 depends on 003, 003 depends on 001
+        revised = {
+            "tasks": [
+                {"seq": "001", "depends": "003"},  # Creates cycle with 003->001
+            ]
+        }
+        revised_path = tmp_path / "revised.json"
+        revised_path.write_text(json.dumps(revised))
+
+        code, out, err = cli.campaign("merge-revised-plan", str(revised_path))
+
+        # Should detect cycle and not apply changes
+        combined = out + err
+        assert "cycle" in combined.lower() or "error" in combined.lower()
+
+    def test_merge_unblocks_tasks(self, cli, ftl_dir, sample_dag_plan, tmp_path):
+        """Merge resets blocked tasks to pending on dependency change."""
+        cli.campaign("create", "Unblock test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+        cli.campaign("update-task", "003", "blocked")
+
+        # Revise task 003 dependencies
+        revised = {
+            "tasks": [
+                {"seq": "003", "depends": "none"},
+            ]
+        }
+        revised_path = tmp_path / "revised.json"
+        revised_path.write_text(json.dumps(revised))
+
+        cli.campaign("merge-revised-plan", str(revised_path))
+
+        # Verify task is now pending
+        code, status_out, _ = cli.campaign("status")
+        status_data = json.loads(status_out)
+        task_003 = next(t for t in status_data["tasks"] if t["seq"] == "003")
+        assert task_003["status"] == "pending"
+
+    def test_merge_atomicity(self, cli, ftl_dir, sample_dag_plan, tmp_path):
+        """Merge is atomic: cycle detection prevents partial update."""
+        cli.campaign("create", "Atomicity test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Get original state
+        code, orig_out, _ = cli.campaign("status")
+        orig_data = json.loads(orig_out)
+        orig_tasks = {t["seq"]: t.get("depends", "none") for t in orig_data["tasks"]}
+
+        # Attempt merge that would create cycle (should fail)
+        revised = {
+            "tasks": [
+                {"seq": "002", "depends": "none"},  # Valid change
+                {"seq": "001", "depends": "003"},   # Would create cycle
+            ]
+        }
+        revised_path = tmp_path / "revised.json"
+        revised_path.write_text(json.dumps(revised))
+
+        cli.campaign("merge-revised-plan", str(revised_path))
+
+        # Verify original state preserved (atomic rollback)
+        code, after_out, _ = cli.campaign("status")
+        after_data = json.loads(after_out)
+        after_tasks = {t["seq"]: t.get("depends", "none") for t in after_data["tasks"]}
+
+        # Dependencies should be unchanged due to cycle rejection
+        assert orig_tasks["002"] == after_tasks["002"]
+
+
+class TestConcurrency:
+    """Test thread safety and concurrency handling."""
+
+    def test_concurrent_task_updates(self, ftl_dir):
+        """Concurrent update_task calls don't lose updates."""
+        import sys
+        ftl_path = str(Path(__file__).parent.parent)
+        if ftl_path not in sys.path:
+            sys.path.insert(0, ftl_path)
+
+        from lib.campaign import create, add_tasks, update_task, status
+        from lib.db import reset_db
+        import threading
+        import time
+
+        reset_db()
+
+        # Create campaign with tasks
+        create("Concurrency test")
+        plan = {
+            "tasks": [
+                {"seq": str(i).zfill(3), "slug": f"task-{i}", "type": "BUILD",
+                 "delta": [f"t{i}.py"], "verify": "true", "budget": 3, "depends": "none"}
+                for i in range(1, 11)  # 10 tasks
+            ]
+        }
+        add_tasks(plan)
+
+        # Concurrent updates
+        errors = []
+        def update_worker(seq, target_status):
+            try:
+                update_task(seq, target_status)
+            except Exception as e:
+                errors.append((seq, str(e)))
+
+        threads = []
+        for i in range(1, 11):
+            seq = str(i).zfill(3)
+            t = threading.Thread(target=update_worker, args=(seq, "complete"))
+            threads.append(t)
+
+        # Start all threads at roughly the same time
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Verify no errors and all updates applied
+        assert len(errors) == 0, f"Update errors: {errors}"
+
+        campaign = status()
+        completed = sum(1 for t in campaign["tasks"] if t["status"] == "complete")
+        assert completed == 10, f"Expected 10 complete, got {completed}"
+
+    def test_concurrent_db_init(self, tmp_path):
+        """Database initialization is thread-safe."""
+        import sys
+        import os
+        ftl_path = str(Path(__file__).parent.parent)
+        if ftl_path not in sys.path:
+            sys.path.insert(0, ftl_path)
+
+        # Use temp database
+        test_db = tmp_path / "concurrent_test.db"
+        os.environ['FTL_DB_PATH'] = str(test_db)
+
+        # Force reimport to test fresh init
+        import importlib
+        from lib.db import connection
+        connection._db = None  # Reset singleton
+
+        import threading
+
+        errors = []
+        connections = []
+
+        def init_worker():
+            try:
+                from lib.db import get_db
+                db = get_db()
+                connections.append(id(db))
+            except Exception as e:
+                errors.append(str(e))
+
+        # Start multiple threads trying to init simultaneously
+        threads = [threading.Thread(target=init_worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Clean up
+        os.environ.pop('FTL_DB_PATH', None)
+
+        # All threads should get same database instance (singleton)
+        assert len(errors) == 0, f"Init errors: {errors}"
+        assert len(set(connections)) == 1, "Multiple db instances created"
+
+    def test_concurrent_propagate_blocks(self, ftl_dir):
+        """Concurrent propagate_blocks doesn't corrupt state."""
+        import sys
+        ftl_path = str(Path(__file__).parent.parent)
+        if ftl_path not in sys.path:
+            sys.path.insert(0, ftl_path)
+
+        from lib.campaign import create, add_tasks, update_task, propagate_blocks, status
+        from lib.db import reset_db
+        import threading
+
+        reset_db()
+
+        # Create campaign with DAG
+        create("Concurrent propagate test")
+        plan = {
+            "tasks": [
+                {"seq": "001", "slug": "root", "type": "BUILD",
+                 "delta": ["r.py"], "verify": "true", "budget": 3, "depends": "none"},
+                {"seq": "002", "slug": "child1", "type": "BUILD",
+                 "delta": ["c1.py"], "verify": "true", "budget": 3, "depends": "001"},
+                {"seq": "003", "slug": "child2", "type": "BUILD",
+                 "delta": ["c2.py"], "verify": "true", "budget": 3, "depends": "001"},
+            ]
+        }
+        add_tasks(plan)
+
+        # Block root
+        update_task("001", "blocked")
+
+        # Concurrent propagation
+        results = []
+        errors = []
+
+        def propagate_worker():
+            try:
+                result = propagate_blocks()
+                results.append(result)
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=propagate_worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Propagate errors: {errors}"
+
+        # Verify consistent state
+        campaign = status()
+        blocked = sum(1 for t in campaign["tasks"] if t["status"] == "blocked")
+        assert blocked == 3, f"Expected 3 blocked, got {blocked}"
+
+
+class TestGetReplanInput:
+    """Test get_replan_input for adaptive re-planning."""
+
+    def test_replan_input_no_campaign(self, cli, ftl_dir):
+        """get_replan_input returns empty dict when no campaign."""
+        code, out, _ = cli.campaign("get-replan-input")
+        assert code == 0
+
+        data = json.loads(out)
+        assert data == {}
+
+    def test_replan_input_basic(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input returns proper structure."""
+        cli.campaign("create", "Replan test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        code, out, _ = cli.campaign("get-replan-input")
+        assert code == 0
+
+        data = json.loads(out)
+        assert data["mode"] == "replan"
+        assert data["objective"] == "Replan test"
+        assert "completed_count" in data
+        assert "blocked_count" in data
+        assert "pending_count" in data
+        assert "completed_tasks" in data
+        assert "blocked_tasks" in data
+        assert "remaining_tasks" in data
+
+    def test_replan_input_counts(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input returns accurate task counts."""
+        cli.campaign("create", "Count test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        # Complete task 001, block task 002
+        cli.campaign("update-task", "001", "complete")
+        cli.campaign("update-task", "002", "blocked")
+
+        code, out, _ = cli.campaign("get-replan-input")
+        data = json.loads(out)
+
+        assert data["completed_count"] == 1
+        assert data["blocked_count"] == 1
+        assert data["pending_count"] == 3  # 003, 004, 005
+
+    def test_replan_input_completed_tasks(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input includes completed task evidence."""
+        cli.campaign("create", "Evidence test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+        cli.campaign("update-task", "001", "complete")
+
+        code, out, _ = cli.campaign("get-replan-input")
+        data = json.loads(out)
+
+        assert len(data["completed_tasks"]) == 1
+        assert data["completed_tasks"][0]["seq"] == "001"
+        assert "slug" in data["completed_tasks"][0]
+        assert "delivered" in data["completed_tasks"][0]
+
+    def test_replan_input_blocked_tasks(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input includes blocked task reasons."""
+        cli.campaign("create", "Blocked test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+        cli.campaign("update-task", "001", "blocked")
+
+        code, out, _ = cli.campaign("get-replan-input")
+        data = json.loads(out)
+
+        assert len(data["blocked_tasks"]) == 1
+        assert data["blocked_tasks"][0]["seq"] == "001"
+        assert "reason" in data["blocked_tasks"][0]
+
+    def test_replan_input_remaining_tasks(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input includes remaining pending tasks."""
+        cli.campaign("create", "Remaining test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+        cli.campaign("update-task", "001", "complete")
+
+        code, out, _ = cli.campaign("get-replan-input")
+        data = json.loads(out)
+
+        # Should have 4 remaining (002, 003, 004, 005)
+        remaining_seqs = [t["seq"] for t in data["remaining_tasks"]]
+        assert "002" in remaining_seqs
+        assert "003" in remaining_seqs
+        assert "004" in remaining_seqs
+        assert "005" in remaining_seqs
+        assert "001" not in remaining_seqs  # Already complete
+
+    def test_replan_input_preserves_deps(self, cli, ftl_dir, sample_dag_plan):
+        """get_replan_input preserves task dependencies."""
+        cli.campaign("create", "Deps test")
+        cli.campaign("add-tasks", stdin=json.dumps(sample_dag_plan))
+
+        code, out, _ = cli.campaign("get-replan-input")
+        data = json.loads(out)
+
+        # Find task 005 in remaining
+        task_005 = next((t for t in data["remaining_tasks"] if t["seq"] == "005"), None)
+        assert task_005 is not None
+        assert task_005["depends"] == ["003", "004"]

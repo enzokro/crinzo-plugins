@@ -16,7 +16,7 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | clear | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py clear` | clears exploration table |
 | aggregate | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py aggregate --objective "text"` | stdin: JSON lines |
 | write | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write` | stdin: exploration dict, writes to DB |
-| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read` | returns exploration from DB |
+| read | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py read [--campaign-id ID]` | returns exploration from DB |
 | get-structure | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-structure` | |
 | get-pattern | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-pattern` | |
 | get-memory | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py get-memory` | |
@@ -58,10 +58,11 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | Command | Syntax | Notes |
 |---------|--------|-------|
 | create | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id ID [--task SEQ]` | `--plan-id` REQUIRED (reads from plan table) |
-| parse | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse PATH` | `PATH` is POS |
+| parse | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse PATH` | `PATH` is POS (path or workspace_id) |
 | complete | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete PATH --delivered "text" [--utilized JSON]` | tracks helpful memories |
 | block | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
 | list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py list [--status STATUS]` | list all workspaces |
+| get-injected | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace WS_ID` | returns injected memories [{name, type}] |
 
 ## memory.py
 
@@ -73,9 +74,11 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | query | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py query "term"` | `term` is POS, semantic ranking |
 | stats | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py stats` | counts, avg_importance, relationships |
 | prune | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py prune [--max-failures N] [--max-patterns N] [--min-importance F] [--half-life D]` | removes low-importance entries |
-| add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern]` | bidirectional graph edge |
+| add-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-relationship SOURCE TARGET [--type failure\|pattern] [--rel-type TYPE]` | bidirectional graph edge |
 | related | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py related NAME [--type failure\|pattern] [--max-hops N]` | weighted BFS traversal |
 | feedback | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback NAME --helped\|--failed [--type TYPE]` | records if memory was useful |
+| feedback-batch | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback-batch --utilized JSON --injected JSON` | batch feedback; also supports `--utilized-b64` `--injected-b64` for base64-encoded JSON |
+| verify-loop | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py verify-loop` | diagnoses learning loop health |
 | add-cross-relationship | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py add-cross-relationship FAILURE PATTERN [--type solves\|causes]` | links failure to solving pattern |
 | get-solutions | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py get-solutions FAILURE` | patterns that solve a failure |
 
@@ -122,3 +125,20 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | check-explorers | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py check-explorers --session ID` | non-blocking status check |
 | validate-transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py validate-transition FROM TO` | both POS |
 | emit-state | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py emit-state STATE [--meta JSON]` | `STATE` is POS, logs event |
+
+## decision_parser.py
+
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| (default) | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/decision_parser.py INPUT_FILE [--validate]` | `INPUT_FILE` is POS, detects PROCEED/CLARIFY/CONFIRM |
+
+Exit codes: 0=PROCEED, 1=UNKNOWN, 2=CLARIFY, 3=CONFIRM
+
+## framework_registry.py
+
+| Command | Syntax | Notes |
+|---------|--------|-------|
+| detect | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/framework_registry.py detect [PATH]` | `PATH` is optional POS (default: ".") |
+| idioms | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/framework_registry.py idioms FRAMEWORK` | `FRAMEWORK` is POS, returns {required, forbidden} |
+| weight | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/framework_registry.py weight FRAMEWORK` | `FRAMEWORK` is POS, returns complexity weight |
+| list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/framework_registry.py list` | returns JSON array of framework names |

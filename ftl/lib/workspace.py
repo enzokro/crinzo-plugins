@@ -22,11 +22,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Support both standalone execution and module import
 try:
-    from lib.db import get_db, init_db, Workspace
+    from lib.db import get_db, init_db, Workspace, db_write_lock
     from lib.framework_registry import get_idioms
     from lib.plan import read as read_plan
 except ImportError:
-    from db import get_db, init_db, Workspace
+    from db import get_db, init_db, Workspace, db_write_lock
     from framework_registry import get_idioms
     from plan import read as read_plan
 
@@ -85,8 +85,9 @@ def create(plan: dict, task_seq: str = None) -> list:
             max_failures=5,
             max_patterns=3
         )
-    except (ImportError, Exception):
-        pass
+    except (ImportError, Exception) as e:
+        import logging
+        logging.warning(f"Failed to get memory context: {e}. Using empty prior_knowledge.")
 
     # Get sibling failures from blocked workspaces
     sibling_failures = get_sibling_failures(campaign["id"])
@@ -101,82 +102,97 @@ def create(plan: dict, task_seq: str = None) -> list:
     for task in tasks:
         ws_id = f"{task['seq']}-{task['slug']}"
 
-        # Check if workspace already exists
-        existing = list(workspaces.rows_where("workspace_id = ?", [ws_id]))
-        if existing:
-            # Return existing path
-            ws = existing[0]
-            path = WORKSPACE_DIR / f"{task['seq']}_{task['slug']}_{ws['status']}.xml"
-            paths.append(path)
-            continue
+        # Use lock to protect duplicate check + insert (TOCTOU race prevention)
+        with db_write_lock:
+            # Check if workspace already exists
+            existing = list(workspaces.rows_where("workspace_id = ?", [ws_id]))
+            if existing:
+                # Return existing path
+                ws = existing[0]
+                path = WORKSPACE_DIR / f"{task['seq']}_{task['slug']}_{ws['status']}.xml"
+                paths.append(path)
+                continue
 
-        # Build lineage from parent tasks
-        lineage = _build_lineage(task.get("depends"), campaign["id"])
+            # Build lineage from parent tasks
+            lineage = _build_lineage(task.get("depends"), campaign["id"])
 
-        # Extract code contexts for delta files
-        code_contexts = []
-        task_type = task.get("type", "BUILD")
-        target_lines_map = task.get("target_lines", {})
+            # Extract code contexts for delta files
+            code_contexts = []
+            task_type = task.get("type", "BUILD")
+            target_lines_map = task.get("target_lines", {})
 
-        for delta in task.get("delta", []):
-            delta_path = Path(delta)
-            if delta_path.exists():
-                target_lines = target_lines_map.get(delta)
-                ctx = extract_code_context(
-                    delta_path,
-                    target_lines=target_lines,
-                    task_type=task_type
-                )
-                if ctx:
-                    code_contexts.append(ctx)
+            for delta in task.get("delta", []):
+                delta_path = Path(delta)
+                if delta_path.exists():
+                    target_lines = target_lines_map.get(delta)
+                    ctx = extract_code_context(
+                        delta_path,
+                        target_lines=target_lines,
+                        task_type=task_type
+                    )
+                    if ctx:
+                        code_contexts.append(ctx)
 
-        # Get framework idioms
-        framework = plan.get("framework")
-        idioms = {}
-        if framework and framework != "none":
-            registry_idioms = get_idioms(framework)
-            plan_idioms = plan.get("idioms", {})
-            idioms = {
-                "required": registry_idioms.get("required") or plan_idioms.get("required", []),
-                "forbidden": registry_idioms.get("forbidden") or plan_idioms.get("forbidden", []),
+            # Get framework idioms
+            framework = plan.get("framework")
+            idioms = {}
+            if framework and framework != "none":
+                registry_idioms = get_idioms(framework)
+                plan_idioms = plan.get("idioms", {})
+                idioms = {
+                    "required": registry_idioms.get("required") or plan_idioms.get("required", []),
+                    "forbidden": registry_idioms.get("forbidden") or plan_idioms.get("forbidden", []),
+                }
+
+            # Get framework confidence
+            framework_confidence = _get_framework_confidence()
+
+            # Extract verify_source
+            verify_source = task.get("verify_source")
+            if not verify_source:
+                verify_source = extract_verify_source(task.get("verify", ""))
+
+            # Build workspace dict for validation
+            ws_dict = {
+                "id": ws_id,
+                "status": "active",
+                "delta": task.get("delta", []),
+                "verify": task.get("verify", ""),
             }
 
-        # Get framework confidence
-        framework_confidence = _get_framework_confidence()
+            # Validate workspace before insert - FATAL on failure
+            is_valid, missing = validate_workspace(ws_dict)
+            if not is_valid:
+                raise ValueError(f"Workspace {ws_id} validation failed: missing {missing}")
 
-        # Extract verify_source
-        verify_source = task.get("verify_source")
-        if not verify_source:
-            verify_source = extract_verify_source(task.get("verify", ""))
+            # Insert workspace record
+            now = datetime.now().isoformat()
+            ws = Workspace(
+                workspace_id=ws_id,
+                campaign_id=campaign["id"],
+                seq=task["seq"],
+                slug=task["slug"],
+                status="active",
+                created_at=now,
+                completed_at=None,
+                blocked_at=None,
+                objective=plan.get("objective", ""),
+                delta=json.dumps(task.get("delta", [])),
+                verify=task.get("verify", ""),
+                verify_source=verify_source,
+                budget=task.get("budget", 5),
+                framework=framework,
+                framework_confidence=framework_confidence,
+                idioms=json.dumps(idioms),
+                prior_knowledge=json.dumps(memory_ctx),
+                lineage=json.dumps(lineage),
+                delivered="",
+                utilized_memories="[]",
+                code_contexts=json.dumps(code_contexts),
+                preflight=json.dumps(task.get("preflight", []))
+            )
 
-        # Insert workspace record
-        now = datetime.now().isoformat()
-        ws = Workspace(
-            workspace_id=ws_id,
-            campaign_id=campaign["id"],
-            seq=task["seq"],
-            slug=task["slug"],
-            status="active",
-            created_at=now,
-            completed_at=None,
-            blocked_at=None,
-            objective=plan.get("objective", ""),
-            delta=json.dumps(task.get("delta", [])),
-            verify=task.get("verify", ""),
-            verify_source=verify_source,
-            budget=task.get("budget", 5),
-            framework=framework,
-            framework_confidence=framework_confidence,
-            idioms=json.dumps(idioms),
-            prior_knowledge=json.dumps(memory_ctx),
-            lineage=json.dumps(lineage),
-            delivered="",
-            utilized_memories="[]",
-            code_contexts=json.dumps(code_contexts),
-            preflight=json.dumps(task.get("preflight", []))
-        )
-
-        workspaces.insert(ws)
+            workspaces.insert(ws)
 
         # Return Path for compatibility
         path = WORKSPACE_DIR / f"{task['seq']}_{task['slug']}_active.xml"
@@ -202,20 +218,23 @@ def complete(path: Path, delivered: str, utilized_memories: list = None) -> Path
     workspaces = db.t.workspace
 
     workspace_id = _extract_workspace_id(path)
-    rows = list(workspaces.rows_where("workspace_id = ?", [workspace_id]))
 
-    if not rows:
-        raise ValueError(f"Workspace not found: {workspace_id}")
+    # Use lock to protect read-modify-write sequence
+    with db_write_lock:
+        rows = list(workspaces.rows_where("workspace_id = ?", [workspace_id]))
 
-    ws = rows[0]
-    now = datetime.now().isoformat()
+        if not rows:
+            raise ValueError(f"Workspace not found: {workspace_id}")
 
-    workspaces.update({
-        "status": "complete",
-        "completed_at": now,
-        "delivered": delivered,
-        "utilized_memories": json.dumps(utilized_memories or [])
-    }, ws["id"])
+        ws = rows[0]
+        now = datetime.now().isoformat()
+
+        workspaces.update({
+            "status": "complete",
+            "completed_at": now,
+            "delivered": delivered,
+            "utilized_memories": json.dumps(utilized_memories or [])
+        }, ws["id"])
 
     # Return new path with _complete suffix
     new_path = path.parent / path.name.replace("_active.xml", "_complete.xml")
@@ -238,19 +257,22 @@ def block(path: Path, reason: str) -> Path:
     workspaces = db.t.workspace
 
     workspace_id = _extract_workspace_id(path)
-    rows = list(workspaces.rows_where("workspace_id = ?", [workspace_id]))
 
-    if not rows:
-        raise ValueError(f"Workspace not found: {workspace_id}")
+    # Use lock to protect read-modify-write sequence
+    with db_write_lock:
+        rows = list(workspaces.rows_where("workspace_id = ?", [workspace_id]))
 
-    ws = rows[0]
-    now = datetime.now().isoformat()
+        if not rows:
+            raise ValueError(f"Workspace not found: {workspace_id}")
 
-    workspaces.update({
-        "status": "blocked",
-        "blocked_at": now,
-        "delivered": f"BLOCKED: {reason}"
-    }, ws["id"])
+        ws = rows[0]
+        now = datetime.now().isoformat()
+
+        workspaces.update({
+            "status": "blocked",
+            "blocked_at": now,
+            "delivered": f"BLOCKED: {reason}"
+        }, ws["id"])
 
     # Return new path with _blocked suffix
     new_path = path.parent / path.name.replace("_active.xml", "_blocked.xml")
@@ -337,15 +359,36 @@ def get_sibling_failures(campaign_id: int) -> list:
     failures = []
     for ws in blocked:
         delivered = ws.get("delivered", "")
-        if delivered and "BLOCKED:" in delivered:
-            reason = delivered.split("BLOCKED:", 1)[1].strip()
-            failures.append({
-                "name": f"sibling-{ws['workspace_id']}",
-                "trigger": reason.split('\n')[0].strip(),
-                "fix": "See blocked workspace for attempted fixes",
-                "cost": 1000,
-                "source": [ws["workspace_id"]],
-            })
+        ws_id = ws.get("workspace_id", "unknown")
+
+        # Extract reason - handle multiple formats for robustness
+        if delivered:
+            if "BLOCKED:" in delivered:
+                # Standard format from block() function
+                reason = delivered.split("BLOCKED:", 1)[1].strip()
+            elif "BLOCKED" in delivered.upper():
+                # Case-insensitive variant
+                idx = delivered.upper().find("BLOCKED")
+                reason = delivered[idx + 7:].lstrip(":").strip()
+            else:
+                # No prefix - use delivered text directly
+                reason = delivered.strip()
+        else:
+            # No delivered text - use generic message
+            reason = f"Workspace {ws_id} blocked (no details)"
+
+        # Extract first line as trigger, fallback to full reason if empty
+        trigger = reason.split('\n')[0].strip() if reason else reason
+        if not trigger:
+            trigger = f"Blocked: {ws_id}"
+
+        failures.append({
+            "name": f"sibling-{ws_id}",
+            "trigger": trigger,
+            "fix": "See blocked workspace for attempted fixes",
+            "cost": 1000,
+            "source": [ws_id],
+        })
 
     return failures
 
@@ -355,17 +398,46 @@ def get_sibling_failures(campaign_id: int) -> list:
 # =============================================================================
 
 def _extract_workspace_id(path: Path) -> str:
-    """Extract workspace_id from path.
+    """Extract workspace_id from virtual path.
+
+    Args:
+        path: Path in format {seq}_{slug}_{status}.xml
+
+    Returns:
+        workspace_id in format {seq}-{slug}
 
     Examples:
         '001_slug_active.xml' -> '001-slug'
-        '/path/to/002_foo_complete.xml' -> '002-foo'
+        '001_add-power-tests_active.xml' -> '001-add-power-tests'
+        '/path/to/002_foo-bar_complete.xml' -> '002-foo-bar'
     """
     stem = path.stem
-    parts = stem.split("_")
-    if len(parts) >= 2:
-        return f"{parts[0]}-{parts[1]}"
+    # Split from right to isolate status suffix
+    parts = stem.rsplit("_", 1)
+    if len(parts) == 2:
+        name_part = parts[0]
+        # Split from left on first underscore to get seq and slug
+        name_parts = name_part.split("_", 1)
+        if len(name_parts) == 2:
+            return f"{name_parts[0]}-{name_parts[1]}"
     return stem
+
+
+def _workspace_id_to_path(workspace_id: str, status: str = "active") -> Path:
+    """Convert workspace_id to virtual path format.
+
+    Args:
+        workspace_id: Format {seq}-{slug} (e.g., "001-add-power-tests")
+        status: Workspace status (active, complete, blocked)
+
+    Returns:
+        Path in format {seq}_{slug}_{status}.xml
+    """
+    parts = workspace_id.split("-", 1)  # Split on first dash only
+    if len(parts) == 2:
+        seq, slug = parts
+        return WORKSPACE_DIR / f"{seq}_{slug}_{status}.xml"
+    return WORKSPACE_DIR / f"{workspace_id}_{status}.xml"
 
 
 def _build_lineage(depends, campaign_id: int) -> dict:
@@ -467,6 +539,8 @@ def _ws_to_dict(row) -> dict:
 
 def _get_framework_confidence() -> float:
     """Get framework confidence from exploration."""
+    import logging
+
     db = _ensure_db()
     explorations = db.t.exploration
 
@@ -475,11 +549,11 @@ def _get_framework_confidence() -> float:
         if rows:
             rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
             pattern = json.loads(rows[0].get("pattern") or "{}")
-            return float(pattern.get("confidence", 1.0))
-    except Exception:
-        pass
+            return float(pattern.get("confidence", 0.5))  # Default 0.5 for consistency
+    except Exception as e:
+        logging.warning(f"Failed to get framework confidence: {e}. Using default 0.5")
 
-    return 1.0
+    return 0.5  # Changed from 1.0 for consistency (P4-14)
 
 
 def _is_numeric_line_range(target_lines: str) -> bool:
@@ -593,25 +667,39 @@ def extract_code_context(
     }
 
 
-def extract_error_from_delivered(delivered: str) -> str:
-    """Extract error message from BLOCKED: delivered text."""
-    if "BLOCKED:" in delivered:
-        reason = delivered.split("BLOCKED:", 1)[1].strip()
-        return reason.split('\n')[0].strip()
-    return delivered[:100]
+def validate_workspace(workspace: dict, check_delta_exists: bool = True) -> tuple:
+    """Validate a workspace has required fields.
 
+    Args:
+        workspace: Workspace dict to validate
+        check_delta_exists: If True, verify delta files exist on filesystem
 
-def validate_workspace(workspace: dict) -> tuple:
-    """Validate a workspace has required fields."""
+    Returns:
+        (is_valid, issues) where issues is a list of validation problems
+    """
+    issues = []
+
+    # Required fields check
     required = ["id", "status", "delta", "verify"]
-    missing = []
     for field in required:
         if field not in workspace or workspace[field] is None:
-            missing.append(field)
+            issues.append(f"missing:{field}")
         elif field == "delta" and not workspace[field]:
-            missing.append(f"{field} (empty)")
+            issues.append("empty:delta")
 
-    return len(missing) == 0, missing
+    # Delta file existence check
+    if check_delta_exists and "delta" in workspace and workspace["delta"]:
+        delta_files = workspace["delta"]
+        if isinstance(delta_files, str):
+            delta_files = [delta_files]
+        missing_files = []
+        for f in delta_files:
+            if not Path(f).exists():
+                missing_files.append(f)
+        if missing_files:
+            issues.append(f"delta_not_found:{','.join(missing_files)}")
+
+    return len(issues) == 0, issues
 
 
 # =============================================================================
@@ -663,12 +751,18 @@ def main():
 
     elif args.command == "complete":
         utilized = json.loads(args.utilized) if args.utilized else None
-        path = Path(args.path) if "/" in args.path or args.path.endswith(".xml") else Path(f".ftl/workspace/{args.path}_active.xml")
+        if "/" in args.path or args.path.endswith(".xml"):
+            path = Path(args.path)
+        else:
+            path = _workspace_id_to_path(args.path, "active")
         new_path = complete(path, args.delivered, utilized)
         print(f"Completed: {new_path}")
 
     elif args.command == "block":
-        path = Path(args.path) if "/" in args.path or args.path.endswith(".xml") else Path(f".ftl/workspace/{args.path}_active.xml")
+        if "/" in args.path or args.path.endswith(".xml"):
+            path = Path(args.path)
+        else:
+            path = _workspace_id_to_path(args.path, "active")
         new_path = block(path, args.reason)
         print(f"Blocked: {new_path}")
 

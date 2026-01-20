@@ -34,7 +34,8 @@ FAILURE_JSON=$("$FTL_ROOT/venv/bin/python3" "$FTL_ROOT/lib/observer.py" extract-
 
 if [ -n "$FAILURE_JSON" ] && [ "$FAILURE_JSON" != "null" ] && [ "$FAILURE_JSON" != "{}" ]; then
     # Add to memory immediately (atomic operation)
-    echo "$FAILURE_JSON" | "$FTL_ROOT/venv/bin/python3" "$FTL_ROOT/lib/memory.py" add-failure --json - 2>/dev/null || true
+    # Pass JSON directly as argument (stdin '-' not supported by CLI)
+    "$FTL_ROOT/venv/bin/python3" "$FTL_ROOT/lib/memory.py" add-failure --json "$FAILURE_JSON" 2>/dev/null || true
     echo "[ftl] Mid-campaign learning: injected failure from $(basename "$WORKSPACE")"
 fi
 

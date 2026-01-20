@@ -370,7 +370,7 @@ class TestSemanticMemory:
         assert len(data["failures"]) >= 1
 
     def test_hybrid_scoring_formula_correct(self, cli, ftl_dir):
-        """Verify hybrid score = relevance × log₂(cost + 1)."""
+        """Verify hybrid score = relevance × log₂(cost + 1) × help_ratio × age_decay."""
         import math
 
         failure = {
@@ -389,8 +389,11 @@ class TestSemanticMemory:
         relevance = entry["_relevance"]
         score = entry["_score"]
 
-        # Score should be relevance × log₂(cost + 1) = relevance × 10
-        expected_score = relevance * math.log2(1024)
+        # Score includes help_ratio = (times_helped + 1) / (times_helped + times_failed + 2)
+        # For new entries with no feedback: help_ratio = (0 + 1) / (0 + 0 + 2) = 0.5
+        # Age decay is ~1.0 for fresh entries
+        help_ratio = 0.5  # Default for no feedback
+        expected_score = relevance * math.log2(1024) * help_ratio
         assert abs(score - expected_score) < 0.01, f"Expected {expected_score}, got {score}"
 
     def test_patterns_also_use_hybrid_scoring(self, cli, ftl_dir):

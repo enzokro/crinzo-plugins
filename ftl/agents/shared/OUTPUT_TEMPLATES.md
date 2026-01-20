@@ -1,3 +1,7 @@
+---
+version: 1.0
+---
+
 # Output Templates
 
 This document defines standard output formats shared across FTL agents.
@@ -67,6 +71,37 @@ python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<<
 ## Options
 - A: {interpretation} -> {consequence}
 - B: {interpretation} -> {consequence}
+```
+
+### CONFIRM Output
+
+Used when the planner identifies multiple valid interpretations of the user's request
+and needs explicit confirmation before proceeding.
+
+```markdown
+### Confidence: CONFIRM
+
+## Selection Required
+
+{Brief description of the ambiguity or choice needed}
+
+## Interpretations
+1. **{Option A}**: {description}
+   - Scope: {what gets included}
+   - Trade-off: {implication}
+
+2. **{Option B}**: {description}
+   - Scope: {what gets included}
+   - Trade-off: {implication}
+
+## Recommendation
+{Option letter}: {brief rationale}
+
+## Pending Plan
+Once confirmed, the following approach will be used:
+- Tasks: {estimated count}
+- Delta: {key files}
+- Complexity: {C score}
 ```
 
 ## Builder Output
