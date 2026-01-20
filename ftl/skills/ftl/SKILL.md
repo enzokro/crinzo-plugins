@@ -246,7 +246,7 @@ STATE: BUILD
   DO: builder_output = Task(ftl:ftl-builder) with workspace_id
   # Extract UTILIZED from builder output
   DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
-  DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {workspace_id}
+  DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected {workspace_id}
   IF: workspace completed successfully →
       # Use base64 encoding to avoid shell quoting issues with JSON
       DO: utilized_b64 = base64_encode(utilized)
@@ -307,7 +307,7 @@ STATE: EXECUTE
         DO: workspace_id = ws_result.created[0].workspace_id
         DO: builder_output = Task(ftl:ftl-builder) with workspace_id
         DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
-        DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {workspace_id}
+        DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected {workspace_id}
         IF: task completed (not blocked) →
             # Use base64 encoding to avoid shell quoting issues with JSON
             DO: utilized_b64 = base64_encode(utilized)

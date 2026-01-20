@@ -179,3 +179,92 @@ class TestQuestionExtraction:
 
         # Should extract some questions
         assert len(questions) >= 1
+
+
+class TestRobustnessRegression:
+    """Regression tests for JSON extraction robustness."""
+
+    def test_proceed_without_marker(self, decision_parser_module):
+        """Valid JSON without ### Confidence: header infers PROCEED with flag."""
+        content = """
+## Campaign: Add user authentication
+
+Here's the plan:
+
+```json
+{
+    "objective": "Add user authentication",
+    "campaign": "add-auth",
+    "tasks": [
+        {"seq": "001", "slug": "add-login", "delta": ["auth.py"], "verify": "pytest", "budget": 5}
+    ]
+}
+```
+"""
+        result = decision_parser_module.detect_decision(content)
+
+        assert result["decision"] == "PROCEED"
+        assert result.get("inferred") is True
+        assert result.get("plan_json") is not None
+        assert result["plan_json"]["objective"] == "Add user authentication"
+
+    def test_nested_json_extraction(self, decision_parser_module):
+        """Extract plan with nested objects in tasks (brace-balanced)."""
+        content = """
+### Confidence: PROCEED
+
+```json
+{
+    "objective": "Implement feature with nested config",
+    "campaign": "nested-feature",
+    "framework": "pytest",
+    "idioms": {"required": ["fixtures"], "forbidden": []},
+    "tasks": [
+        {
+            "seq": "001",
+            "slug": "add-config",
+            "type": "BUILD",
+            "delta": ["config.py"],
+            "verify": "pytest tests/",
+            "budget": 5,
+            "depends": "none",
+            "metadata": {"priority": "high", "tags": ["config", "init"]}
+        },
+        {
+            "seq": "002",
+            "slug": "add-handler",
+            "type": "BUILD",
+            "delta": ["handler.py"],
+            "verify": "pytest tests/",
+            "budget": 5,
+            "depends": "001"
+        }
+    ]
+}
+```
+"""
+        result = decision_parser_module.detect_decision(content)
+
+        assert result["decision"] == "PROCEED"
+        plan = result.get("plan_json")
+        assert plan is not None
+        assert len(plan["tasks"]) == 2
+        # Verify nested metadata extracted correctly
+        assert plan["tasks"][0].get("metadata", {}).get("priority") == "high"
+
+    def test_raw_json_no_codeblock(self, decision_parser_module):
+        """Extract valid JSON not wrapped in code block."""
+        content = """
+Analysis complete. The plan:
+
+{"objective": "Simple task", "campaign": "simple", "tasks": [{"seq": "001", "slug": "do-thing", "delta": ["file.py"], "verify": "pytest", "budget": 3}]}
+
+End of output.
+"""
+        result = decision_parser_module.detect_decision(content)
+
+        assert result["decision"] == "PROCEED"
+        assert result.get("inferred") is True
+        plan = result.get("plan_json")
+        assert plan is not None
+        assert plan["objective"] == "Simple task"

@@ -94,9 +94,10 @@ def detect_decision(text: str) -> dict:
     plan_json = extract_plan_json(text)
     if plan_json:
         result["plan_json"] = plan_json
-        # If no explicit marker but plan found, set decision to PROCEED
+        # If no explicit marker but plan found, infer PROCEED
         if result["decision"] == "UNKNOWN":
             result["decision"] = "PROCEED"
+            result["inferred"] = True  # Marker was missing, inferred from JSON
 
     # Always validate plan if present (unconditional validation)
     if result.get("plan_json"):
@@ -159,26 +160,26 @@ def extract_plan_json(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    # Pattern 2: Raw JSON object
-    json_match = re.search(r'\{[^{}]*"objective"[^{}]*"tasks".*?\}', text, re.DOTALL)
-    if json_match:
-        # Find the full JSON by counting braces
-        start = json_match.start()
-        depth = 0
-        end = start
-        for i, c in enumerate(text[start:], start):
-            if c == '{':
-                depth += 1
-            elif c == '}':
-                depth -= 1
+    # Pattern 2: Any JSON object containing objective and tasks (brace-balanced)
+    if '"objective"' in text and '"tasks"' in text:
+        # Find first { before "objective"
+        obj_idx = text.find('"objective"')
+        start = text.rfind('{', 0, obj_idx)
+        if start != -1:
+            depth = 0
+            for i, c in enumerate(text[start:], start):
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
                 if depth == 0:
-                    end = i + 1
+                    try:
+                        candidate = json.loads(text[start:i+1])
+                        if isinstance(candidate.get("tasks"), list):
+                            return candidate
+                    except json.JSONDecodeError:
+                        pass
                     break
-
-        try:
-            return json.loads(text[start:end])
-        except json.JSONDecodeError:
-            pass
 
     return None
 

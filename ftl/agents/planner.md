@@ -169,6 +169,33 @@ Quality:
 </constraints>
 
 <output_format>
+## Decision Header (REQUIRED)
+
+Begin output with confidence header based on COHERENCE_CHECK result:
+
+**If PROCEED:**
+```
+### Confidence: PROCEED
+```
+
+**If CLARIFY:**
+```
+### Confidence: CLARIFY
+
+## Blocking Questions
+1. {question}
+```
+
+**If CONFIRM:**
+```
+### Confidence: CONFIRM
+
+## Selection Required
+{description}
+```
+
+## Plan Schema
+
 See [PLANNER_PHASES.md#output_plan](shared/PLANNER_PHASES.md#output_plan) for complete schema.
 
 ```json

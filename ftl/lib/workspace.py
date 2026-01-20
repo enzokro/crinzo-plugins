@@ -779,7 +779,7 @@ def main():
 
     # get-injected command
     gi = subparsers.add_parser("get-injected", help="Get injected memories for a workspace")
-    gi.add_argument("--workspace", required=True, help="Workspace ID or path")
+    gi.add_argument("workspace", help="Workspace ID or path")
 
     # clear-stale command
     cs = subparsers.add_parser("clear-stale", help="Clear workspaces from completed campaigns")
