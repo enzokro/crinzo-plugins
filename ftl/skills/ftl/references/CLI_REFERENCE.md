@@ -5,6 +5,10 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 
 **Storage Backend**: All data stored in SQLite database at `.ftl/ftl.db`. See DATABASE_SCHEMA.md for details.
 
+**Stdin Pattern**: Commands reading JSON use heredoc. There is NO `--result` flag.
+- CORRECT: `command <<< '{"key": "value"}'`
+- WRONG: `command --result '{}'` ← flag does NOT exist
+
 ## exploration.py
 
 | Command | Syntax | Notes |

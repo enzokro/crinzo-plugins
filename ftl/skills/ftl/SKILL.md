@@ -231,6 +231,7 @@ See [ERROR_HANDLING.md](references/ERROR_HANDLING.md) for error taxonomy and rec
 ```
 STATE: INIT
   USE: INIT_PATTERN
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "{task}"
 
 STATE: EXPLORE
   USE: EXPLORE_PATTERN with objective={task}

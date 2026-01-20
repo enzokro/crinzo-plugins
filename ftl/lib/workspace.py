@@ -67,7 +67,10 @@ def create(plan: dict, task_seq: str = None) -> list:
     campaign = _get_active_campaign()
 
     if not campaign:
-        return []
+        raise ValueError(
+            "No active campaign. Create one first with: "
+            "python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create \"objective\""
+        )
 
     # Get memory context
     memory_ctx = {"failures": [], "patterns": []}

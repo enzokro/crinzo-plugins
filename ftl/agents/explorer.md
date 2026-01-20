@@ -38,7 +38,8 @@ Budget: 4 tool calls per mode (exploration) + 1 for write. See [TOOL_BUDGET_REFE
 2. EMIT: `STATE_ENTRY state=EXPLORE mode={mode} session_id={session_id}`
 3. Execute mode-specific exploration (see schemas below)
 4. EMIT: `"Budget: {used}/4, Mode: {mode}"`
-5. Write result to database: `python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{result}'`
+5. Write result: `python3 "$(cat .ftl/plugin_root)/lib/exploration.py" write-result --session {session_id} --mode {mode} <<< '{result}'`
+   - **CRITICAL**: Use heredoc (`<<<`) for JSON input. There is NO `--result` flag.
 6. Output valid JSON (no markdown wrappers)
 
 ---
@@ -131,6 +132,11 @@ Write result to database using the session_id provided at invocation:
 python3 "$(cat .ftl/plugin_root)/lib/exploration.py" write-result \
     --session "{session_id}" \
     --mode "{mode}" <<< '{...json result...}'
+```
+
+**WRONG** (flag does not exist):
+```bash
+python3 ... write-result --session X --mode Y --result '{...}'  # NO!
 ```
 
 See [EXPLORER_SCHEMAS.md](shared/EXPLORER_SCHEMAS.md) for complete field specifications per mode.

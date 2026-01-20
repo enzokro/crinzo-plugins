@@ -16,13 +16,13 @@ import re
 # Support both standalone execution and module import
 try:
     from lib.db import get_db, init_db
-    from lib.workspace import parse, list_workspaces
+    from lib.workspace import parse, list_workspaces as ws_list_workspaces, _get_active_campaign
     from lib.memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats, record_feedback_batch
     from lib.db.embeddings import similarity as semantic_similarity
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db
-    from workspace import parse, list_workspaces as ws_list_workspaces
+    from workspace import parse, list_workspaces as ws_list_workspaces, _get_active_campaign
     from memory import add_failure, add_pattern, add_relationship, add_cross_relationship, get_stats, record_feedback_batch
     from db.embeddings import similarity as semantic_similarity
 
@@ -62,70 +62,31 @@ def _ensure_db():
 
 
 # =============================================================================
-# Workspace Listing (delegated to workspace module where possible)
+# Workspace Listing (delegates to workspace module with campaign filtering)
 # =============================================================================
 
-def list_workspaces(
-    workspace_dir: Path = WORKSPACE_DIR,
-    max_age_days: int = None
-) -> dict:
-    """Categorize workspaces by status with optional age filtering.
+def list_workspaces(workspace_dir: Path = WORKSPACE_DIR) -> dict:
+    """Categorize workspaces by status, filtered to active campaign.
 
     Args:
-        workspace_dir: Path to workspace directory (ignored, uses DB)
-        max_age_days: Only include workspaces modified within N days
+        workspace_dir: Ignored (kept for API compatibility)
 
     Returns:
         {"complete": [dicts], "blocked": [dicts], "active": [dicts]}
     """
-    db = _ensure_db()
-    workspaces = db.t.workspace
+    campaign = _get_active_campaign()
+    campaign_id = campaign["id"] if campaign else None
 
-    result = {"complete": [], "blocked": [], "active": []}
+    all_ws = ws_list_workspaces(campaign_id=campaign_id)
 
-    cutoff_time = None
-    if max_age_days is not None:
-        cutoff_time = datetime.now() - timedelta(days=max_age_days)
+    # Categorize for API compatibility
+    workspaces = {"complete": [], "blocked": [], "active": []}
+    for ws in all_ws:
+        status = ws.get("status", "active")
+        if status in workspaces:
+            workspaces[status].append(ws)
 
-    for row in workspaces.rows:
-        # Apply age filter
-        if cutoff_time is not None:
-            created = row.get("created_at", "")
-            if created:
-                try:
-                    created_dt = datetime.fromisoformat(created)
-                    if created_dt < cutoff_time:
-                        continue
-                except ValueError:
-                    pass
-
-        status = row.get("status", "active")
-        ws_dict = _row_to_ws_dict(row)
-
-        if status == "complete":
-            result["complete"].append(ws_dict)
-        elif status == "blocked":
-            result["blocked"].append(ws_dict)
-        elif status == "active":
-            result["active"].append(ws_dict)
-
-    return result
-
-
-def _row_to_ws_dict(row) -> dict:
-    """Convert workspace row to dict for observer processing."""
-    return {
-        "id": row.get("workspace_id", ""),
-        "workspace_id": row.get("workspace_id", ""),
-        "status": row.get("status", ""),
-        "delivered": row.get("delivered", ""),
-        "objective": row.get("objective", ""),
-        "delta": json.loads(row.get("delta") or "[]"),
-        "verify": row.get("verify", ""),
-        "budget": row.get("budget", 5),
-        "idioms": json.loads(row.get("idioms") or "{}"),
-        "created_at": row.get("created_at", ""),
-    }
+    return workspaces
 
 
 # =============================================================================
