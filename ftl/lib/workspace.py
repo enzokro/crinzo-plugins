@@ -4,11 +4,11 @@
 Provides workspace lifecycle management, code context extraction,
 and memory injection for builder agents.
 
-CRITICAL API PRESERVATION:
-- create(plan, task_seq) -> list[Path]
-- complete(path: Path, delivered, utilized) -> Path
-- block(path: Path, reason) -> Path
-Path parameters preserved for signature compatibility.
+API:
+- create(plan, task_seq) -> list[dict]  # Returns workspace data dicts
+- complete(path_or_id, delivered, utilized) -> dict  # Returns updated workspace
+- block(path_or_id, reason) -> dict  # Returns updated workspace
+Accepts both Path objects and workspace_id strings for backwards compatibility.
 """
 
 from pathlib import Path
@@ -29,10 +29,6 @@ except ImportError:
     from db import get_db, init_db, Workspace, db_write_lock
     from framework_registry import get_idioms
     from plan import read as read_plan
-
-
-# Virtual path prefix (for API compatibility, no files created)
-WORKSPACE_DIR = Path(".ftl/workspace")
 
 
 def _ensure_db():
@@ -59,14 +55,12 @@ def _get_active_campaign():
 def create(plan: dict, task_seq: str = None) -> list:
     """Create workspace records from plan.
 
-    PRESERVES EXISTING API: Returns list[Path] for compatibility.
-
     Args:
         plan: Plan dict with tasks[]
         task_seq: Optional specific task seq to create
 
     Returns:
-        List of Path objects (virtual paths for compatibility)
+        List of workspace dicts with workspace_id, status, etc.
     """
     db = _ensure_db()
     workspaces = db.t.workspace
@@ -93,7 +87,7 @@ def create(plan: dict, task_seq: str = None) -> list:
     sibling_failures = get_sibling_failures(campaign["id"])
     memory_ctx["sibling_failures"] = sibling_failures
 
-    paths = []
+    created_workspaces = []
     tasks = plan.get("tasks", [])
 
     if task_seq:
@@ -107,10 +101,8 @@ def create(plan: dict, task_seq: str = None) -> list:
             # Check if workspace already exists
             existing = list(workspaces.rows_where("workspace_id = ?", [ws_id]))
             if existing:
-                # Return existing path
-                ws = existing[0]
-                path = WORKSPACE_DIR / f"{task['seq']}_{task['slug']}_{ws['status']}.xml"
-                paths.append(path)
+                # Return existing workspace
+                created_workspaces.append(_ws_to_dict(existing[0]))
                 continue
 
             # Build lineage from parent tasks
@@ -192,32 +184,39 @@ def create(plan: dict, task_seq: str = None) -> list:
                 preflight=json.dumps(task.get("preflight", []))
             )
 
-            workspaces.insert(ws)
+            result = workspaces.insert(ws)
 
-        # Return Path for compatibility
-        path = WORKSPACE_DIR / f"{task['seq']}_{task['slug']}_active.xml"
-        paths.append(path)
+            # Fetch inserted workspace to get all fields
+            inserted = list(workspaces.rows_where("id = ?", [result.id]))[0]
+            created_workspaces.append(_ws_to_dict(inserted))
 
-    return paths
+    return created_workspaces
 
 
-def complete(path: Path, delivered: str, utilized_memories: list = None) -> Path:
+def complete(path_or_id, delivered: str, utilized_memories: list = None) -> dict:
     """Mark workspace complete.
 
-    PRESERVES EXISTING API: Takes Path, returns Path.
-
     Args:
-        path: Path to workspace (used to extract workspace_id)
+        path_or_id: Path to workspace or workspace_id string
         delivered: Summary of what was delivered
         utilized_memories: List of {"name": str, "type": str} that were helpful
 
     Returns:
-        New path with _complete suffix
+        Updated workspace dict
     """
     db = _ensure_db()
     workspaces = db.t.workspace
 
-    workspace_id = _extract_workspace_id(path)
+    # Handle both Path and workspace_id
+    if isinstance(path_or_id, Path):
+        workspace_id = _extract_workspace_id(path_or_id)
+    elif isinstance(path_or_id, str):
+        if "/" in path_or_id or path_or_id.endswith(".xml"):
+            workspace_id = _extract_workspace_id(Path(path_or_id))
+        else:
+            workspace_id = path_or_id
+    else:
+        workspace_id = str(path_or_id)
 
     # Use lock to protect read-modify-write sequence
     with db_write_lock:
@@ -236,27 +235,35 @@ def complete(path: Path, delivered: str, utilized_memories: list = None) -> Path
             "utilized_memories": json.dumps(utilized_memories or [])
         }, ws["id"])
 
-    # Return new path with _complete suffix
-    new_path = path.parent / path.name.replace("_active.xml", "_complete.xml")
-    return new_path
+        # Fetch updated workspace
+        updated = list(workspaces.rows_where("id = ?", [ws["id"]]))[0]
+
+    return _ws_to_dict(updated)
 
 
-def block(path: Path, reason: str) -> Path:
+def block(path_or_id, reason: str) -> dict:
     """Mark workspace blocked.
 
-    PRESERVES EXISTING API: Takes Path, returns Path.
-
     Args:
-        path: Path to workspace (used to extract workspace_id)
+        path_or_id: Path to workspace or workspace_id string
         reason: Why it was blocked
 
     Returns:
-        New path with _blocked suffix
+        Updated workspace dict
     """
     db = _ensure_db()
     workspaces = db.t.workspace
 
-    workspace_id = _extract_workspace_id(path)
+    # Handle both Path and workspace_id
+    if isinstance(path_or_id, Path):
+        workspace_id = _extract_workspace_id(path_or_id)
+    elif isinstance(path_or_id, str):
+        if "/" in path_or_id or path_or_id.endswith(".xml"):
+            workspace_id = _extract_workspace_id(Path(path_or_id))
+        else:
+            workspace_id = path_or_id
+    else:
+        workspace_id = str(path_or_id)
 
     # Use lock to protect read-modify-write sequence
     with db_write_lock:
@@ -274,9 +281,10 @@ def block(path: Path, reason: str) -> Path:
             "delivered": f"BLOCKED: {reason}"
         }, ws["id"])
 
-    # Return new path with _blocked suffix
-    new_path = path.parent / path.name.replace("_active.xml", "_blocked.xml")
-    return new_path
+        # Fetch updated workspace
+        updated = list(workspaces.rows_where("id = ?", [ws["id"]]))[0]
+
+    return _ws_to_dict(updated)
 
 
 def parse(path_or_id) -> dict:
@@ -743,28 +751,19 @@ def main():
     if args.command == "create":
         plan = read_plan(args.plan_id)
         if not plan:
-            print(f"Error: Plan {args.plan_id} not found", file=sys.stderr)
+            print(json.dumps({"error": f"Plan {args.plan_id} not found"}))
             sys.exit(1)
-        paths = create(plan, args.task)
-        for p in paths:
-            print(f"Created: {p}")
+        workspaces = create(plan, args.task)
+        print(json.dumps({"created": workspaces}))
 
     elif args.command == "complete":
         utilized = json.loads(args.utilized) if args.utilized else None
-        if "/" in args.path or args.path.endswith(".xml"):
-            path = Path(args.path)
-        else:
-            path = _workspace_id_to_path(args.path, "active")
-        new_path = complete(path, args.delivered, utilized)
-        print(f"Completed: {new_path}")
+        result = complete(args.path, args.delivered, utilized)
+        print(json.dumps(result))
 
     elif args.command == "block":
-        if "/" in args.path or args.path.endswith(".xml"):
-            path = Path(args.path)
-        else:
-            path = _workspace_id_to_path(args.path, "active")
-        new_path = block(path, args.reason)
-        print(f"Blocked: {new_path}")
+        result = block(args.path, args.reason)
+        print(json.dumps(result))
 
     elif args.command == "parse":
         result = parse(args.path)

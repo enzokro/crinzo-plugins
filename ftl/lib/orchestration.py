@@ -29,12 +29,10 @@ from pathlib import Path
 try:
     from lib.db import get_db, init_db, Event
     from lib.exploration import get_session_status
-    from lib.phase import trigger_error
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db, Event
     from exploration import get_session_status
-    from phase import trigger_error
 
 
 # =============================================================================
@@ -114,8 +112,7 @@ def wait_explorers(
     session_id: str,
     required: int = DEFAULT_QUORUM,
     timeout: int = DEFAULT_TIMEOUT,
-    poll_interval: float = 2.0,
-    trigger_error_on_failure: bool = True
+    poll_interval: float = 2.0
 ) -> dict:
     """Wait for explorer agents to complete with quorum support.
 
@@ -126,7 +123,6 @@ def wait_explorers(
         required: Minimum number of explorers that must complete
         timeout: Maximum seconds to wait
         poll_interval: Seconds between checks
-        trigger_error_on_failure: If True, trigger error state on quorum_failure
 
     Returns:
         Status dict with completed and missing modes.
@@ -165,11 +161,6 @@ def wait_explorers(
             # Distinguish timeout with partial results vs complete failure
             if len(status["completed"]) == 0:
                 # Critical failure: no explorers completed at all
-                if trigger_error_on_failure:
-                    trigger_error(
-                        error_type="quorum_failure",
-                        error_message=f"No explorers completed within {timeout}s for session {session_id}"
-                    )
                 return {
                     "status": "quorum_failure",
                     "completed": [],

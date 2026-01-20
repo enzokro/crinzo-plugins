@@ -29,6 +29,32 @@ MAX_JSON_SIZE = 1024 * 1024
 import os
 GIT_SHA_TIMEOUT = int(os.environ.get("FTL_GIT_SHA_TIMEOUT", "5"))
 
+# Valid explorer modes
+EXPLORER_MODES = {"structure", "pattern", "memory", "delta"}
+
+# Schema coercion rules: transform data to expected types
+COERCIONS = {
+    "structure": {
+        "directories": lambda v: {str(d): True for d in v} if isinstance(v, list) else v,
+    },
+    "pattern": {
+        "framework": lambda v: str(v) if v is not None else None,
+        "confidence": lambda v: float(v) if v is not None else 0.5,
+    },
+    "delta": {
+        "candidates": lambda v: list(v) if hasattr(v, '__iter__') and not isinstance(v, (str, dict)) else [v] if v else [],
+    },
+    "memory": {},
+}
+
+# Default values for missing fields
+DEFAULTS = {
+    "structure": {"directories": {}, "entry_points": [], "test_patterns": [], "config_files": []},
+    "pattern": {"framework": None, "confidence": 0.5, "idioms": {"required": [], "forbidden": []}},
+    "memory": {"relevant_failures": [], "relevant_patterns": [], "similar_campaigns": []},
+    "delta": {"candidates": [], "candidate_files": []},
+}
+
 
 def _ensure_db():
     """Ensure database is initialized on first use."""
@@ -97,36 +123,26 @@ def extract_json(text: str, max_size: int = MAX_JSON_SIZE) -> dict | None:
 
 
 def validate_result(result: dict, strict: bool = True) -> tuple:
-    """Validate an explorer result has required fields.
+    """Validate and coerce explorer result to expected schema.
 
+    Applies schema coercion (type transforms) and defaults for missing fields.
     Validates common fields (mode, status) are present and valid.
     Mode-specific fields are enforced when strict=True and status is ok/partial.
-    For error status, validates any mode-specific fields that are present.
 
     Args:
-        result: Explorer result dict to validate
+        result: Explorer result dict to validate (MUTATED by coercion)
         strict: If True, reject missing mode-specific fields for ok/partial status
-
-    Expected mode-specific fields:
-    - structure: directories (dict of {dir_name: exists_bool})
-    - pattern: framework (str), confidence (float - has fallback to 0.5)
-    - delta: candidates (list)
-    - memory: (no additional required fields)
 
     Returns:
         (is_valid, error_message)
     """
-    import logging
-
     if not isinstance(result, dict):
         return False, "Result is not a dict"
 
-    if "mode" not in result:
+    mode = result.get("mode")
+    if not mode:
         return False, "Missing required field: mode"
-
-    valid_modes = {"structure", "pattern", "memory", "delta"}
-    mode = result["mode"]
-    if mode not in valid_modes:
+    if mode not in EXPLORER_MODES:
         return False, f"Invalid mode: {mode}"
 
     if "status" not in result:
@@ -134,27 +150,46 @@ def validate_result(result: dict, strict: bool = True) -> tuple:
 
     status = result.get("status", "")
 
-    # Mode-specific field type validation (applies to all statuses)
+    # Apply defaults for missing fields (mutates result)
+    if mode in DEFAULTS:
+        for field, default in DEFAULTS[mode].items():
+            if field not in result:
+                result[field] = default
+                logging.debug(f"Mode {mode}: applied default for '{field}'")
+
+    # Apply coercions for type mismatches (mutates result)
+    if mode in COERCIONS:
+        for field, coerce_fn in COERCIONS[mode].items():
+            if field in result:
+                try:
+                    original = result[field]
+                    result[field] = coerce_fn(original)
+                    if result[field] != original:
+                        logging.debug(f"Mode {mode}: coerced '{field}' from {type(original).__name__} to {type(result[field]).__name__}")
+                except Exception as e:
+                    logging.warning(f"Mode {mode}: coercion failed for '{field}': {e}")
+
+    # Mode-specific field type validation (applies to all statuses, after coercion)
     mode_field_types = {
-        "structure": {"directories": dict},  # {dir_name: exists_bool}
-        "pattern": {"framework": str, "confidence": (int, float)},
+        "structure": {"directories": dict},
+        "pattern": {"framework": (str, type(None)), "confidence": (int, float)},
         "delta": {"candidates": list},
         "memory": {},
     }
 
-    # Validate types for any mode-specific fields that are present
+    # Validate types for mode-specific fields (after coercion applied)
     for field, expected_type in mode_field_types.get(mode, {}).items():
-        if field in result:
+        if field in result and result[field] is not None:
             if not isinstance(result[field], expected_type):
-                return False, f"Mode {mode} field '{field}' has wrong type: expected {expected_type}, got {type(result[field]).__name__}"
+                return False, f"Mode {mode} field '{field}' has wrong type after coercion: expected {expected_type}, got {type(result[field]).__name__}"
 
     # Mode-specific presence validation (only for ok/partial status)
     if status in ("ok", "partial"):
         mode_requirements = {
             "structure": ["directories"],
-            "pattern": ["framework"],  # confidence optional (has fallback)
+            "pattern": [],  # framework can be None, confidence has default
             "delta": ["candidates"],
-            "memory": [],  # No additional required fields
+            "memory": [],
         }
         missing = [f for f in mode_requirements.get(mode, []) if f not in result]
         if missing:
@@ -207,8 +242,12 @@ def aggregate(results: list, objective: str = None) -> dict:
         is_valid, error = validate_result(r, strict=False)
         if not is_valid:
             mode = r.get("mode", "unknown") if isinstance(r, dict) else "invalid"
-            logging.warning(f"Dropping explorer result for mode '{mode}': {error}")
-            continue
+            # Only drop if fundamentally malformed (not dict, no mode, invalid mode)
+            if not isinstance(r, dict) or "mode" not in r or r.get("mode") not in EXPLORER_MODES:
+                logging.warning(f"Dropping malformed explorer result for mode '{mode}': {error}")
+                continue
+            # Otherwise warn but continue with coerced/defaulted data
+            logging.warning(f"Explorer result for mode '{mode}' has issues (continuing with coerced data): {error}")
 
         mode = r["mode"]
         status = r.get("status", "unknown")
@@ -612,7 +651,7 @@ def main():
     elif args.command == "write":
         exploration = json.load(sys.stdin)
         result = write(exploration)
-        print(f"Written: {result}")
+        print(json.dumps(result))
 
     elif args.command == "read":
         campaign_id = getattr(args, 'campaign_id', None)
@@ -636,7 +675,7 @@ def main():
 
     elif args.command == "clear":
         result = clear()
-        print(f"Cleared: {result['cleared']} explorations")
+        print(json.dumps(result))
 
     else:
         parser.print_help()

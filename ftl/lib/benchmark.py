@@ -672,7 +672,8 @@ def main():
     subparsers.add_parser("matching", help="Benchmark semantic matching")
     subparsers.add_parser("learning", help="Benchmark learning simulation")
     subparsers.add_parser("pruning", help="Benchmark pruning")
-    subparsers.add_parser("report", help="Generate benchmark report")
+    report_parser = subparsers.add_parser("report", help="Generate benchmark report")
+    report_parser.add_argument("--json", action="store_true", help="Output as JSON instead of text")
 
     # Database operations
     gr = subparsers.add_parser("get-run", help="Get run results")
@@ -711,7 +712,22 @@ def main():
         print(json.dumps([asdict(r) for r in results], indent=2))
 
     elif args.command == "report":
-        print(generate_report())
+        if args.json:
+            # Get the report data as a dict
+            runs = list_runs(limit=1)
+            if runs:
+                run_id = runs[0]["run_id"]
+                metrics = get_run(run_id)
+                report_data = {
+                    "run_id": run_id,
+                    "metrics": metrics,
+                    "timestamp": metrics[0]["created_at"] if metrics else datetime.now().isoformat()
+                }
+            else:
+                report_data = {"error": "No benchmark runs found"}
+            print(json.dumps(report_data, indent=2))
+        else:
+            print(generate_report())
 
     elif args.command == "get-run":
         results = get_run(args.run_id)

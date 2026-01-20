@@ -135,14 +135,20 @@ EMIT: "Step: targets, Status: {function_name}@{line}"
 Input: task characteristics
 Output: budget per task
 
-Budget Rules:
-  | Condition | Budget |
-  |-----------|--------|
-  | VERIFY type | 3 |
-  | Single file, no framework | 3 |
-  | Multi-file OR framework | 5 |
-  | Prior failures on similar task | 7 |
-  | Delta file >100 lines with partial context | +2 |
+Formula:
+  MINIMUM = 5                           # READ(1) + IMPLEMENT(1) + VERIFY(1) + RETRY_MARGIN(2)
+  FILE_BONUS = max(0, len(delta) - 1)   # Additional files beyond first
+  COMPLEXITY = 2 if (prior_failures OR framework_confidence >= 0.6) else 0
+
+  budget = min(9, MINIMUM + FILE_BONUS + COMPLEXITY)
+
+Budget Scenarios:
+  | Scenario | Budget | Rationale |
+  |----------|--------|-----------|
+  | Single file, no complexity | 5 | Minimum viable |
+  | Single file + framework | 7 | +2 complexity |
+  | 2 files | 6 | +1 file bonus |
+  | 3 files + prior failures | 9 | 5 + 2 files + 2 complexity |
 
 Assigned to each task's `budget` field.
 ```

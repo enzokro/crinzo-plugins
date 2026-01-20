@@ -27,7 +27,7 @@ version: 2.4.13
 |-------|------|-------|--------|
 | **Explorer** | Parallel codebase exploration | haiku | 4 |
 | **Planner** | Decompose into verifiable tasks | opus | unlimited |
-| **Builder** | Transform spec into code | opus | 3-7 |
+| **Builder** | Transform spec into code | opus | 5-9 |
 | **Observer** | Extract patterns from work | opus | 10 |
 
 ## Paths
@@ -76,20 +76,16 @@ Your cognitive process while orchestrating:
 
 ## Architecture: Two-Layer State Model
 
-FTL uses two complementary state systems:
+FTL uses a single state system with campaign.status as the source of truth:
 
 | Layer | Location | Purpose | States |
 |-------|----------|---------|--------|
-| **Agent Coordination** | `phase.py` | Track workflow phases in database | none, explore, plan, build, observe, complete, error |
 | **Orchestration DSL** | This file | Guide Claude's behavioral flow | INIT, EXPLORE, PLAN, REGISTER, EXECUTE, CASCADE, BUILD, OBSERVE, COMPLETE, ERROR |
+| **Campaign Status** | `campaign.py` | Track workflow status in database | active, complete |
 
-**Why two layers?**
-- `phase.py` provides persistent, queryable state for tooling and debugging
-- SKILL.md states are behavioral prompts that guide orchestration flow
+**Design principle**: Campaign status IS the workflow state. The orchestration DSL states are behavioral prompts that guide flow, while campaign.status provides persistent, queryable state for tooling.
 
-**Key distinction**: REGISTER, EXECUTE, and CASCADE exist only in this DSL—they're campaign management behaviors, not database-tracked phases. The `phase.py` machine intentionally uses a simpler vocabulary (explore→plan→build→observe) for agent coordination.
-
-**ERROR state**: Present in both layers. `phase.py` tracks it for recovery; this DSL defines the recovery protocol.
+**Key distinction**: REGISTER, EXECUTE, and CASCADE exist only in this DSL—they're campaign management behaviors. The campaign table tracks task completion, blocks, and overall campaign status.
 
 ---
 
@@ -242,11 +238,12 @@ STATE: PLAN
 
 STATE: BUILD
   EMIT: STATE_ENTRY state=BUILD
-  DO: workspace_path = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id}
-  DO: builder_output = Task(ftl:ftl-builder) with workspace_path
-  # Extract UTILIZED from builder output and workspace_id from path
+  CHECK: ws_result = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id}
+  # ws_result.created[0] contains workspace dict with workspace_id, status, etc.
+  DO: workspace_id = ws_result.created[0].workspace_id
+  DO: builder_output = Task(ftl:ftl-builder) with workspace_id
+  # Extract UTILIZED from builder output
   DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
-  DO: workspace_id = extract workspace identifier from workspace_path
   DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {workspace_id}
   IF: workspace completed successfully →
       # Use base64 encoding to avoid shell quoting issues with JSON
@@ -278,6 +275,7 @@ STATE: ERROR
 ```
 STATE: INIT
   USE: INIT_PATTERN with mode=campaign
+  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "{objective}"
 
 STATE: EXPLORE
   USE: EXPLORE_PATTERN with objective={objective}
@@ -287,7 +285,6 @@ STATE: PLAN
 
 STATE: REGISTER
   EMIT: STATE_ENTRY state=REGISTER
-  DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py create "objective"
   DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/plan.py read --id {plan_id} | python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py add-tasks
   EMIT: PHASE_TRANSITION from=register to=execute
   GOTO: EXECUTE with plan_id
@@ -304,10 +301,11 @@ STATE: EXECUTE
   IF: iteration_count > 3 AND len(ready_tasks) == prior_ready_count → EMIT: "Stuck: ready_tasks unchanged for 3+ iterations", GOTO CASCADE
   SET: prior_ready_count = len(ready_tasks)
   DO: FOR EACH task in ready_tasks (launch in PARALLEL):
-        DO: ws_path = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
-        DO: builder_output = Task(ftl:ftl-builder) with ws_path
+        CHECK: ws_result = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
+        DO: workspace_id = ws_result.created[0].workspace_id
+        DO: builder_output = Task(ftl:ftl-builder) with workspace_id
         DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
-        DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {SEQ}-*
+        DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace {workspace_id}
         IF: task completed (not blocked) →
             # Use base64 encoding to avoid shell quoting issues with JSON
             DO: utilized_b64 = base64_encode(utilized)
@@ -361,9 +359,9 @@ STATE: COMPLETE
 ## Workspace Lifecycle
 
 ```
-Workspace ID format: {SEQ}_{slug}_{status}
+Workspace ID format: {SEQ}-{slug} (e.g., "001-add-feature")
 Storage: .ftl/ftl.db (workspace table)
-Virtual paths: workspace.py returns Path-like strings for CLI compatibility
+API returns: workspace dicts with workspace_id, status, delta, verify, etc.
 ```
 
 States: `active` → `complete` | `blocked`

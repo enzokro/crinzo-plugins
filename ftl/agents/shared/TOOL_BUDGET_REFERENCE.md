@@ -17,7 +17,7 @@ See [ONTOLOGY.md](ONTOLOGY.md#tool-budget) for canonical terminology:
 |-------|-------------|-------|
 | Explorer | 4 per mode | Fixed, optimized for parallel execution |
 | Planner | Unlimited | Reasoning-focused, not tool-heavy |
-| Builder | 3-7 (from workspace) | Task-specific, set by Planner |
+| Builder | 5-9 (from workspace) | Task-specific, set by Planner (minimum 5) |
 | Observer | 10 | Analysis + synthesis phases |
 
 ## What Counts as a Tool Call
@@ -53,13 +53,21 @@ Budget counts **tool invocations**, not unique resources:
 
 ## Budget Assignment Rules (Planner)
 
-| Condition | Budget |
-|-----------|--------|
-| VERIFY task type | 3 |
-| Single file, no framework | 3 |
-| Multi-file OR framework | 5 |
-| Prior failures on similar task | 7 |
-| Delta file >100 lines with partial context | +2 bonus |
+Formula:
+```
+MINIMUM = 5                           # READ(1) + IMPLEMENT(1) + VERIFY(1) + RETRY_MARGIN(2)
+FILE_BONUS = max(0, len(delta) - 1)   # Additional files beyond first
+COMPLEXITY = 2 if (prior_failures OR framework_confidence >= 0.6) else 0
+
+budget = min(9, MINIMUM + FILE_BONUS + COMPLEXITY)
+```
+
+| Scenario | Budget | Rationale |
+|----------|--------|-----------|
+| Single file, no complexity | 5 | Minimum viable |
+| Single file + framework | 7 | +2 complexity |
+| 2 files | 6 | +1 file bonus |
+| 3 files + prior failures | 9 | 5 + 2 files + 2 complexity |
 
 ## Budget Exhaustion Handling
 

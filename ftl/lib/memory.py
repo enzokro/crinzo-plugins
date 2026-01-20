@@ -23,7 +23,6 @@ try:
         similarity as semantic_similarity,
         cosine_similarity_blob, is_available
     )
-    from lib.phase import error_boundary
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db, Memory, MemoryEdge, db_write_lock
@@ -32,7 +31,6 @@ except ImportError:
         similarity as semantic_similarity,
         cosine_similarity_blob, is_available
     )
-    from phase import error_boundary
 
 
 # Note: All storage is now in .ftl/ftl.db
@@ -552,77 +550,76 @@ def add_relationship(
 
     Returns: "added" | "exists" | "not_found:{name}" | "invalid_type:{type}"
     """
-    with error_boundary("add_relationship"):
-        if relationship_type not in RELATIONSHIP_TYPES:
-            return f"invalid_type:{relationship_type}"
+    if relationship_type not in RELATIONSHIP_TYPES:
+        return f"invalid_type:{relationship_type}"
 
-        db = _ensure_db()
-        memories = db.t.memory
-        edges = db.t.memory_edge
+    db = _ensure_db()
+    memories = db.t.memory
+    edges = db.t.memory_edge
 
-        type_filter = "failure" if entry_type == "failure" else "pattern"
+    type_filter = "failure" if entry_type == "failure" else "pattern"
 
-        source = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
-        target = list(memories.rows_where("name = ? AND type = ?", [related_name, type_filter]))
+    source = list(memories.rows_where("name = ? AND type = ?", [entry_name, type_filter]))
+    target = list(memories.rows_where("name = ? AND type = ?", [related_name, type_filter]))
 
-        if not source:
-            return f"not_found:{entry_name}"
-        if not target:
-            return f"not_found:{related_name}"
+    if not source:
+        return f"not_found:{entry_name}"
+    if not target:
+        return f"not_found:{related_name}"
 
-        source_id = source[0]["id"]
-        target_id = target[0]["id"]
+    source_id = source[0]["id"]
+    target_id = target[0]["id"]
 
-        # Check if edge exists
-        existing = list(edges.rows_where(
-            "from_id = ? AND to_id = ? AND rel_type = ?",
-            [source_id, target_id, relationship_type]
+    # Check if edge exists
+    existing = list(edges.rows_where(
+        "from_id = ? AND to_id = ? AND rel_type = ?",
+        [source_id, target_id, relationship_type]
+    ))
+    if existing:
+        return "exists"
+
+    # Use lock for atomic bidirectional edge insertion
+    # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+    with db_write_lock:
+        # Add bidirectional edges
+        weight = DEFAULT_RELATIONSHIP_WEIGHTS.get(relationship_type, 0.8)
+        now = datetime.now().isoformat()
+
+        edges.insert(MemoryEdge(
+            from_id=source_id,
+            to_id=target_id,
+            rel_type=relationship_type,
+            weight=weight,
+            created_at=now
         ))
-        if existing:
-            return "exists"
 
-        # Use lock for atomic bidirectional edge insertion
-        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
-        with db_write_lock:
-            # Add bidirectional edges
-            weight = DEFAULT_RELATIONSHIP_WEIGHTS.get(relationship_type, 0.8)
-            now = datetime.now().isoformat()
+        inverse_type = _inverse_relationship(relationship_type)
+        edges.insert(MemoryEdge(
+            from_id=target_id,
+            to_id=source_id,
+            rel_type=inverse_type,
+            weight=weight,
+            created_at=now
+        ))
 
-            edges.insert(MemoryEdge(
-                from_id=source_id,
-                to_id=target_id,
-                rel_type=relationship_type,
-                weight=weight,
-                created_at=now
-            ))
+        # Also update the JSON field for backwards compatibility
+        source_row = source[0]
+        source_typed = json.loads(source_row.get("related_typed") or "{}")
+        if relationship_type not in source_typed:
+            source_typed[relationship_type] = []
+        if related_name not in source_typed[relationship_type]:
+            source_typed[relationship_type].append(related_name)
+        memories.update({"related_typed": json.dumps(source_typed)}, source_id)
 
-            inverse_type = _inverse_relationship(relationship_type)
-            edges.insert(MemoryEdge(
-                from_id=target_id,
-                to_id=source_id,
-                rel_type=inverse_type,
-                weight=weight,
-                created_at=now
-            ))
+        target_row = target[0]
+        target_typed = json.loads(target_row.get("related_typed") or "{}")
+        if inverse_type not in target_typed:
+            target_typed[inverse_type] = []
+        if entry_name not in target_typed[inverse_type]:
+            target_typed[inverse_type].append(entry_name)
+        memories.update({"related_typed": json.dumps(target_typed)}, target_id)
 
-            # Also update the JSON field for backwards compatibility
-            source_row = source[0]
-            source_typed = json.loads(source_row.get("related_typed") or "{}")
-            if relationship_type not in source_typed:
-                source_typed[relationship_type] = []
-            if related_name not in source_typed[relationship_type]:
-                source_typed[relationship_type].append(related_name)
-            memories.update({"related_typed": json.dumps(source_typed)}, source_id)
-
-            target_row = target[0]
-            target_typed = json.loads(target_row.get("related_typed") or "{}")
-            if inverse_type not in target_typed:
-                target_typed[inverse_type] = []
-            if entry_name not in target_typed[inverse_type]:
-                target_typed[inverse_type].append(entry_name)
-            memories.update({"related_typed": json.dumps(target_typed)}, target_id)
-
-        return "added"
+    return "added"
 
 
 def get_related_entries(
@@ -719,46 +716,45 @@ def add_cross_relationship(
 
     Returns: "added" | "exists" | "not_found:{name}" | "invalid_type:{type}"
     """
-    with error_boundary("add_cross_relationship"):
-        valid_cross_types = {"solves", "causes"}
-        if relationship_type not in valid_cross_types:
-            return f"invalid_type:{relationship_type}"
+    valid_cross_types = {"solves", "causes"}
+    if relationship_type not in valid_cross_types:
+        return f"invalid_type:{relationship_type}"
 
-        db = _ensure_db()
-        memories = db.t.memory
+    db = _ensure_db()
+    memories = db.t.memory
 
-        failure = list(memories.rows_where("name = ? AND type = ?", [failure_name, "failure"]))
-        pattern = list(memories.rows_where("name = ? AND type = ?", [pattern_name, "pattern"]))
+    failure = list(memories.rows_where("name = ? AND type = ?", [failure_name, "failure"]))
+    pattern = list(memories.rows_where("name = ? AND type = ?", [pattern_name, "pattern"]))
 
-        if not failure:
-            return f"not_found:failure:{failure_name}"
-        if not pattern:
-            return f"not_found:pattern:{pattern_name}"
+    if not failure:
+        return f"not_found:failure:{failure_name}"
+    if not pattern:
+        return f"not_found:pattern:{pattern_name}"
 
-        failure_row = failure[0]
-        pattern_row = pattern[0]
+    failure_row = failure[0]
+    pattern_row = pattern[0]
 
-        # Update cross_relationships JSON field
-        failure_cross = json.loads(failure_row.get("cross_relationships") or "{}")
-        if relationship_type not in failure_cross:
-            failure_cross[relationship_type] = []
-        if pattern_name in failure_cross[relationship_type]:
-            return "exists"
+    # Update cross_relationships JSON field
+    failure_cross = json.loads(failure_row.get("cross_relationships") or "{}")
+    if relationship_type not in failure_cross:
+        failure_cross[relationship_type] = []
+    if pattern_name in failure_cross[relationship_type]:
+        return "exists"
 
-        # Use lock for atomic bidirectional update
-        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
-        with db_write_lock:
-            failure_cross[relationship_type].append(pattern_name)
-            memories.update({"cross_relationships": json.dumps(failure_cross)}, failure_row["id"])
+    # Use lock for atomic bidirectional update
+    # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+    with db_write_lock:
+        failure_cross[relationship_type].append(pattern_name)
+        memories.update({"cross_relationships": json.dumps(failure_cross)}, failure_row["id"])
 
-            inverse_type = "solved_by" if relationship_type == "solves" else "caused_by"
-            pattern_cross = json.loads(pattern_row.get("cross_relationships") or "{}")
-            if inverse_type not in pattern_cross:
-                pattern_cross[inverse_type] = []
-            pattern_cross[inverse_type].append(failure_name)
-            memories.update({"cross_relationships": json.dumps(pattern_cross)}, pattern_row["id"])
+        inverse_type = "solved_by" if relationship_type == "solves" else "caused_by"
+        pattern_cross = json.loads(pattern_row.get("cross_relationships") or "{}")
+        if inverse_type not in pattern_cross:
+            pattern_cross[inverse_type] = []
+        pattern_cross[inverse_type].append(failure_name)
+        memories.update({"cross_relationships": json.dumps(pattern_cross)}, pattern_row["id"])
 
-        return "added"
+    return "added"
 
 
 def get_solutions(failure_name: str, path: Path = None) -> list:
@@ -857,27 +853,26 @@ def record_feedback_batch(
 
     Returns: {"helped": N, "not_helped": M, "error": str (if failed)}
     """
-    with error_boundary("record_feedback_batch"):
-        utilized_set = {(m["name"], m["type"]) for m in utilized}
-        injected_set = {(m["name"], m["type"]) for m in injected}
+    utilized_set = {(m["name"], m["type"]) for m in utilized}
+    injected_set = {(m["name"], m["type"]) for m in injected}
 
-        result = {"helped": 0, "not_helped": 0}
+    result = {"helped": 0, "not_helped": 0}
 
-        # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
-        # Each record_feedback call is atomic; batch is protected by error_boundary
-        try:
-            for name, entry_type in injected_set:
-                helped = (name, entry_type) in utilized_set
-                status = record_feedback(name, entry_type, helped)
-                if status == "updated":
-                    if helped:
-                        result["helped"] += 1
-                    else:
-                        result["not_helped"] += 1
-        except Exception as e:
-            result["error"] = str(e)
+    # Note: fastsql provides single-op atomicity; explicit transactions conflict with auto-commit
+    # Each record_feedback call is atomic
+    try:
+        for name, entry_type in injected_set:
+            helped = (name, entry_type) in utilized_set
+            status = record_feedback(name, entry_type, helped)
+            if status == "updated":
+                if helped:
+                    result["helped"] += 1
+                else:
+                    result["not_helped"] += 1
+    except Exception as e:
+        result["error"] = str(e)
 
-        return result
+    return result
 
 
 def _track_access(entry_names: list, entry_type: str = "failure", path: Path = None) -> None:
@@ -1397,12 +1392,12 @@ def main():
     elif args.command == "add-failure":
         failure = json.loads(args.json)
         result = add_failure(failure)
-        print(result)
+        print(json.dumps({"status": result}))
 
     elif args.command == "add-pattern":
         pattern = json.loads(args.json)
         result = add_pattern(pattern)
-        print(result)
+        print(json.dumps({"status": result}))
 
     elif args.command == "query":
         results = query(args.topic)
@@ -1422,7 +1417,7 @@ def main():
             args.source, args.target, args.type,
             relationship_type=args.rel_type
         )
-        print(result)
+        print(json.dumps({"status": result}))
 
     elif args.command == "related":
         result = get_related_entries(args.name, args.type, args.max_hops)
@@ -1444,9 +1439,9 @@ def main():
         elif args.failed:
             result = record_feedback(args.name, args.type, helped=False)
         else:
-            print("Must specify --helped or --failed")
+            print("Must specify --helped or --failed", file=sys.stderr)
             sys.exit(1)
-        print(result)
+        print(json.dumps({"status": result}))
 
     elif args.command == "feedback-batch":
         # Support both direct JSON and base64-encoded JSON
@@ -1471,7 +1466,7 @@ def main():
 
     elif args.command == "add-cross-relationship":
         result = add_cross_relationship(args.failure, args.pattern, args.type)
-        print(result)
+        print(json.dumps({"status": result}))
 
     elif args.command == "get-solutions":
         result = get_solutions(args.failure)

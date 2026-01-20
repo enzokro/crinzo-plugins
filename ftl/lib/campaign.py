@@ -17,12 +17,10 @@ import hashlib
 try:
     from lib.db import get_db, init_db, Campaign, Archive, db_write_lock
     from lib.db.embeddings import embed, embed_to_blob, cosine_similarity_blob, similarity
-    from lib.phase import error_boundary
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db import get_db, init_db, Campaign, Archive, db_write_lock
     from db.embeddings import embed, embed_to_blob, cosine_similarity_blob, similarity
-    from phase import error_boundary
 
 
 def _ensure_db():
@@ -109,58 +107,57 @@ def add_tasks(plan: dict) -> None:
     Raises:
         ValueError: If no active campaign, cycle detected, or dangling dependency
     """
-    with error_boundary("add_tasks"):
+    campaign = _get_active_campaign()
+    if not campaign:
+        raise ValueError("No active campaign")
+
+    tasks = plan.get("tasks", [])
+
+    # Detect cycles before registering
+    cycle = _detect_cycle(tasks)
+    if cycle:
+        cycle_str = " -> ".join(str(s) for s in cycle)
+        raise ValueError(f"Cycle detected in task dependencies: {cycle_str}")
+
+    # Validate no dangling dependencies (deps must reference existing task seqs)
+    task_seqs = {_normalize_seq(t["seq"]) for t in tasks}
+    for task in tasks:
+        deps = _get_deps(task)
+        for dep in deps:
+            if dep not in task_seqs:
+                raise ValueError(
+                    f"Dangling dependency: task {task['seq']} depends on {dep}, "
+                    f"which does not exist in the plan. Valid seqs: {sorted(task_seqs)}"
+                )
+
+    db = _ensure_db()
+    campaigns = db.t.campaign
+
+    # Build task entries with status
+    task_entries = [
+        {
+            "seq": t["seq"],
+            "slug": t["slug"],
+            "type": t.get("type", "BUILD"),
+            "depends": t.get("depends", "none"),
+            "status": "pending"
+        }
+        for t in tasks
+    ]
+
+    # Use lock to prevent concurrent overwrites
+    # Note: fastsql provides single-operation atomicity; explicit transactions
+    # conflict with its auto-commit behavior
+    with db_write_lock:
+        # Re-fetch campaign inside lock to ensure freshness (TOCTOU protection)
         campaign = _get_active_campaign()
         if not campaign:
             raise ValueError("No active campaign")
 
-        tasks = plan.get("tasks", [])
-
-        # Detect cycles before registering
-        cycle = _detect_cycle(tasks)
-        if cycle:
-            cycle_str = " -> ".join(str(s) for s in cycle)
-            raise ValueError(f"Cycle detected in task dependencies: {cycle_str}")
-
-        # Validate no dangling dependencies (deps must reference existing task seqs)
-        task_seqs = {_normalize_seq(t["seq"]) for t in tasks}
-        for task in tasks:
-            deps = _get_deps(task)
-            for dep in deps:
-                if dep not in task_seqs:
-                    raise ValueError(
-                        f"Dangling dependency: task {task['seq']} depends on {dep}, "
-                        f"which does not exist in the plan. Valid seqs: {sorted(task_seqs)}"
-                    )
-
-        db = _ensure_db()
-        campaigns = db.t.campaign
-
-        # Build task entries with status
-        task_entries = [
-            {
-                "seq": t["seq"],
-                "slug": t["slug"],
-                "type": t.get("type", "BUILD"),
-                "depends": t.get("depends", "none"),
-                "status": "pending"
-            }
-            for t in tasks
-        ]
-
-        # Use lock to prevent concurrent overwrites
-        # Note: fastsql provides single-operation atomicity; explicit transactions
-        # conflict with its auto-commit behavior
-        with db_write_lock:
-            # Re-fetch campaign inside lock to ensure freshness (TOCTOU protection)
-            campaign = _get_active_campaign()
-            if not campaign:
-                raise ValueError("No active campaign")
-
-            campaigns.update({
-                "framework": plan.get("framework"),
-                "tasks": json.dumps(task_entries)
-            }, campaign["id"])
+        campaigns.update({
+            "framework": plan.get("framework"),
+            "tasks": json.dumps(task_entries)
+        }, campaign["id"])
 
 
 def update_task(seq, status: str) -> None:
@@ -173,39 +170,38 @@ def update_task(seq, status: str) -> None:
     Raises:
         ValueError: If no active campaign or task seq not found
     """
-    with error_boundary("update_task"):
-        campaign = _get_active_campaign()
-        if not campaign:
-            raise ValueError("No active campaign")
+    campaign = _get_active_campaign()
+    if not campaign:
+        raise ValueError("No active campaign")
 
-        db = _ensure_db()
-        campaigns = db.t.campaign
+    db = _ensure_db()
+    campaigns = db.t.campaign
 
-        seq_normalized = _normalize_seq(seq)
+    seq_normalized = _normalize_seq(seq)
 
-        # Use lock to prevent cross-thread races on read-modify-write
-        with db_write_lock:
-            # Re-read inside lock for fresh state
-            campaign_rows = list(campaigns.rows_where("id = ?", [campaign["id"]]))
-            if not campaign_rows:
-                raise ValueError("Campaign disappeared during update")
+    # Use lock to prevent cross-thread races on read-modify-write
+    with db_write_lock:
+        # Re-read inside lock for fresh state
+        campaign_rows = list(campaigns.rows_where("id = ?", [campaign["id"]]))
+        if not campaign_rows:
+            raise ValueError("Campaign disappeared during update")
 
-            campaign = campaign_rows[0]
-            tasks = json.loads(campaign["tasks"])
+        campaign = campaign_rows[0]
+        tasks = json.loads(campaign["tasks"])
 
-            found = False
-            for task in tasks:
-                if _normalize_seq(task["seq"]) == seq_normalized:
-                    task["status"] = status
-                    task["updated_at"] = datetime.now().isoformat()
-                    found = True
-                    break
+        found = False
+        for task in tasks:
+            if _normalize_seq(task["seq"]) == seq_normalized:
+                task["status"] = status
+                task["updated_at"] = datetime.now().isoformat()
+                found = True
+                break
 
-            if not found:
-                raise ValueError(f"Task seq {seq} not found in campaign")
+        if not found:
+            raise ValueError(f"Task seq {seq} not found in campaign")
 
-            # Single atomic update (fastsql provides single-op atomicity)
-            campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
+        # Single atomic update (fastsql provides single-op atomicity)
+        campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
 
 
 def next_task() -> dict | None:
@@ -319,77 +315,76 @@ def propagate_blocks() -> list:
     Returns:
         List of task seqs that were marked blocked
     """
-    with error_boundary("propagate_blocks"):
-        all_propagated = []
-        db = _ensure_db()
-        campaigns = db.t.campaign
+    all_propagated = []
+    db = _ensure_db()
+    campaigns = db.t.campaign
 
-        while True:
-            # Use lock to prevent cross-thread races on read-modify-write
-            with db_write_lock:
-                # Get active campaign
-                rows = list(campaigns.rows_where("status = ?", ["active"]))
-                if not rows:
-                    break
+    while True:
+        # Use lock to prevent cross-thread races on read-modify-write
+        with db_write_lock:
+            # Get active campaign
+            rows = list(campaigns.rows_where("status = ?", ["active"]))
+            if not rows:
+                break
 
-                rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
-                campaign = rows[0]
-                tasks = json.loads(campaign["tasks"])
+            rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+            campaign = rows[0]
+            tasks = json.loads(campaign["tasks"])
 
-                if not tasks:
-                    break
+            if not tasks:
+                break
 
-                # Compute cascade status
-                completed_seqs = {_normalize_seq(t["seq"]) for t in tasks if t.get("status") == "complete"}
-                blocked_seqs = {_normalize_seq(t["seq"]) for t in tasks if t.get("status") == "blocked"}
+            # Compute cascade status
+            completed_seqs = {_normalize_seq(t["seq"]) for t in tasks if t.get("status") == "complete"}
+            blocked_seqs = {_normalize_seq(t["seq"]) for t in tasks if t.get("status") == "blocked"}
 
-                # Find ready tasks (pending with all deps complete)
-                ready = []
-                for task in tasks:
-                    if task.get("status") != "pending":
-                        continue
-                    deps = _get_deps(task)
-                    if all(d in completed_seqs for d in deps):
-                        ready.append(task)
+            # Find ready tasks (pending with all deps complete)
+            ready = []
+            for task in tasks:
+                if task.get("status") != "pending":
+                    continue
+                deps = _get_deps(task)
+                if all(d in completed_seqs for d in deps):
+                    ready.append(task)
 
-                # If tasks are ready, not stuck
-                if ready:
-                    break
+            # If tasks are ready, not stuck
+            if ready:
+                break
 
-                # Check for unreachable tasks (pending with blocked deps)
-                unreachable = []
-                for t in tasks:
-                    if t.get("status") != "pending":
-                        continue
-                    deps = _get_deps(t)
-                    blocking_parents = [str(d) for d in deps if d in blocked_seqs]
-                    if blocking_parents:
-                        unreachable.append({"seq": t["seq"], "blocked_by": blocking_parents})
+            # Check for unreachable tasks (pending with blocked deps)
+            unreachable = []
+            for t in tasks:
+                if t.get("status") != "pending":
+                    continue
+                deps = _get_deps(t)
+                blocking_parents = [str(d) for d in deps if d in blocked_seqs]
+                if blocking_parents:
+                    unreachable.append({"seq": t["seq"], "blocked_by": blocking_parents})
 
-                if not unreachable:
-                    break
+            if not unreachable:
+                break
 
-                # Propagate blocks
-                unreachable_map = {u["seq"]: u["blocked_by"] for u in unreachable}
-                propagated = []
-                now = datetime.now().isoformat()
+            # Propagate blocks
+            unreachable_map = {u["seq"]: u["blocked_by"] for u in unreachable}
+            propagated = []
+            now = datetime.now().isoformat()
 
-                for task in tasks:
-                    if task["seq"] in unreachable_map:
-                        task["status"] = "blocked"
-                        task["blocked_by"] = unreachable_map[task["seq"]]
-                        task["updated_at"] = now
-                        propagated.append(task["seq"])
+            for task in tasks:
+                if task["seq"] in unreachable_map:
+                    task["status"] = "blocked"
+                    task["blocked_by"] = unreachable_map[task["seq"]]
+                    task["updated_at"] = now
+                    propagated.append(task["seq"])
 
-                # Single atomic update (fastsql provides atomicity for single ops)
-                campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
-                all_propagated.extend(propagated)
+            # Single atomic update (fastsql provides atomicity for single ops)
+            campaigns.update({"tasks": json.dumps(tasks)}, campaign["id"])
+            all_propagated.extend(propagated)
 
-                # If nothing was propagated, we're done
-                if not propagated:
-                    break
+            # If nothing was propagated, we're done
+            if not propagated:
+                break
 
-        return all_propagated
+    return all_propagated
 
 
 def status() -> dict:
@@ -438,81 +433,80 @@ def complete(summary: str = None, patterns_extracted: list = None) -> dict:
     Returns:
         Final campaign dict
     """
-    with error_boundary("campaign_complete"):
-        campaign = _get_active_campaign()
-        if not campaign:
-            raise ValueError("No active campaign")
+    campaign = _get_active_campaign()
+    if not campaign:
+        raise ValueError("No active campaign")
 
-        db = _ensure_db()
-        campaigns = db.t.campaign
-        archives = db.t.archive
+    db = _ensure_db()
+    campaigns = db.t.campaign
+    archives = db.t.archive
 
-        completed_at = datetime.now().isoformat()
-        tasks = json.loads(campaign["tasks"])
+    completed_at = datetime.now().isoformat()
+    tasks = json.loads(campaign["tasks"])
 
-        # Calculate summary - ensure it's always a dict to avoid double-encoding
-        if summary is not None:
-            if isinstance(summary, dict):
-                summary_data = summary
-            elif isinstance(summary, str):
-                # Try to parse as JSON, fall back to wrapping in dict
-                try:
-                    parsed = json.loads(summary)
-                    summary_data = parsed if isinstance(parsed, dict) else {"text": summary}
-                except json.JSONDecodeError:
-                    summary_data = {"text": summary}
-            else:
-                summary_data = {"value": summary}
+    # Calculate summary - ensure it's always a dict to avoid double-encoding
+    if summary is not None:
+        if isinstance(summary, dict):
+            summary_data = summary
+        elif isinstance(summary, str):
+            # Try to parse as JSON, fall back to wrapping in dict
+            try:
+                parsed = json.loads(summary)
+                summary_data = parsed if isinstance(parsed, dict) else {"text": summary}
+            except json.JSONDecodeError:
+                summary_data = {"text": summary}
         else:
-            summary_data = {
-                "total": len(tasks),
-                "complete": sum(1 for t in tasks if t.get("status") == "complete"),
-                "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
-            }
-
-        # Generate fingerprint
-        fp = fingerprint({"objective": campaign["objective"], "framework": campaign.get("framework"), "tasks": tasks})
-
-        # Determine outcome
-        if isinstance(summary_data, dict):
-            total = summary_data.get("total", 0)
-            complete_count = summary_data.get("complete", 0)
-            outcome = "complete" if complete_count == total else "partial"
-        else:
-            outcome = "complete"
-
-        # Use lock for atomic operations (fastsql provides single-op atomicity)
-        with db_write_lock:
-            # Update campaign
-            campaigns.update({
-                "status": "complete",
-                "completed_at": completed_at,
-                "summary": json.dumps(summary_data),
-                "fingerprint": json.dumps(fp),
-                "patterns_extracted": json.dumps(patterns_extracted or [])
-            }, campaign["id"])
-
-            # Create archive entry in database
-            archives.insert(Archive(
-                campaign_id=campaign["id"],
-                objective=campaign["objective"],
-                objective_preview=campaign["objective"][:100],
-                framework=campaign.get("framework"),
-                completed_at=completed_at,
-                fingerprint=json.dumps(fp),
-                objective_embedding=campaign.get("objective_embedding"),
-                outcome=outcome,
-                summary=json.dumps(summary_data),
-                patterns_extracted=json.dumps(patterns_extracted or [])
-            ))
-
-        return {
-            "status": "complete",
-            "objective": campaign["objective"],
-            "completed_at": completed_at,
-            "summary": summary_data,
-            "fingerprint": fp,
+            summary_data = {"value": summary}
+    else:
+        summary_data = {
+            "total": len(tasks),
+            "complete": sum(1 for t in tasks if t.get("status") == "complete"),
+            "blocked": sum(1 for t in tasks if t.get("status") == "blocked"),
         }
+
+    # Generate fingerprint
+    fp = fingerprint({"objective": campaign["objective"], "framework": campaign.get("framework"), "tasks": tasks})
+
+    # Determine outcome
+    if isinstance(summary_data, dict):
+        total = summary_data.get("total", 0)
+        complete_count = summary_data.get("complete", 0)
+        outcome = "complete" if complete_count == total else "partial"
+    else:
+        outcome = "complete"
+
+    # Use lock for atomic operations (fastsql provides single-op atomicity)
+    with db_write_lock:
+        # Update campaign
+        campaigns.update({
+            "status": "complete",
+            "completed_at": completed_at,
+            "summary": json.dumps(summary_data),
+            "fingerprint": json.dumps(fp),
+            "patterns_extracted": json.dumps(patterns_extracted or [])
+        }, campaign["id"])
+
+        # Create archive entry in database
+        archives.insert(Archive(
+            campaign_id=campaign["id"],
+            objective=campaign["objective"],
+            objective_preview=campaign["objective"][:100],
+            framework=campaign.get("framework"),
+            completed_at=completed_at,
+            fingerprint=json.dumps(fp),
+            objective_embedding=campaign.get("objective_embedding"),
+            outcome=outcome,
+            summary=json.dumps(summary_data),
+            patterns_extracted=json.dumps(patterns_extracted or [])
+        ))
+
+    return {
+        "status": "complete",
+        "objective": campaign["objective"],
+        "completed_at": completed_at,
+        "summary": summary_data,
+        "fingerprint": fp,
+    }
 
 
 def history() -> dict:
@@ -819,80 +813,79 @@ def merge_revised_plan(revised_plan_path: str) -> dict:
     except json.JSONDecodeError as e:
         return {"error": f"Invalid JSON: {e}", "merged": 0, "unchanged": 0}
 
-    with error_boundary("merge_revised_plan"):
-        campaign = _get_active_campaign()
-        if not campaign:
-            return {"error": "No active campaign", "merged": 0, "unchanged": 0}
+    campaign = _get_active_campaign()
+    if not campaign:
+        return {"error": "No active campaign", "merged": 0, "unchanged": 0}
 
-        db = _ensure_db()
-        campaigns = db.t.campaign
+    db = _ensure_db()
+    campaigns = db.t.campaign
 
-        tasks = json.loads(campaign["tasks"])
+    tasks = json.loads(campaign["tasks"])
 
-        # Validate and build revised tasks dict, skipping malformed entries
-        revised_tasks = {}
-        for t in revised.get("tasks", []):
-            if not isinstance(t, dict) or "seq" not in t:
-                continue  # Skip malformed task entries
-            revised_tasks[t["seq"]] = t
+    # Validate and build revised tasks dict, skipping malformed entries
+    revised_tasks = {}
+    for t in revised.get("tasks", []):
+        if not isinstance(t, dict) or "seq" not in t:
+            continue  # Skip malformed task entries
+        revised_tasks[t["seq"]] = t
 
-        # Work on deep copy to ensure atomicity - original state preserved if cycle detected
-        tasks_copy = copy.deepcopy(tasks)
-        merged_count = 0
-        unchanged_count = 0
-        now = datetime.now().isoformat()
+    # Work on deep copy to ensure atomicity - original state preserved if cycle detected
+    tasks_copy = copy.deepcopy(tasks)
+    merged_count = 0
+    unchanged_count = 0
+    now = datetime.now().isoformat()
 
-        for task in tasks_copy:
-            seq = task["seq"]
-            if seq not in revised_tasks:
-                unchanged_count += 1
-                continue
+    for task in tasks_copy:
+        seq = task["seq"]
+        if seq not in revised_tasks:
+            unchanged_count += 1
+            continue
 
-            revised_task = revised_tasks[seq]
-            current_status = task.get("status", "pending")
+        revised_task = revised_tasks[seq]
+        current_status = task.get("status", "pending")
 
-            if current_status == "complete":
-                unchanged_count += 1
-                continue
+        if current_status == "complete":
+            unchanged_count += 1
+            continue
 
-            new_depends = revised_task.get("depends", task.get("depends", "none"))
-            old_depends = task.get("depends", "none")
+        new_depends = revised_task.get("depends", task.get("depends", "none"))
+        old_depends = task.get("depends", "none")
 
-            if current_status == "blocked" or new_depends != old_depends:
-                task["status"] = "pending"
-                task["depends"] = new_depends
-                task["revised_at"] = now
-                # Clear orphaned blocked_by metadata from previous cascade
-                task.pop("blocked_by", None)
-                merged_count += 1
-            else:
-                unchanged_count += 1
+        if current_status == "blocked" or new_depends != old_depends:
+            task["status"] = "pending"
+            task["depends"] = new_depends
+            task["revised_at"] = now
+            # Clear orphaned blocked_by metadata from previous cascade
+            task.pop("blocked_by", None)
+            merged_count += 1
+        else:
+            unchanged_count += 1
 
-        # Validate no cycles introduced by dependency changes BEFORE committing
-        cycle = _detect_cycle([{"seq": t["seq"], "depends": t.get("depends", "none")} for t in tasks_copy])
-        if cycle:
-            cycle_str = " -> ".join(str(s) for s in cycle)
-            # Return error without modifying original state - atomicity preserved
-            return {"error": f"Cycle detected after merge: {cycle_str}", "merged": 0, "unchanged": 0}
+    # Validate no cycles introduced by dependency changes BEFORE committing
+    cycle = _detect_cycle([{"seq": t["seq"], "depends": t.get("depends", "none")} for t in tasks_copy])
+    if cycle:
+        cycle_str = " -> ".join(str(s) for s in cycle)
+        # Return error without modifying original state - atomicity preserved
+        return {"error": f"Cycle detected after merge: {cycle_str}", "merged": 0, "unchanged": 0}
 
-        # Validate no dangling dependencies (deps must reference existing task seqs)
-        task_seqs = {_normalize_seq(t["seq"]) for t in tasks_copy}
-        for task in tasks_copy:
-            deps = _get_deps(task)
-            for dep in deps:
-                if dep not in task_seqs:
-                    return {
-                        "error": f"Dangling dependency: task {task['seq']} depends on {dep}, "
-                                 f"which does not exist. Valid seqs: {sorted(task_seqs)}",
-                        "merged": 0,
-                        "unchanged": 0
-                    }
+    # Validate no dangling dependencies (deps must reference existing task seqs)
+    task_seqs = {_normalize_seq(t["seq"]) for t in tasks_copy}
+    for task in tasks_copy:
+        deps = _get_deps(task)
+        for dep in deps:
+            if dep not in task_seqs:
+                return {
+                    "error": f"Dangling dependency: task {task['seq']} depends on {dep}, "
+                             f"which does not exist. Valid seqs: {sorted(task_seqs)}",
+                    "merged": 0,
+                    "unchanged": 0
+                }
 
-        # Use lock for atomic persist (fastsql provides single-op atomicity)
-        with db_write_lock:
-            campaigns.update({"tasks": json.dumps(tasks_copy)}, campaign["id"])
+    # Use lock for atomic persist (fastsql provides single-op atomicity)
+    with db_write_lock:
+        campaigns.update({"tasks": json.dumps(tasks_copy)}, campaign["id"])
 
-        return {"merged": merged_count, "unchanged": unchanged_count}
+    return {"merged": merged_count, "unchanged": unchanged_count}
 
 
 # =============================================================================
@@ -1032,11 +1025,11 @@ def main():
     elif args.command == "add-tasks":
         plan = json.load(sys.stdin)
         add_tasks(plan)
-        print("Tasks added")
+        print(json.dumps({"status": "tasks_added"}))
 
     elif args.command == "update-task":
         update_task(args.seq, args.status)
-        print(f"Task {args.seq} -> {args.status}")
+        print(json.dumps({"task": args.seq, "status": args.status}))
 
     elif args.command == "next-task":
         task = next_task()
@@ -1055,10 +1048,7 @@ def main():
 
     elif args.command == "propagate-blocks":
         propagated = propagate_blocks()
-        if propagated:
-            print(f"Propagated blocks to: {', '.join(propagated)}")
-        else:
-            print("No blocks to propagate")
+        print(json.dumps({"propagated": propagated}))
 
     elif args.command == "status":
         result = status()
