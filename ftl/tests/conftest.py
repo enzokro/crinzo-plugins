@@ -86,11 +86,9 @@ def _reload_module_with_fresh_db(lib_path, module_name, db_path):
     Ensures db.connection points to the test's database path,
     then reloads the target module to pick up fresh state.
 
-    IMPORTANT: We intentionally do NOT call get_db() here. If we create
-    a connection now, it will cache SQLite's view of the database. When
-    CLI subprocess writes to the same file later, our cached connection
-    won't see those changes. By leaving _db=None, the first actual use
-    will create a fresh connection that sees all data.
+    IMPORTANT: We must ensure both the test and the reloaded module use
+    the SAME db.connection module. Python can load the same module under
+    different paths (e.g., 'db' vs 'lib.db'), creating separate singletons.
 
     Args:
         lib_path: Path to lib directory
@@ -99,13 +97,26 @@ def _reload_module_with_fresh_db(lib_path, module_name, db_path):
     """
     if str(lib_path) not in sys.path:
         sys.path.insert(0, str(lib_path))
+
     import importlib
     from db import connection
 
     # Reset connection state and set path
-    # Do NOT create connection here - let it be created on first use
     connection._db = None
     connection.DB_PATH = db_path
+
+    # CRITICAL: Also update lib.db.connection if it exists as a separate module.
+    # Modules can be loaded under both 'db' and 'lib.db' paths, creating
+    # separate singletons. We must sync them.
+    if 'lib.db' in sys.modules:
+        lib_db = sys.modules['lib.db']
+        if hasattr(lib_db, 'connection'):
+            lib_db.connection._db = None
+            lib_db.connection.DB_PATH = db_path
+    if 'lib.db.connection' in sys.modules:
+        lib_db_conn = sys.modules['lib.db.connection']
+        lib_db_conn._db = None
+        lib_db_conn.DB_PATH = db_path
 
     # Now reload the target module
     module = importlib.import_module(module_name)

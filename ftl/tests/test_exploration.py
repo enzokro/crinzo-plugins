@@ -424,12 +424,6 @@ class TestSimilarCampaigns:
 
     def test_find_similar_requires_framework_match(self, cli, ftl_dir, campaign_module):
         """Find similar requires framework match."""
-        # Debug: Check DB state
-        from db import connection
-        print(f"\n[DEBUG] ftl_dir: {ftl_dir}")
-        print(f"[DEBUG] connection.DB_PATH: {connection.DB_PATH}")
-        print(f"[DEBUG] DB file exists: {connection.DB_PATH.exists()}")
-
         # Create and archive a FastHTML campaign
         cli.campaign("create", "Build REST API", "--framework", "FastHTML")
         plan = {
@@ -449,51 +443,7 @@ class TestSimilarCampaigns:
         cli.campaign("create", "Build REST API", "--framework", "Django")
 
         # Find similar - framework mismatch should filter out
-        print(f"[DEBUG] Before find_similar, DB_PATH: {connection.DB_PATH}")
-
-        # Debug: Check what's actually in the database file
-        import sqlite3
-        conn = sqlite3.connect(str(connection.DB_PATH))
-        cursor = conn.execute("SELECT id, objective, framework, fingerprint FROM archive")
-        rows = cursor.fetchall()
-        print(f"[DEBUG] Archives in DB file: {rows}")
-        for row in rows:
-            print(f"[DEBUG] Archive {row[0]} fingerprint: {row[3]}")
-        conn.close()
-
-        # Debug: Check if connection module is the same object
-        from db import connection as campaign_conn
-        print(f"[DEBUG] connection module id: {id(connection)}")
-        print(f"[DEBUG] campaign's connection id: {id(campaign_conn)}")
-        print(f"[DEBUG] _db before reset: {connection._db}")
-        print(f"[DEBUG] campaign's _db: {campaign_conn._db}")
-
-        # Reset connection to force fresh read
-        connection._db = None
-        campaign_conn._db = None
-        print(f"[DEBUG] After reset, _db: {connection._db}, campaign's _db: {campaign_conn._db}")
-        print(f"[DEBUG] DB_PATH before find_similar: {connection.DB_PATH}")
-
-        # Import get_db to see what it uses
-        from db import get_db
-        print(f"[DEBUG] get_db module's DB_PATH: {get_db.__globals__['DB_PATH']}")
-
-        # Get db and check what's in archive table
-        from db import get_db
-        db = get_db()
-        print(f"[DEBUG] db object id (from test): {id(db)}")
-        archive_rows = list(db.t.archive.rows)
-        print(f"[DEBUG] archive rows from get_db(): {[(r['id'], r['objective'], r.get('fingerprint', '')[:50]) for r in archive_rows]}")
-
-        # Check campaign_module's db
-        campaign_db = campaign_module._ensure_db()
-        print(f"[DEBUG] campaign_module._ensure_db() id: {id(campaign_db)}")
-        campaign_archive_rows = list(campaign_db.t.archive.rows)
-        print(f"[DEBUG] archive rows from campaign_module: {[(r['id'], r['objective'], r.get('fingerprint', '')[:50]) for r in campaign_archive_rows]}")
-
         similar = campaign_module.find_similar(threshold=0.1)
-        print(f"[DEBUG] DB_PATH after find_similar: {connection.DB_PATH}")
-        print(f"[DEBUG] similar results: {similar}")
 
         # No matches expected due to framework mismatch
         fasthtml_matches = [s for s in similar if s.get("fingerprint", {}).get("framework") == "FastHTML"]
