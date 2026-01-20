@@ -98,12 +98,26 @@ def create(plan: dict, task_seq: str = None) -> list:
 
         # Use lock to protect duplicate check + insert (TOCTOU race prevention)
         with db_write_lock:
-            # Check if workspace already exists
-            existing = list(workspaces.rows_where("workspace_id = ?", [ws_id]))
+            # Check if workspace already exists FOR THIS CAMPAIGN
+            existing = list(workspaces.rows_where(
+                "workspace_id = ? AND campaign_id = ?",
+                [ws_id, campaign["id"]]
+            ))
             if existing:
-                # Return existing workspace
+                # Return existing workspace from current campaign
                 created_workspaces.append(_ws_to_dict(existing[0]))
                 continue
+
+            # Check for stale workspace from old campaign
+            stale = list(workspaces.rows_where("workspace_id = ?", [ws_id]))
+            if stale:
+                # Workspace exists but belongs to different campaign - error
+                stale_campaign = stale[0].get("campaign_id")
+                raise ValueError(
+                    f"Workspace {ws_id} exists from campaign {stale_campaign}, "
+                    f"cannot reuse for campaign {campaign['id']}. "
+                    "Clear old workspaces or use unique task slugs."
+                )
 
             # Build lineage from parent tasks
             lineage = _build_lineage(task.get("depends"), campaign["id"])
@@ -401,6 +415,44 @@ def get_sibling_failures(campaign_id: int) -> list:
     return failures
 
 
+def clear_stale_workspaces(keep_campaign_id: int = None) -> dict:
+    """Clear workspaces from completed campaigns.
+
+    Args:
+        keep_campaign_id: Optional campaign ID to preserve. If None, keeps
+                          workspaces from active campaign only.
+
+    Returns:
+        {"cleared": count, "kept": count}
+    """
+    db = _ensure_db()
+    workspaces = db.t.workspace
+    campaigns = db.t.campaign
+
+    # Determine which campaign(s) to keep
+    if keep_campaign_id:
+        keep_ids = {keep_campaign_id}
+    else:
+        # Keep only active campaign workspaces
+        active_rows = list(campaigns.rows_where("status = ?", ["active"]))
+        keep_ids = {r["id"] for r in active_rows}
+
+    # Find and delete workspaces from other campaigns
+    all_ws = list(workspaces.rows)
+    cleared = 0
+    kept = 0
+
+    with db_write_lock:
+        for ws in all_ws:
+            if ws.get("campaign_id") in keep_ids:
+                kept += 1
+            else:
+                workspaces.delete(ws["id"])
+                cleared += 1
+
+    return {"cleared": cleared, "kept": kept}
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -429,23 +481,6 @@ def _extract_workspace_id(path: Path) -> str:
         if len(name_parts) == 2:
             return f"{name_parts[0]}-{name_parts[1]}"
     return stem
-
-
-def _workspace_id_to_path(workspace_id: str, status: str = "active") -> Path:
-    """Convert workspace_id to virtual path format.
-
-    Args:
-        workspace_id: Format {seq}-{slug} (e.g., "001-add-power-tests")
-        status: Workspace status (active, complete, blocked)
-
-    Returns:
-        Path in format {seq}_{slug}_{status}.xml
-    """
-    parts = workspace_id.split("-", 1)  # Split on first dash only
-    if len(parts) == 2:
-        seq, slug = parts
-        return WORKSPACE_DIR / f"{seq}_{slug}_{status}.xml"
-    return WORKSPACE_DIR / f"{workspace_id}_{status}.xml"
 
 
 def _build_lineage(depends, campaign_id: int) -> dict:
@@ -746,6 +781,10 @@ def main():
     gi = subparsers.add_parser("get-injected", help="Get injected memories for a workspace")
     gi.add_argument("--workspace", required=True, help="Workspace ID or path")
 
+    # clear-stale command
+    cs = subparsers.add_parser("clear-stale", help="Clear workspaces from completed campaigns")
+    cs.add_argument("--keep", type=int, help="Campaign ID to preserve (default: active only)")
+
     args = parser.parse_args()
 
     if args.command == "create":
@@ -808,6 +847,10 @@ def main():
                     seen.add(key)
                     injected.append({"name": sf.get("name"), "type": "failure"})
         print(json.dumps(injected))
+
+    elif args.command == "clear-stale":
+        result = clear_stale_workspaces(keep_campaign_id=args.keep)
+        print(json.dumps(result))
 
     else:
         parser.print_help()

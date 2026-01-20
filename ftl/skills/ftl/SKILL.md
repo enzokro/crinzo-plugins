@@ -150,6 +150,8 @@ Reusable initialization for both TASK and CAMPAIGN flows.
 ```
 EMIT: STATE_ENTRY state=INIT [mode={mode}]
 DO: mkdir -p .ftl && echo "${CLAUDE_PLUGIN_ROOT}" > .ftl/plugin_root
+# Clear stale workspaces from completed campaigns to prevent workspace_id collisions
+DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py clear-stale
 CHECK: session_id = python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py create-session | jq -r .session_id
 EMIT: PHASE_TRANSITION from=init to=explore
 GOTO: EXPLORE with session_id
@@ -367,6 +369,16 @@ API returns: workspace dicts with workspace_id, status, delta, verify, etc.
 States: `active` → `complete` | `blocked`
 
 **Blocking = success**: Captures failure state for learning. Observer extracts patterns from blocked workspaces.
+
+### Campaign Grounding
+
+Workspaces are bound to the active campaign via `campaign_id` foreign key:
+
+- **Creation**: `workspace.create()` validates workspace belongs to active campaign
+- **Collision detection**: If workspace_id exists from a different campaign, creation fails with error
+- **Cleanup**: `workspace.py clear-stale` removes workspaces from completed campaigns (called in INIT_PATTERN)
+
+This prevents stale workspace references when task slugs repeat across campaigns.
 
 See [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) for schema, lineage structure, and database storage details.
 

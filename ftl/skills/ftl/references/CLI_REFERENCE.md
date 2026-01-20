@@ -63,6 +63,7 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | block | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block PATH --reason "text"` | `--reason` REQUIRED |
 | list | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py list [--status STATUS]` | list all workspaces |
 | get-injected | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected --workspace WS_ID` | returns injected memories [{name, type}] |
+| clear-stale | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py clear-stale [--keep ID]` | clears workspaces from completed campaigns; keeps active campaign only by default |
 
 ## memory.py
 
@@ -105,16 +106,6 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | get-run | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py get-run --run-id ID` | get run results from DB |
 | compare | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py compare --run-a ID --run-b ID` | compare two runs |
 | list-runs | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/benchmark.py list-runs` | list recent benchmark runs |
-
-## phase.py
-
-| Command | Syntax | Notes |
-|---------|--------|-------|
-| status | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py status` | current phase state |
-| transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py transition PHASE` | `PHASE` is POS, validates transition |
-| reset | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py reset` | reset to 'none' phase |
-| can-transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py can-transition FROM TO` | both POS, returns valid/invalid |
-| duration | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/phase.py duration` | workflow duration in seconds |
 
 ## orchestration.py
 
