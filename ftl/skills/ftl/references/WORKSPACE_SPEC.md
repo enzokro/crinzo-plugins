@@ -112,10 +112,13 @@ Workspace data is stored in the `workspace` table in `.ftl/ftl.db`. The XML-styl
 |-------|------|-------------|
 | `objective` | TEXT | User's original intent |
 | `delta` | TEXT (JSON) | Files to modify `["path1", "path2"]` |
+| `creates` | TEXT (JSON) | Files to create (exempt from existence check) `["path"]` |
 | `verify` | TEXT | Verification command |
 | `verify_source` | TEXT | Optional test file to read |
 | `budget` | INT | Tool call budget |
 | `preflight` | TEXT (JSON) | Pre-checks `["cmd1", "cmd2"]` |
+
+**Note on `creates`**: For BUILD tasks that create new files, list them in `creates` to exempt them from the delta existence validation. Files in `delta` that are also in `creates` won't trigger "delta_not_found" validation errors.
 
 ### Context Fields
 
@@ -351,6 +354,26 @@ def complete(workspace_id, delivered, utilized=None):
 ```
 
 All database operations are protected by SQLite's ACID properties, replacing the previous file-based atomic writes.
+
+---
+
+## State Synchronization
+
+Workspace status operations automatically sync to campaign task status:
+
+```
+workspace.complete() → workspace.status = "complete"
+                    → campaign.tasks[seq].status = "complete"
+
+workspace.block()   → workspace.status = "blocked"
+                    → campaign.tasks[seq].status = "blocked"
+```
+
+**Design principle**: Workspace is the single source of truth for task status. This makes state desync impossible — there's only one API to call.
+
+The sync extracts `seq` from `workspace_id` (format: `{seq}-{slug}`) and updates the corresponding campaign task. If no active campaign exists or the task isn't found, the sync silently succeeds (allowing standalone workspace operations).
+
+**Lineage population**: When child workspaces are created, `_build_lineage()` queries parent workspaces by seq + "complete" status. The auto-sync ensures parent tasks are marked complete in the workspace table before children are created, guaranteeing lineage data is available.
 
 ---
 

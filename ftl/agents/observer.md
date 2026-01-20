@@ -185,6 +185,8 @@ Automation scores >= 3 to extract. But scores miss context:
 - Did a score=4 workspace succeed via luck rather than technique?
 - Is the extracted insight actually actionable?
 
+**Pattern naming**: Extracted patterns use `workspace_id` as their name (e.g., `001-spec-core-tests`, `002-build-multiply-divide`). This ensures uniqueness across tasks even when they share the same campaign objective.
+
 **Override if needed:**
 ```bash
 python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{

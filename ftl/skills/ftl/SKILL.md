@@ -314,7 +314,7 @@ STATE: EXECUTE
             DO: utilized_b64 = base64_encode(utilized)
             DO: injected_b64 = base64_encode(injected)
             DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/memory.py feedback-batch --utilized-b64 {utilized_b64} --injected-b64 {injected_b64}
-        DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/campaign.py update-task {SEQ} complete|blocked
+        # Note: Campaign task status auto-syncs when workspace.complete() or workspace.block() is called
   GOTO: EXECUTE
 
 STATE: CASCADE
@@ -370,6 +370,17 @@ API returns: workspace dicts with workspace_id, status, delta, verify, etc.
 States: `active` → `complete` | `blocked`
 
 **Blocking = success**: Captures failure state for learning. Observer extracts patterns from blocked workspaces.
+
+### State Synchronization
+
+Workspace operations are the **single source of truth** for task status:
+
+| Workspace Operation | Effect |
+|---------------------|--------|
+| `workspace.complete()` | Sets workspace status to "complete" AND syncs campaign task status |
+| `workspace.block()` | Sets workspace status to "blocked" AND syncs campaign task status |
+
+This design makes state desync **impossible** — there's only one API to call, and it maintains consistency automatically. The orchestrator does not need to separately update campaign task status.
 
 ### Campaign Grounding
 
@@ -440,6 +451,7 @@ See [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) for injection timing, impl
       "slug": "string (required)",
       "type": "SPEC | BUILD | VERIFY",
       "delta": ["string (required, file paths)"],
+      "creates": ["string (optional, new files to create)"],
       "verify": "string (required)",
       "budget": "number (required)",
       "depends": "string | string[] | 'none'"
@@ -449,6 +461,9 @@ See [WORKSPACE_SPEC.md](references/WORKSPACE_SPEC.md) for injection timing, impl
 ```
 
 **Required fields**: objective, tasks[].seq, tasks[].delta, tasks[].verify
+
+**Optional fields**:
+- `creates`: Files that will be created by this task. Listed files are exempt from delta existence validation, enabling BUILD tasks that create new files rather than modify existing ones.
 
 ### Workspace Creation Contract
 

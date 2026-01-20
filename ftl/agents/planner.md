@@ -210,6 +210,7 @@ See [PLANNER_PHASES.md#output_plan](shared/PLANNER_PHASES.md#output_plan) for co
       "slug": "kebab-case",
       "type": "SPEC | BUILD | VERIFY",
       "delta": ["file paths"],
+      "creates": ["new file paths (optional)"],
       "verify": "command",
       "budget": 3,
       "depends": "none | seq | [seq, seq]"
@@ -217,6 +218,8 @@ See [PLANNER_PHASES.md#output_plan](shared/PLANNER_PHASES.md#output_plan) for co
   ]
 }
 ```
+
+**`creates` field**: For BUILD tasks that create new files, list them here. Files in `creates` are exempt from delta existence validation, preventing "delta_not_found" errors for files that don't exist yet.
 
 Include task graph visualization:
 ```

@@ -314,7 +314,7 @@ def extract_pattern(workspace_path_or_id, score_data: dict) -> dict:
     budget = ws.get("budget", 5)
 
     return {
-        "name": _slugify(trigger[:30]),
+        "name": ws.get("workspace_id", ws.get("id", _slugify(trigger[:30]))),
         "trigger": trigger,
         "insight": insight[:500],
         "saved": budget * 500,

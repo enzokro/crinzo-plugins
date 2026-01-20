@@ -107,8 +107,12 @@ Output per task:
   - slug: kebab-case
   - type: SPEC | BUILD | VERIFY
   - delta: specific file paths
+  - creates: (optional) files being created — exempt from existence check
   - verify: executable command
   - depends: string | string[] | "none"
+
+For BUILD tasks creating new files: set `creates` = files that don't exist yet.
+This prevents validation failures for delta files that will be created.
 
 EMIT: "Step: ordering, Status: {N} tasks, depth={D}"
 ```
@@ -193,9 +197,17 @@ Per-Task Required:
 
 Optional:
   - type (SPEC | BUILD | VERIFY)
+  - creates (string array) — files to create; exempt from delta existence validation
   - preflight (string array)
   - verify_source (string)
   - target_lines (object)
+
+Note on `creates`: For BUILD tasks that create new files, list them in `creates`
+to prevent "delta_not_found" validation errors. Example:
+  {
+    "delta": ["/path/to/new/cli.py"],
+    "creates": ["/path/to/new/cli.py"]
+  }
 ```
 
 ## CLARIFY Output Format

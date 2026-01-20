@@ -25,10 +25,12 @@ try:
     from lib.db import get_db, init_db, Workspace, db_write_lock
     from lib.framework_registry import get_idioms
     from lib.plan import read as read_plan
+    from lib import campaign as campaign_module
 except ImportError:
     from db import get_db, init_db, Workspace, db_write_lock
     from framework_registry import get_idioms
     from plan import read as read_plan
+    import campaign as campaign_module
 
 
 def _ensure_db():
@@ -255,6 +257,9 @@ def complete(path_or_id, delivered: str, utilized_memories: list = None) -> dict
         # Fetch updated workspace
         updated = list(workspaces.rows_where("id = ?", [ws["id"]]))[0]
 
+    # Sync campaign task status
+    _sync_campaign_task(workspace_id, "complete")
+
     return _ws_to_dict(updated)
 
 
@@ -301,7 +306,27 @@ def block(path_or_id, reason: str) -> dict:
         # Fetch updated workspace
         updated = list(workspaces.rows_where("id = ?", [ws["id"]]))[0]
 
+    # Sync campaign task status
+    _sync_campaign_task(workspace_id, "blocked")
+
     return _ws_to_dict(updated)
+
+
+def _sync_campaign_task(workspace_id: str, status: str) -> None:
+    """Sync workspace status to campaign task.
+
+    Extracts seq from workspace_id (format: {seq}-{slug}) and updates
+    the corresponding campaign task. Silently ignores if no active campaign
+    or task not found (allows standalone workspace operations).
+    """
+    try:
+        # Extract seq from workspace_id (e.g., "001-add-feature" -> "001")
+        seq = workspace_id.split("-")[0]
+        campaign_module.update_task(seq, status)
+    except (ValueError, AttributeError):
+        # No active campaign or task not found - ignore
+        # This allows workspace operations outside campaign context
+        pass
 
 
 def parse(path_or_id) -> dict:
@@ -739,13 +764,18 @@ def validate_workspace(workspace: dict, check_delta_exists: bool = True, task_ty
     # Delta file existence check
     # Skip for SPEC tasks (they create files that don't exist yet)
     # Skip for VERIFY tasks (empty delta means nothing to check)
+    # For BUILD tasks: skip files listed in 'creates' field
     if check_delta_exists and task_type == "BUILD" and "delta" in workspace and workspace["delta"]:
         delta_files = workspace["delta"]
         if isinstance(delta_files, str):
             delta_files = [delta_files]
+
+        # Files explicitly marked as "to create" are exempt from existence check
+        creates = set(workspace.get("creates", []))
+
         missing_files = []
         for f in delta_files:
-            if not Path(f).exists():
+            if f not in creates and not Path(f).exists():
                 missing_files.append(f)
         if missing_files:
             issues.append(f"delta_not_found:{','.join(missing_files)}")
