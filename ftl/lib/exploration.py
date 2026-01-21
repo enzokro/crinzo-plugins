@@ -157,6 +157,16 @@ def validate_result(result: dict, strict: bool = True) -> tuple:
                 result[field] = default
                 logging.debug(f"Mode {mode}: applied default for '{field}'")
 
+    # BUG FIX: For pattern mode, derive top-level confidence from frameworks array
+    # if still at default (0.5). Explorers emit confidence inside frameworks[0].
+    if mode == "pattern" and result.get("confidence") == 0.5:
+        frameworks = result.get("frameworks", [])
+        if frameworks and isinstance(frameworks, list) and len(frameworks) > 0:
+            first_fw = frameworks[0]
+            if isinstance(first_fw, dict) and "confidence" in first_fw:
+                result["confidence"] = float(first_fw["confidence"])
+                logging.debug(f"Mode pattern: derived confidence {result['confidence']} from frameworks[0]")
+
     # Apply coercions for type mismatches (mutates result)
     if mode in COERCIONS:
         for field, coerce_fn in COERCIONS[mode].items():

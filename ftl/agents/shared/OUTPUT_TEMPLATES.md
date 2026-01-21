@@ -106,8 +106,16 @@ Once confirmed, the following approach will be used:
 
 ## Builder Output
 
+**CRITICAL**: Builder MUST call workspace API before outputting markdown. Text output alone does NOT update database state.
+
 ### On Complete
 
+**Step 1 - API Call** (REQUIRED):
+```bash
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} --delivered "{summary}"
+```
+
+**Step 2 - Markdown Output**:
 ```markdown
 Status: complete
 Workspace: {workspace_id} (stored in workspace table)
@@ -130,6 +138,12 @@ Budget: {used}/{total}
 
 ### On Block
 
+**Step 1 - API Call** (REQUIRED):
+```bash
+python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
+```
+
+**Step 2 - Markdown Output**:
 ```markdown
 Status: blocked
 Workspace: {workspace_id} (stored in workspace table)

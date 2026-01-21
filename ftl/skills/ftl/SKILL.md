@@ -224,6 +224,51 @@ STATE: ERROR
 
 See [ERROR_HANDLING.md](references/ERROR_HANDLING.md) for error taxonomy and recovery strategies.
 
+### BUILDER_COMPLETION_PATTERN
+
+Ensures workspace state is updated after builder returns. Builders may fail to call the workspace API;
+this pattern provides a structural fallback.
+
+```
+# Input: workspace_id, builder_output
+# Check if builder called the API
+CHECK: ws_status = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_id} | jq -r .status
+
+IF: ws_status == "active" →
+    # Builder did NOT call API - parse output and complete/block
+    EMIT: BUILDER_API_FALLBACK workspace={workspace_id}
+
+    # Parse builder output for status indicator
+    # Look for "Status: complete" or "Status: blocked" (case-insensitive)
+    DO: parsed_status = extract first match of /Status:\s*(complete|blocked)/i from builder_output
+
+    IF: parsed_status == "complete" →
+        # Extract delivered summary from builder output
+        # Look for text after "## Delivered" or "**Delivered**:" section
+        DO: delivered = extract section content after "Delivered" heading from builder_output
+        IF: delivered is empty → SET: delivered = "Builder completed (summary not parsed)"
+        DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete {workspace_id} --delivered "{delivered}"
+
+    IF: parsed_status == "blocked" →
+        # Extract block reason from builder output
+        # Look for text after "## Discovery Needed" or similar
+        DO: reason = extract section content after "Discovery Needed" or "Block" from builder_output
+        IF: reason is empty → SET: reason = "Builder blocked (reason not parsed)"
+        DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block {workspace_id} --reason "{reason}"
+
+    IF: parsed_status not found →
+        # Ambiguous output - run verify command to determine status
+        CHECK: verify_cmd = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_id} | jq -r .verify
+        DO: verify_result = run {verify_cmd}
+        IF: verify_result exit_code == 0 →
+            DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py complete {workspace_id} --delivered "Auto-completed: tests pass"
+        ELSE →
+            DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py block {workspace_id} --reason "Auto-blocked: tests fail, builder output ambiguous"
+
+# If ws_status is already "complete" or "blocked", builder called API correctly - no action needed
+IF: ws_status != "active" → EMIT: BUILDER_API_OK workspace={workspace_id}
+```
+
 ---
 
 ## TASK State Machine
@@ -245,10 +290,14 @@ STATE: BUILD
   # ws_result.created[0] contains workspace dict with workspace_id, status, etc.
   DO: workspace_id = ws_result.created[0].workspace_id
   DO: builder_output = Task(ftl:ftl-builder) with workspace_id
+  # Ensure workspace state is updated (structural fallback if builder didn't call API)
+  USE: BUILDER_COMPLETION_PATTERN with workspace_id, builder_output
   # Extract UTILIZED from builder output
   DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
   DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected {workspace_id}
-  IF: workspace completed successfully →
+  # Check workspace status after completion pattern
+  CHECK: final_status = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_id} | jq -r .status
+  IF: final_status == "complete" →
       # Use base64 encoding to avoid shell quoting issues with JSON
       DO: utilized_b64 = base64_encode(utilized)
       DO: injected_b64 = base64_encode(injected)
@@ -307,9 +356,13 @@ STATE: EXECUTE
         CHECK: ws_result = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py create --plan-id {plan_id} --task {SEQ}
         DO: workspace_id = ws_result.created[0].workspace_id
         DO: builder_output = Task(ftl:ftl-builder) with workspace_id
+        # Ensure workspace state is updated (structural fallback if builder didn't call API)
+        USE: BUILDER_COMPLETION_PATTERN with workspace_id, builder_output
         DO: utilized = extract JSON array following "UTILIZED:" from builder_output (default: [])
         DO: injected = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py get-injected {workspace_id}
-        IF: task completed (not blocked) →
+        # Check workspace status after completion pattern
+        CHECK: final_status = python3 ${CLAUDE_PLUGIN_ROOT}/lib/workspace.py parse {workspace_id} | jq -r .status
+        IF: final_status == "complete" →
             # Use base64 encoding to avoid shell quoting issues with JSON
             DO: utilized_b64 = base64_encode(utilized)
             DO: injected_b64 = base64_encode(injected)

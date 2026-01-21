@@ -609,7 +609,11 @@ def _ws_to_dict(row) -> dict:
 
 
 def _get_framework_confidence() -> float:
-    """Get framework confidence from exploration."""
+    """Get framework confidence from exploration.
+
+    Reads confidence from pattern data, checking frameworks[0].confidence first
+    (explorer-emitted structure) then top-level confidence (legacy/derived).
+    """
     import logging
 
     db = _ensure_db()
@@ -620,11 +624,20 @@ def _get_framework_confidence() -> float:
         if rows:
             rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
             pattern = json.loads(rows[0].get("pattern") or "{}")
-            return float(pattern.get("confidence", 0.5))  # Default 0.5 for consistency
+
+            # BUG FIX: Check frameworks array first (explorer-emitted structure)
+            frameworks = pattern.get("frameworks", [])
+            if frameworks and isinstance(frameworks, list) and len(frameworks) > 0:
+                first_fw = frameworks[0]
+                if isinstance(first_fw, dict) and "confidence" in first_fw:
+                    return float(first_fw["confidence"])
+
+            # Fall back to top-level confidence (may be derived or legacy)
+            return float(pattern.get("confidence", 0.5))
     except Exception as e:
         logging.warning(f"Failed to get framework confidence: {e}. Using default 0.5")
 
-    return 0.5  # Changed from 1.0 for consistency (P4-14)
+    return 0.5  # Default: neutral/unknown
 
 
 def _is_numeric_line_range(target_lines: str) -> bool:
