@@ -1,0 +1,41 @@
+{
+  "name": "loop",
+  "version": "1.0.0",
+  "description": "Self-learning orchestrator. Remembers what hurt, remembers what helped, gets better by tracking which memories matter.",
+  "entryPoint": "skills/loop/SKILL.md",
+  "triggers": [
+    {
+      "type": "command",
+      "command": "loop",
+      "description": "Execute a task with learning memory"
+    },
+    {
+      "type": "command",
+      "command": "loop:query",
+      "description": "Search memory by meaning"
+    },
+    {
+      "type": "command",
+      "command": "loop:stats",
+      "description": "Memory health and effectiveness"
+    },
+    {
+      "type": "command",
+      "command": "loop:prune",
+      "description": "Remove ineffective memories"
+    }
+  ],
+  "hooks": [
+    {
+      "type": "SessionStart",
+      "script": "scripts/setup-env.sh"
+    }
+  ],
+  "agents": [
+    {
+      "name": "loop-executor",
+      "description": "Executes tasks with injected memory context",
+      "entryPoint": "agents/executor.md"
+    }
+  ]
+}
