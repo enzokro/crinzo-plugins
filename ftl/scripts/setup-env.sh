@@ -54,8 +54,9 @@ fi
 
 # Persist environment for Claude's subsequent bash commands
 # PYTHONPATH enables sub-agents to import lib modules from any working directory
+# NOTE: Expand $PATH and $PYTHONPATH at write time to avoid shell escaping issues
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-    echo "export PATH='$VENV_PATH/bin:\$PATH'" >> "$CLAUDE_ENV_FILE"
-    echo "export PYTHONPATH='$FTL_ROOT:\$PYTHONPATH'" >> "$CLAUDE_ENV_FILE"
+    echo "export PATH='$VENV_PATH/bin:$PATH'" >> "$CLAUDE_ENV_FILE"
+    echo "export PYTHONPATH='$FTL_ROOT:$PYTHONPATH'" >> "$CLAUDE_ENV_FILE"
     echo "export FTL_ROOT='$FTL_ROOT'" >> "$CLAUDE_ENV_FILE"
 fi

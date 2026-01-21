@@ -284,7 +284,7 @@ def extract_pattern(workspace_path_or_id, score_data: dict) -> dict:
     delivered = ws.get("delivered", "")
     objective = ws.get("objective", "")
 
-    trigger = objective if objective else ws.get("id", "").replace("-", " ")
+    trigger = _extract_generalizable_trigger(objective, ws)
     insight = delivered[:300] if delivered else "Successful implementation"
 
     breakdown = score_data["breakdown"]
@@ -310,6 +310,48 @@ def extract_pattern(workspace_path_or_id, score_data: dict) -> dict:
         "saved": budget * 500,
         "source": [ws.get("id", ws.get("workspace_id", ""))],
     }
+
+
+def _extract_generalizable_trigger(objective: str, ws: dict) -> str:
+    """Extract generalizable trigger from objective.
+
+    Instead of verbatim objective, extract task type + domain keywords
+    for better future matching probability.
+    """
+    if not objective:
+        return ws.get("workspace_id", ws.get("id", "")).replace("-", " ")
+
+    objective_lower = objective.lower()
+
+    # Task type detection
+    task_types = [
+        ("build", ["build", "create", "implement", "add", "develop", "make"]),
+        ("fix", ["fix", "resolve", "debug", "repair", "patch", "correct"]),
+        ("refactor", ["refactor", "restructure", "reorganize", "clean"]),
+        ("integrate", ["integrate", "connect", "link", "wire"]),
+        ("test", ["test", "verify", "validate", "check"]),
+    ]
+
+    detected_type = "implement"
+    for task_type, indicators in task_types:
+        if any(ind in objective_lower for ind in indicators):
+            detected_type = task_type
+            break
+
+    # Domain keywords (take top 2)
+    domains = ["api", "cache", "database", "auth", "email", "notification",
+               "payment", "user", "admin", "config", "search", "file", "test",
+               "backend", "frontend", "service", "system"]
+    detected_domains = [d for d in domains if d in objective_lower][:2]
+
+    # Compose generalizable trigger
+    if detected_domains:
+        return f"{detected_type} {' '.join(detected_domains)} system"
+    else:
+        # Use workspace slug as fallback
+        ws_id = ws.get("workspace_id", ws.get("id", ""))
+        slug_words = ws_id.replace("-", " ").split()[:2]
+        return f"{detected_type} {' '.join(slug_words)}" if slug_words else detected_type
 
 
 def _slugify(text: str) -> str:

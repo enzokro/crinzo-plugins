@@ -7,7 +7,7 @@ version: 1.0
 JSON Schema definitions for each explorer mode output. All modes write directly to the `explorer_result` table via:
 
 ```bash
-python3 lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{json}'
+"$(cat .ftl/plugin_root)/venv/bin/python3" lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{json}'
 ```
 
 Results are aggregated to the `exploration` table using `aggregate-session --session {session_id}`.

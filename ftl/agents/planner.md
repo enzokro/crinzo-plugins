@@ -50,13 +50,13 @@ separately in the `phase_state` database table via `phase.py transition`.
 
 ### Phase 1: READ_EXPLORATION
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/exploration.py" read
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/exploration.py" read
 ```
 EMIT: `STATE_ENTRY state=PLAN phase=READ_EXPLORATION`
 
 Fallback if missing:
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10
 ```
 
 ---
@@ -70,7 +70,7 @@ C = (sections * 2) + (failure_cost_k / 5) + (framework_level * 3)
 task_count = min(7, max(1, ceil(C / 5)))
 ```
 
-Framework level via: `python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight {framework}`
+Framework level via: `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight {framework}`
 
 EMIT: `"Complexity: C={score} → {task_count} tasks"`
 

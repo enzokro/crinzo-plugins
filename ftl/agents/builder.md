@@ -106,14 +106,14 @@ See [BUILDER_STATE_MACHINE.md](shared/BUILDER_STATE_MACHINE.md) for complete rec
 ### On Success (COMPLETE state)
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} \
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} \
   --delivered "{implementation_summary}"
 ```
 
 ### On Failure (BLOCK state)
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} \
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} \
   --reason "{error_description}
 Tried: {attempted_fixes}
 Unknown: {unexpected_behavior}"
@@ -140,12 +140,12 @@ See [OUTPUT_TEMPLATES.md](shared/OUTPUT_TEMPLATES.md) for complete format specif
 
 ### On Complete
 
-1. **First**: `python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} --delivered "{summary}"`
+1. **First**: `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} --delivered "{summary}"`
 2. **Then**: Report markdown with status, workspace path, budget, delivered summary, idioms compliance, utilized memories, verify result.
 
 ### On Block
 
-1. **First**: `python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} --reason "{reason}"`
+1. **First**: `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} --reason "{reason}"`
 2. **Then**: Report markdown with status, workspace path, budget, discovery needed, tried fixes, unknown behavior.
 
 **Blocking is success** - See [ONTOLOGY.md](shared/ONTOLOGY.md#block-status).

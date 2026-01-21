@@ -235,10 +235,13 @@ def validate_task(task: dict, index: int) -> list:
         if not isinstance(task["delta"], list):
             errors.append(f"Task {index}: delta must be a list")
         elif not task["delta"]:
-            # VERIFY tasks legitimately have empty deltas (they only run verification)
+            # Empty delta is valid if:
+            # 1. Task type is VERIFY (only runs verification)
+            # 2. Task has non-empty 'creates' field (creates new files)
             task_type = task.get("type", "BUILD")
-            if task_type != "VERIFY":
-                errors.append(f"Task {index}: delta list cannot be empty")
+            has_creates = bool(task.get("creates"))
+            if task_type != "VERIFY" and not has_creates:
+                errors.append(f"Task {index}: delta list cannot be empty (unless 'creates' is specified)")
 
     if "seq" in task and not re.match(r"^\d{3}$", str(task["seq"])):
         errors.append(f"Task {index}: seq must be 3-digit string")

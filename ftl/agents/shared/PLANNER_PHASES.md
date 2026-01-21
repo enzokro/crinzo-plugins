@@ -28,11 +28,11 @@ Input: objective text
 Output: exploration context dict (from database)
 
 Primary:
-  python3 "$(cat .ftl/plugin_root)/lib/exploration.py" read
+  "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/exploration.py" read
   # Reads from exploration table in .ftl/ftl.db
 
 Fallback (if missing):
-  python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10
+  "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10
 
 Extract:
   - structure.directories, structure.test_pattern
@@ -54,7 +54,7 @@ Formula:
 
 Framework Level: Get from registry (canonical source):
   ```bash
-  python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight {framework}
+  "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight {framework}
   ```
   See `lib/framework_registry.py::FRAMEWORK_PATTERNS` for complexity_weight mappings (0-3).
 

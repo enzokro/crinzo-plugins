@@ -29,7 +29,7 @@ Machine-readable state definitions for the Builder agent. See [ONTOLOGY.md](ONTO
 Input: workspace_path (e.g., `001-slug`)
 Note: workspace.py parse reads from database, not filesystem. Paths are virtual.
 Output: Extracted workspace data
-Tool: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}
+Tool: "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" parse {workspace_path}
 
 Extract:
   - objective
@@ -165,7 +165,7 @@ Decision:
 Input: Quality-validated code
 Output: Completed workspace
 
-Action: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {path} \
+Action: "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" complete {path} \
           --delivered "{summary}" \
           --utilized '{utilized_json}'
 
@@ -178,7 +178,7 @@ EXEMPT from budget
 Input: Any failure condition
 Output: Blocked workspace
 
-Action: python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {path} \
+Action: "$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" block {path} \
           --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
 
 EXEMPT from budget

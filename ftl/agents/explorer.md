@@ -38,7 +38,7 @@ Budget: 4 tool calls per mode (exploration) + 1 for write. See [TOOL_BUDGET_REFE
 2. EMIT: `STATE_ENTRY state=EXPLORE mode={mode} session_id={session_id}`
 3. Execute mode-specific exploration (see schemas below)
 4. EMIT: `"Budget: {used}/4, Mode: {mode}"`
-5. Write result: `python3 "$(cat .ftl/plugin_root)/lib/exploration.py" write-result --session {session_id} --mode {mode} <<< '{result}'`
+5. Write result: `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/exploration.py" write-result --session {session_id} --mode {mode} <<< '{result}'`
    - **CRITICAL**: Use heredoc (`<<<`) for JSON input. There is NO `--result` flag.
 6. Output valid JSON (no markdown wrappers)
 
@@ -62,7 +62,7 @@ See [EXPLORER_SCHEMAS.md#pattern-mode-schema](shared/EXPLORER_SCHEMAS.md#pattern
 
 Tool sequence:
 1. `cat README.md 2>/dev/null | head -100` (README check)
-2. `python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect` (framework)
+2. `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect` (framework)
 3. `grep -r "@pytest\|import pytest" --include="*.py" | head -5` (test style)
 4. (optional) Check for Framework Idioms section in README
 
@@ -75,10 +75,10 @@ Confidence scoring: Handled by registry. See [ONTOLOGY.md#framework-confidence](
 See [EXPLORER_SCHEMAS.md#memory-mode-schema](shared/EXPLORER_SCHEMAS.md#memory-mode-schema)
 
 Tool sequence:
-1. `python3 "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10 --max-patterns 5`
+1. `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" context --objective "{objective}" --max-failures 10 --max-patterns 5`
 2. For high-relevance matches (_relevance > 0.6): `python3 ... related "{name}" --max-hops 1`
-3. `python3 "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar --threshold 0.5 --max 3`
-4. `python3 "$(cat .ftl/plugin_root)/lib/memory.py" stats`
+3. `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar --threshold 0.5 --max 3`
+4. `"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" stats`
 
 ---
 
@@ -129,7 +129,7 @@ Quality:
 Write result to database using the session_id provided at invocation:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/exploration.py" write-result \
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/exploration.py" write-result \
     --session "{session_id}" \
     --mode "{mode}" <<< '{...json result...}'
 ```

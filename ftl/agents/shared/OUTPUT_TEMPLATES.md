@@ -112,7 +112,7 @@ Once confirmed, the following approach will be used:
 
 **Step 1 - API Call** (REQUIRED):
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} --delivered "{summary}"
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" complete {workspace_id} --delivered "{summary}"
 ```
 
 **Step 2 - Markdown Output**:
@@ -140,7 +140,7 @@ Budget: {used}/{total}
 
 **Step 1 - API Call** (REQUIRED):
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" block {workspace_id} --reason "{error}\nTried: {fixes}\nUnknown: {unexpected}"
 ```
 
 **Step 2 - Markdown Output**:

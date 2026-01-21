@@ -14,16 +14,16 @@ See [ONTOLOGY.md](ONTOLOGY.md#framework-confidence) for confidence thresholds an
 
 ```bash
 # Detect framework in codebase
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" detect
 
 # Get idioms for framework
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
 
 # Get complexity weight for planner
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight fastapi
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" weight fastapi
 
 # List registered frameworks
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
 ```
 
 ## Detection Priority
@@ -51,10 +51,10 @@ Framework-specific idioms are defined in `lib/framework_registry.py`:
 
 ```bash
 # View all registered frameworks
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" list
 
 # View idioms for a specific framework
-python3 "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/framework_registry.py" idioms fasthtml
 ```
 
 **To add a new framework**: Add entries to `FRAMEWORK_PATTERNS` and `FRAMEWORK_IDIOMS` in the registry. No documentation updates needed.

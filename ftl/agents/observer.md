@@ -136,7 +136,7 @@ RETURN selected
 Run the automated extraction pipeline:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/observer.py" analyze
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/observer.py" analyze
 ```
 
 This returns structured results with quality indicators:
@@ -172,8 +172,8 @@ The automation marks blocks as CONFIRMED or FALSE_POSITIVE.
 
 **Override if needed:**
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/observer.py" extract-failure NNN-slug
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-failure --json '{...}'
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/observer.py" extract-failure NNN-slug
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" add-failure --json '{...}'
 ```
 
 ### 2b. Pattern Scoring Review
@@ -189,7 +189,7 @@ Automation scores >= 3 to extract. But scores miss context:
 
 **Override if needed:**
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{
   "name": "descriptive-name",
   "trigger": "when this applies",
   "insight": "the non-obvious technique",
@@ -209,8 +209,8 @@ python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-pattern --json '{
 Read 1-3 workspaces using selection criteria above:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse NNN-slug
-python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse MMM-other
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" parse NNN-slug
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/workspace.py" parse MMM-other
 ```
 
 **Synthesize:**
@@ -223,7 +223,7 @@ python3 "$(cat .ftl/plugin_root)/lib/workspace.py" parse MMM-other
 Check if similar campaigns offer transferable insights:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar
 ```
 
 **Questions to ask:**
@@ -236,7 +236,7 @@ python3 "$(cat .ftl/plugin_root)/lib/campaign.py" find-similar
 Beyond automation's co-occurrence linking, find deeper relationships:
 
 ```bash
-python3 "$(cat .ftl/plugin_root)/lib/memory.py" add-relationship "failure-a" "related-pattern" --type pattern
+"$(cat .ftl/plugin_root)/venv/bin/python3" "$(cat .ftl/plugin_root)/lib/memory.py" add-relationship "failure-a" "related-pattern" --type pattern
 ```
 
 **Link criteria:**
