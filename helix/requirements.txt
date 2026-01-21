@@ -1,0 +1,7 @@
+# Helix dependencies
+
+# Semantic embeddings (optional but recommended)
+sentence-transformers>=2.2.0
+
+# Numerical operations for embeddings
+numpy>=1.21.0
