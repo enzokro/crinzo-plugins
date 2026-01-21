@@ -57,6 +57,13 @@ See [TOOL_BUDGET_REFERENCE.md](shared/TOOL_BUDGET_REFERENCE.md) and [ONTOLOGY.md
 
 EMIT after each tool: `"Budget: {used}/{total}, Action: {description}"`
 
+**Budget Exemptions**: The following do NOT count against your budget:
+- `workspace.py parse` (data retrieval)
+- `workspace.py complete` (completion reporting)
+- `workspace.py block` (blocking reporting)
+
+These are structural necessities. Your budget covers implementation work only.
+
 ## File Scope
 
 You may ONLY modify files listed in workspace `delta`. If correct implementation requires changes to files not in delta, BLOCK with reason: "delta insufficient - requires {file}".

@@ -118,6 +118,7 @@ Arguments marked `POS` are positional (no flag). Arguments marked `FLAG` require
 | create-session | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py create-session` | returns session_id for explorer tracking |
 | wait-explorers | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py wait-explorers --session ID [--required N] [--timeout S]` | blocks until quorum (polls explorer_result table) |
 | check-explorers | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py check-explorers --session ID` | non-blocking status check |
+| check-explorer-result | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py check-explorer-result --session ID --mode MODE` | checks if specific mode result exists (for EXPLORER_COMPLETION_PATTERN fallback) |
 | validate-transition | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py validate-transition FROM TO` | both POS |
 | emit-state | `python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py emit-state STATE [--meta JSON]` | `STATE` is POS, logs event |
 

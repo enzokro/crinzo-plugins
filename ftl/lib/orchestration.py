@@ -274,6 +274,26 @@ def emit_state(state: str, **kwargs) -> dict:
     }
 
 
+def check_explorer_result(session_id: str, mode: str) -> bool:
+    """Check if explorer result exists in database.
+
+    Used by EXPLORER_COMPLETION_PATTERN to determine if fallback write is needed.
+
+    Args:
+        session_id: Session ID linking parallel explorers
+        mode: Explorer mode (structure, pattern, memory, delta)
+
+    Returns:
+        True if result exists, False otherwise
+    """
+    db = _ensure_db()
+    results = list(db.t.explorer_result.rows_where(
+        "session_id = ? AND mode = ?",
+        [session_id, mode]
+    ))
+    return len(results) > 0
+
+
 # =============================================================================
 # CLI Interface
 # =============================================================================
@@ -307,6 +327,11 @@ def main():
     es.add_argument("state", help="State name")
     es.add_argument("--meta", help="JSON metadata string")
 
+    # check-explorer-result command
+    cer = subparsers.add_parser("check-explorer-result", help="Check if explorer result exists")
+    cer.add_argument("--session", required=True, help="Session ID")
+    cer.add_argument("--mode", required=True, help="Explorer mode (structure, pattern, memory, delta)")
+
     args = parser.parse_args()
 
     if args.command == "create-session":
@@ -331,6 +356,11 @@ def main():
         meta = json.loads(args.meta) if args.meta else {}
         result = emit_state(args.state, **meta)
         print(json.dumps(result, indent=2))
+
+    elif args.command == "check-explorer-result":
+        exists = check_explorer_result(args.session, args.mode)
+        print(json.dumps({"exists": exists}))
+        sys.exit(0 if exists else 1)
 
     else:
         parser.print_help()

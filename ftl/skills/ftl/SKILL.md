@@ -1,7 +1,7 @@
 ---
 name: ftl
 description: Task execution with learning
-version: 2.4.13
+version: 2.4.25
 ---
 
 # FTL Protocol
@@ -267,6 +267,36 @@ IF: ws_status == "active" →
 
 # If ws_status is already "complete" or "blocked", builder called API correctly - no action needed
 IF: ws_status != "active" → EMIT: BUILDER_API_OK workspace={workspace_id}
+```
+
+### EXPLORER_COMPLETION_PATTERN
+
+Ensures explorer results reach the database. Explorers may fail to import FTL modules;
+this pattern provides a structural fallback where orchestrator writes the result.
+
+```
+# Input: session_id, mode, explorer_output
+# Check if explorer wrote to database
+CHECK: result_exists = python3 ${CLAUDE_PLUGIN_ROOT}/lib/orchestration.py check-explorer-result --session {session_id} --mode {mode}
+
+IF: result_exists == false →
+    # Explorer did NOT write to DB - parse output and write
+    EMIT: EXPLORER_DB_FALLBACK session={session_id} mode={mode}
+
+    # Parse explorer output for JSON result
+    # Look for raw JSON object starting with { and ending with }
+    DO: parsed_result = extract JSON object from explorer_output
+
+    IF: parsed_result is valid JSON →
+        DO: echo '{parsed_result}' | python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write-result --session {session_id} --mode {mode}
+        EMIT: EXPLORER_FALLBACK_WROTE session={session_id} mode={mode}
+    ELSE →
+        # JSON extraction failed - create minimal error result
+        DO: python3 ${CLAUDE_PLUGIN_ROOT}/lib/exploration.py write-result --session {session_id} --mode {mode} <<< '{"mode": "{mode}", "status": "error", "error": "Output parsing failed"}'
+        EMIT: EXPLORER_FALLBACK_ERROR session={session_id} mode={mode}
+
+# If result_exists is true, explorer wrote correctly - no action needed
+IF: result_exists == true → EMIT: EXPLORER_DB_OK session={session_id} mode={mode}
 ```
 
 ---

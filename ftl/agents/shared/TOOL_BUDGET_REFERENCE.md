@@ -44,12 +44,17 @@ Budget counts **tool invocations**, not unique resources:
 
 ## Exempt Actions (Don't Count)
 
+These calls are structural necessities, not implementation work:
+
 | Action | Why Exempt |
 |--------|------------|
+| `workspace.py parse` | Workspace data retrieval |
+| `workspace.py complete` | Status reporting (CRITICAL) |
+| `workspace.py block` | Status reporting (CRITICAL) |
 | Preflight checks | Syntax validation loop (may need multiple attempts) |
-| Workspace complete/block | Final state transition |
 | Memory operations | Post-task learning |
 | Phase transitions | State machine bookkeeping |
+| EMIT statements | Logging only |
 
 ## Budget Assignment Rules (Planner)
 
