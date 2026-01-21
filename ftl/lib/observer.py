@@ -172,18 +172,8 @@ def score_workspace(workspace_path_or_id, memory: dict = None) -> dict:
     score = 0
     breakdown = {}
 
-    # Check if was blocked then fixed
-    db = _ensure_db()
-    workspaces = db.t.workspace
-
-    seq = ws.get("id", "").split("-")[0] if ws.get("id") else ""
-    was_blocked = False
-    if seq:
-        blocked = list(workspaces.rows_where(
-            "seq = ? AND status = ?",
-            [seq, "blocked"]
-        ))
-        was_blocked = len(blocked) > 0
+    # Check if was blocked then fixed (recovered block has blocked_at set)
+    was_blocked = bool(ws.get("blocked_at"))
 
     if was_blocked:
         score += 3
@@ -481,6 +471,43 @@ def analyze(
                         cross_result = add_cross_relationship(
                             failure_info["name"],
                             pattern["name"],
+                            "solves"
+                        )
+                        if cross_result == "added":
+                            result["relationships_added"] += 1
+                        break
+
+    # Process recovered blocks (were blocked, now complete)
+    # These represent high-value learnings: what failed AND how it was fixed
+    recovered = [ws for ws in workspaces["complete"] if ws.get("blocked_at")]
+    for ws in recovered:
+        ws_id = ws["workspace_id"]
+        # Check if we already extracted a failure for this workspace
+        already_extracted = any(
+            f["name"].startswith(ws_id.split("-")[0])
+            for f in result["failures_extracted"]
+        )
+        if already_extracted:
+            continue
+
+        # Extract failure from the recovery (represents original block)
+        failure = extract_failure(ws_id, "")
+        if failure and failure.get("trigger"):
+            add_result = add_failure(failure)
+            result["failures_extracted"].append({
+                "name": failure["name"],
+                "result": add_result,
+                "recovered": True,
+            })
+
+            # If both failure and pattern exist, link them
+            if add_result == "added":
+                # Find corresponding pattern (should already be extracted above)
+                for p in result["patterns_extracted"]:
+                    if p["name"] == ws_id:
+                        cross_result = add_cross_relationship(
+                            failure["name"],
+                            p["name"],
                             "solves"
                         )
                         if cross_result == "added":

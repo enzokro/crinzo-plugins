@@ -8,7 +8,22 @@ from sqlalchemy import text
 
 _db = None
 _db_init_lock = threading.RLock()
-DB_PATH = Path(os.environ.get('FTL_DB_PATH', '.ftl/ftl.db'))
+def _resolve_db_path() -> Path:
+    """Resolve database path, preferring explicit env var, then walking up to find .ftl."""
+    if os.environ.get('FTL_DB_PATH'):
+        return Path(os.environ['FTL_DB_PATH'])
+
+    # Walk up to find .ftl directory (handles sub-agent working directories)
+    cwd = Path.cwd()
+    for parent in [cwd] + list(cwd.parents):
+        ftl_dir = parent / '.ftl'
+        if ftl_dir.exists() and ftl_dir.is_dir():
+            return ftl_dir / 'ftl.db'
+
+    # Fallback to relative path (will create .ftl in cwd)
+    return Path('.ftl/ftl.db')
+
+DB_PATH = _resolve_db_path()
 
 
 def get_db():
