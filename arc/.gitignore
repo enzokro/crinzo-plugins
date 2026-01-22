@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.arc/
+*.db
+*.db-wal
+*.db-shm

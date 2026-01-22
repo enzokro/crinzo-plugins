@@ -1,0 +1,46 @@
+{
+  "name": "arc",
+  "version": "1.0.0",
+  "description": "Adaptive reasoning orchestrator. Think deeply, act precisely, learn automatically.",
+  "entryPoint": "skills/arc/SKILL.md",
+  "triggers": [
+    {
+      "type": "command",
+      "command": "arc",
+      "description": "Execute with adaptive reasoning and learning"
+    },
+    {
+      "type": "command",
+      "command": "arc:think",
+      "description": "Just the reasoning phase"
+    },
+    {
+      "type": "command",
+      "command": "arc:recall",
+      "description": "Search memory by meaning"
+    },
+    {
+      "type": "command",
+      "command": "arc:health",
+      "description": "Learning system health"
+    }
+  ],
+  "hooks": [
+    {
+      "type": "SessionStart",
+      "script": "scripts/setup-env.sh"
+    }
+  ],
+  "agents": [
+    {
+      "name": "arc-reason",
+      "description": "Adaptive reasoning - scales depth with complexity",
+      "entryPoint": "agents/reason.md"
+    },
+    {
+      "name": "arc-act",
+      "description": "Focused execution with automatic feedback",
+      "entryPoint": "agents/act.md"
+    }
+  ]
+}
