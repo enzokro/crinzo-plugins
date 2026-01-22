@@ -1,443 +1,256 @@
 # Arc
 
-> Think deeply. Act precisely. Learn automatically. Know when to pivot.
+A learning layer for Claude Code. Memory that compounds. Metacognition that knows when to pivot.
 
 ---
 
-## The Loop
+## What Arc Is
 
-```
-         ┌─────────────────────────────────────────────┐
-         │              METACOGNITION                   │
-         │   "Is this approach working? Should I pivot?"│
-         └──────────────────────┬──────────────────────┘
-                                │ monitors
-                                ▼
-    ┌──────────┐      ┌──────────────┐      ┌──────────────┐
-    │  REASON  │─────▶│     ACT      │─────▶│    LEARN     │
-    │          │      │              │      │              │
-    │ Impasse? │      │ Backpressure │      │ Chunk+Decay  │
-    │ →subgoal │      │    gates     │      │   →memory    │
-    └──────────┘      └──────────────┘      └──────────────┘
-          ▲                                        │
-          └─────────── memory (weighted) ◀─────────┘
-                   relevance × effectiveness × recency
-```
+Arc is not an orchestrator. It's a set of tools that make Claude Code smarter over time:
 
-**REASON**: Understand, assess, decide. Detect impasse explicitly.
-**ACT**: Execute with focus. Backpressure gates verify.
-**LEARN**: Extract, chunk, decay. Convert experience to rules.
-**METACOGNITION**: Monitor approach. Know when to pivot.
+**Memory** (`lib/memory.py`)
+- Stores failures and patterns
+- Retrieves by relevance × effectiveness × recency
+- Automatically updates effectiveness based on what you actually use
+- Decays unused memories, consolidates similar ones
+
+**Metacognition** (`lib/meta.py`)
+- Tracks success/failure across a session
+- Detects when your approach is failing
+- Recommends pivot before compound errors kill you
+
+**Context** (`lib/context.py`)
+- Builds context from memory + codebase signals
+- Assesses complexity
+
+**Task Tracking** (`lib/task.py`)
+- Tracks tasks within a session
+- Closes feedback loop automatically on completion
 
 ---
 
 ## Commands
 
-| Command | What it does |
-|---------|--------------|
-| `/arc <objective>` | Full loop: reason → act → learn |
-| `/arc:think <objective>` | Just reasoning (no execution) |
-| `/arc:recall <query>` | Search memory by meaning |
-| `/arc:health` | Learning system status |
-| `/arc:meta <session>` | Metacognitive assessment - is approach working? |
-| `/arc:chunk` | Extract patterns from successful session |
-| `/arc:decay` | Apply memory decay to unused memories |
-| `/arc:consolidate` | Merge similar memories |
+```bash
+# Query memory
+/arc:recall <query>
+
+# Check if your approach is working
+/arc:meta
+
+# Learning system health
+/arc:health
+
+# After success - extract pattern
+/arc:chunk
+
+# Maintenance
+/arc:decay
+/arc:consolidate
+```
 
 ---
 
-## Flow
+## How to Use Arc
 
-### /arc \<objective\>
+### Starting Work
 
-The full evolved loop.
-
-```
-0. METACOGNITIVE CHECK (if continuing session)
-   │
-   │  Before diving in:
-   │  - How many recent failures?
-   │  - Is current approach working?
-   │  - Should we pivot? (compound errors kill)
-   │
-   │  If pivot recommended → flag for user, suggest alternatives
-   │
-   ▼
-1. BUILD CONTEXT
-   │
-   │  Gather what we know:
-   │  - Query memory for relevant failures and patterns
-   │  - Assess codebase structure
-   │  - Evaluate complexity signals
-   │
-   │  Memory retrieval is activation-based:
-   │  score = relevance × effectiveness × recency
-   │
-   ▼
-2. REASON
-   │
-   │  Think through the objective:
-   │  - What's being asked?
-   │  - How complex is it?
-   │  - What's the approach?
-   │
-   │  Output options:
-   │  - Assessment + Tasks (normal)
-   │  - IMPASSE (explicit recognition of being stuck)
-   │
-   │  Impasse types:
-   │  - no_approach: genuinely don't know how
-   │  - conflict: contradicting requirements
-   │  - missing_capability: need something unavailable
-   │  - repeated_failure: tried and failed multiple times
-   │
-   │  On impasse → create SUBGOAL for resolution
-   │
-   ▼
-3. ACT (for each task)
-   │
-   │  Execute with context:
-   │  - Check metacognitive state
-   │  - Inject relevant memories
-   │  - Do the work
-   │  - VERIFY (backpressure gate - not optional!)
-   │  - Report: DELIVERED or BLOCKED
-   │  - Report: what memories were UTILIZED
-   │
-   │  Backpressure:
-   │  - Verification failure = task NOT complete
-   │  - Loop: fix → re-verify until pass or BLOCKED
-   │  - Gates create learning, not just quality
-   │
-   │  Feedback loop closes automatically:
-   │  - utilized memories → helped++
-   │  - injected but unused → failed++
-   │
-   ▼
-4. LEARN (automatic)
-   │
-   │  On BLOCKED:
-   │  - Extract failure pattern → store in memory
-   │  - Record outcome for metacognition
-   │
-   │  On DELIVERED:
-   │  - CHUNK the success
-   │  - Extract: "this approach worked for this situation"
-   │  - Store as pattern, or strengthen existing similar pattern
-   │  - Record outcome for metacognition
-   │
-   │  Memory maintenance:
-   │  - Effectiveness updates (helped/failed)
-   │  - DECAY unused memories
-   │  - CONSOLIDATE similar memories
-   │
-   ▼
-5. SUMMARIZE
-   │
-   │  Report what happened.
-   │  Show metacognitive assessment.
-   │  Show learning loop status.
-   │
-   done
-```
-
-### /arc:think \<objective\>
-
-Just reasoning, no execution. Useful for planning.
-
-```
-1. BUILD CONTEXT
-   ▼
-2. REASON
-   ▼
-3. OUTPUT reasoning result
-   (no ACT, no LEARN)
-```
-
-### /arc:recall \<query\>
-
-Search memory by meaning.
-
-```
-python3 $PLUGIN_ROOT/lib/memory.py recall "<query>"
-```
-
-Returns memories ranked by relevance × effectiveness.
-
-### /arc:health
-
-Check learning system status.
-
-```
-python3 $PLUGIN_ROOT/lib/memory.py health
-```
-
-Shows:
-- Total memories
-- By type (failures, patterns)
-- Effectiveness
-- Feedback status
-- Issues
-
----
-
-## Execution Detail
-
-### Building Context
+Before diving into a task, query memory:
 
 ```bash
-# Get memory context
-python3 $PLUGIN_ROOT/lib/context.py "<objective>"
+python3 $ARC_ROOT/lib/memory.py recall "your objective here"
 ```
 
-Returns:
-```json
-{
-  "objective": "...",
-  "memory": {
-    "failures": [...],
-    "patterns": [...],
-    "connected": [...],
-    "injected_names": [...]
-  },
-  "codebase": {...},
-  "complexity": {...}
+You'll get relevant failures (things to avoid) and patterns (approaches that worked).
+
+If continuing a session, check metacognition:
+
+```bash
+python3 $ARC_ROOT/lib/meta.py assess --session "$SESSION"
+```
+
+If it says "pivot_now" - stop. Your approach isn't working. Try something different.
+
+### While Working
+
+**When you're stuck**: Don't hallucinate forward. Recognize the impasse:
+- Is this a "no_approach" (genuinely don't know how)?
+- A "conflict" (contradicting requirements)?
+- A "missing_capability" (need something unavailable)?
+- A "repeated_failure" (tried and failed, trying again won't help)?
+
+Name it. Create a subgoal to resolve it. Or ask for help.
+
+**When you complete something**: Report honestly what memories you actually used.
+
+```bash
+python3 $ARC_ROOT/lib/task.py complete \
+  --session "$SESSION" \
+  --seq $SEQ \
+  --delivered "what you delivered" \
+  --utilized '["memory-names-that-helped"]'
+```
+
+This automatically updates memory effectiveness. Memories you used get stronger. Memories you didn't use get weaker.
+
+**When you fail**: Store the failure so you don't repeat it:
+
+```bash
+python3 $ARC_ROOT/lib/memory.py store \
+  --type failure \
+  --trigger "what went wrong" \
+  --resolution "what to do instead"
+```
+
+### After Success
+
+Extract a pattern from what worked:
+
+```bash
+python3 $ARC_ROOT/lib/memory.py chunk \
+  --task "the objective" \
+  --outcome "SUCCESS" \
+  --approach "what you did that worked"
+```
+
+This creates a reusable pattern, or strengthens an existing similar one.
+
+---
+
+## The Actual API
+
+### memory.py
+
+```python
+# Store a failure or pattern
+store(trigger, resolution, type="failure"|"pattern") → name
+
+# Find relevant memories
+recall(query, type=None, limit=10) → [memories ranked by score]
+
+# Close feedback loop
+feedback(utilized=["names"], injected=["names"]) → {helped, unhelpful}
+
+# Connect related memories
+relate(name_a, name_b, type="similar"|"causes"|"solves")
+
+# Get connected memories
+connected(name) → [related memories]
+
+# Remove ineffective memories
+prune(threshold=0.3) → {pruned, remaining}
+
+# System health
+health() → {total, effectiveness, issues}
+
+# Decay unused memories
+decay(threshold_days=30) → {candidates}
+
+# Extract pattern from success
+chunk(task, outcome, approach) → {status, name}
+
+# Merge similar memories
+consolidate(similarity=0.9) → {merged, remaining}
+```
+
+### meta.py
+
+```python
+# Track outcome
+record_outcome(session_id, task_seq, success, notes="")
+
+# Is approach working?
+assess_approach(session_id) → {status, success_rate, recommendation}
+
+# Should I pivot?
+should_pivot(session_id) → {should_pivot, confidence, suggestion}
+
+# Session summary
+session_summary(session_id) → {tasks, success_rate, failure_notes}
+
+# Start fresh
+clear_session(session_id)
+```
+
+### context.py
+
+```python
+# Build context for an objective
+build(objective, quick=False) → {
+  objective,
+  memory: {failures, patterns, connected, injected_names},
+  codebase: {structure signals},
+  complexity: {level, suggested_decomposition}
 }
 ```
 
-### Launching Reason
+### task.py
 
-```
-Task(arc:arc-reason)
-INPUT:
-  OBJECTIVE: <objective>
-  MEMORY: <context.memory>
-  CODEBASE: <context.codebase>
-  COMPLEXITY: <context.complexity>
-```
+```python
+# Start session
+new_session() → {session_id}
 
-Reason outputs:
-- Assessment (simple/moderate/complex/unclear)
-- Tasks (1 or more)
-- Memory application notes
-- Reasoning
+# Add task
+add(session_id, seq, objective, delta=[], injected=[])
 
-### Launching Act (per task)
+# Complete task (auto-triggers feedback)
+complete(session_id, seq, delivered, utilized=[]) → {status, feedback}
 
-```
-Task(arc:arc-act)
-INPUT:
-  TASK:
-    objective: <task.objective>
-    delta: <task.delta>
-    verify: <task.verify>
-  MEMORIES:
-    failures: <relevant failures>
-    patterns: <relevant patterns>
-  LINEAGE: <previous task deliveries if any>
-```
+# Block task
+block(session_id, seq, obstacle, attempted)
 
-Act outputs:
-- DELIVERED or BLOCKED
-- Details
-- UTILIZED list
+# Get task
+get(session_id, seq) → task
 
-### Automatic Feedback
-
-On task completion (DELIVERED or BLOCKED):
-
-```bash
-python3 $PLUGIN_ROOT/lib/task.py complete \
-  --session "$SESSION" \
-  --seq $SEQ \
-  --delivered "$DELIVERED" \
-  --utilized '$UTILIZED_JSON'
-```
-
-This automatically calls `memory.feedback(utilized, injected)`:
-- Memories in utilized → `helped++`
-- Memories in injected but not utilized → `failed++`
-
-The loop closes without manual intervention.
-
-### Learning Extraction
-
-On BLOCKED:
-
-```bash
-python3 $PLUGIN_ROOT/lib/memory.py store \
-  --type failure \
-  --trigger "<error/obstacle summary>" \
-  --resolution "<what should be done differently>" \
-  --source "$SESSION-$SEQ"
-```
-
-This captures the lesson for future sessions.
-
----
-
-## State Diagram
-
-```
-     ┌──────────┐
-     │   INIT   │
-     └────┬─────┘
-          │
-          ▼
-     ┌──────────┐
-     │ CONTEXT  │  Build context from memory + codebase
-     └────┬─────┘
-          │
-          ▼
-     ┌──────────┐
-     │  REASON  │  Adaptive thinking
-     └────┬─────┘
-          │
-    ┌─────┴─────┐
-    │           │
-    ▼           ▼
-┌───────┐  ┌─────────┐
-│UNCLEAR│  │  ACT    │◀─┐
-└───┬───┘  └────┬────┘  │
-    │           │       │
-    ▼           │       │
-┌───────┐       │       │
-│ ASK   │       │       │
-└───────┘  ┌────┴────┐  │
-           │         │  │
-           ▼         ▼  │
-       ┌──────┐  ┌──────┴─┐
-       │ DONE │  │  NEXT  │
-       └──┬───┘  └────────┘
-          │
-          ▼
-     ┌──────────┐
-     │  LEARN   │  Automatic extraction + feedback
-     └────┬─────┘
-          │
-          ▼
-     ┌──────────┐
-     │ SUMMARY  │
-     └──────────┘
+# Pending tasks
+pending(session_id) → [tasks]
 ```
 
 ---
 
-## Why This Works
+## Principles
 
-### Adaptive Depth
+### Memory is where intelligence accumulates
 
-The REASON phase naturally scales:
-- Simple objective → Simple assessment → One task
-- Complex objective → Deep analysis → Multiple tasks
+You are stateless. Memory is not. Use it.
 
-Complexity emerges from the objective, not from the system.
+### Feedback must close
 
-### Automatic Feedback
+When you complete a task, report what memories actually helped. This is how the system learns which memories are valuable.
 
-Task completion automatically triggers feedback. Manual feedback is forgotten, automatic feedback compounds.
+### Impasse is signal
 
-### Memory as Intelligence
+When you're stuck, say so explicitly. Don't generate plausible garbage. "I don't know how to proceed" is valuable. It creates a subgoal.
 
-The agents are stateless. Memory is where intelligence accumulates.
+### Verification is learning
 
-Each session:
-1. Queries memory → relevant context
-2. Uses (or doesn't use) that context
-3. Reports what was utilized
-4. Effectiveness updates
-5. Next session gets better-ranked context
+When verification fails, that's information. Loop until it passes, or explicitly block with why.
 
-Compounding intelligence. Not in the agent. In the system.
+### Decay is healthy
 
-### Honest Reporting
+Memories you don't use should fade. Don't fight it. Let relevance emerge from usage.
 
-BLOCKED is not failure. BLOCKED with clear information is valuable learning.
+### Know when to pivot
 
-UTILIZED must be accurate. This creates signal, not noise.
-
-### Impasse Detection
-
-Most agents don't know they're stuck. They generate plausible output instead of admitting "I don't know."
-
-Arc's REASON agent can output IMPASSE with explicit type and subgoal. Recognizing gaps is how expertise develops.
-
-### Backpressure Gates
-
-Instead of prescribing exactly how to do things, create gates that reject bad work.
-
-Verification isn't optional. It's how learning happens. The ACT agent must loop until verification passes or explicitly BLOCK.
-
-### Chunking
-
-When problem-solving succeeds, compile that experience into a rule.
-
-Arc's `chunk()` function:
-- Takes successful task completion
-- Extracts "this approach worked for this situation"
-- Stores as pattern (or strengthens existing similar pattern)
-- Next time → fires directly, no deliberation
-
-Slow reasoning → fast intuition.
-
-### Memory Decay
-
-Unused memories fade. Without decay, memory bloats with noise.
-
-Arc's `decay()` function:
-- Applies half-life to recency score
-- Unused memories gradually lose activation
-- Recall weighs: relevance × effectiveness × recency
-
-### Metacognition
-
-The agent monitors its own reasoning.
-
-Arc's metacognitive layer:
-- Tracks success/failure per session
-- Detects when approach isn't working (consecutive failures)
-- Recommends pivot before compound errors kill the session
-
-If you've failed 3 times with the same approach, the 4th attempt probably won't work either.
-
-### Activation-Based Retrieval
-
-Memory retrieval isn't just similarity:
-
-```
-score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
-```
-
-Frequently used, effective, recent memories are more accessible.
-
-### Fresh Context
-
-Sometimes the best move is to start fresh. Context rot is real.
-
-Clear session, start fresh, let git/files be the persistent state.
+If you've failed 3 times with the same approach, the 4th attempt probably won't work either. Check metacognition. Start fresh if needed.
 
 ---
 
 ## Environment
 
 ```bash
-PLUGIN_ROOT = <from .arc/plugin_root>
-ARC_DB_PATH = <optional: custom database path>
+ARC_ROOT=/path/to/arc        # Plugin root
+ARC_DB_PATH=.arc/arc.db      # Optional: custom db path
 ```
 
-Storage: `.arc/arc.db` (SQLite with WAL)
+Storage: SQLite with WAL mode at `.arc/arc.db`
 
 ---
 
-## The Point
+## That's It
 
-Arc is about thinking well and learning from experience.
+Arc is a learning layer. Query memory before you start. Report honestly when you finish. Extract patterns from success. Recognize when you're stuck.
 
-The REASON agent thinks - and knows when it's stuck.
-The ACT agent does - with backpressure gates that verify.
-The memory compounds - with decay and chunking.
-The metacognition monitors - knowing when to pivot.
+The intelligence compounds in the memory, not in elaborate orchestration.
 
-Over time, the system develops judgment through accumulated experience with honest feedback, explicit impasse recognition, and automatic pattern extraction.
-
-That's arc.
+Use the tools. Get smarter over time.
