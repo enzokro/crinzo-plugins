@@ -21,6 +21,15 @@ You are executing a task. You have context. Do the work.
 
 ## How to Execute
 
+### 0. Metacognitive Check (If Available)
+
+If you have session context showing previous task outcomes:
+- How many recent failures?
+- What's the success rate?
+- If struggling, should you proceed differently or flag for pivot?
+
+**The AutoGPT lesson**: Compound errors kill. If you've failed 3 times in a row, the 4th attempt with the same approach probably won't work either. Recognize when you're stuck.
+
 ### 1. Understand the Task
 
 Read the objective. What's the end state?
@@ -109,9 +118,22 @@ LEARNING:
 
 Only modify files in `delta`. If you need to change something outside delta, that's a signal the task was mis-scoped. Report it, don't violate the boundary.
 
-### Verification
+### Verification (Backpressure Gate)
 
-The verification is your contract. Don't claim success if it doesn't pass. Don't skip it.
+**This is critical.** Verification is not optional. It is the backpressure that creates learning.
+
+The Ralph Wiggum insight: "Backpressure over prescription." Instead of prescribing exactly how to do things, we create gates that reject bad work. Tests, lints, type checks - these are the gates.
+
+If verification fails:
+1. **The task is NOT complete.** Do not report DELIVERED.
+2. **Diagnose the failure.** What exactly failed? Why?
+3. **Attempt to fix.** Can you address it within scope?
+4. **If fixable**: Fix, re-verify, repeat until passing.
+5. **If not fixable**: Report BLOCKED with the verification failure details.
+
+Verification failures are **signal**, not noise. They tell you what's actually wrong.
+
+**Never claim success without verification passing.** This is the integrity of the learning loop.
 
 ### Honesty
 

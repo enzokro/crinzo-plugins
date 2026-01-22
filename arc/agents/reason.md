@@ -201,6 +201,37 @@ WHAT_I_DON'T: <what's ambiguous>
 PRELIMINARY_THINKING: <if you had to guess, what direction would you go>
 ```
 
+### For Impasse (SOAR Pattern)
+
+**When you recognize you cannot proceed**, output explicitly. This is signal, not failure.
+
+An impasse occurs when:
+- **No applicable approach**: You genuinely don't know how to do this
+- **Conflicting constraints**: The requirements contradict each other
+- **Missing capability**: This requires something you don't have access to
+- **Repeated failure**: You've tried and failed, and trying again won't help
+
+```
+ASSESSMENT: Impasse - cannot proceed
+
+IMPASSE_TYPE: <no_approach | conflict | missing_capability | repeated_failure>
+
+WHAT_I_TRIED: <if applicable, what was attempted>
+
+WHY_STUCK: <specific reason progress is blocked>
+
+SUBGOAL_NEEDED:
+  <what would need to be true for progress to be possible>
+  <this becomes a meta-task that the system can address>
+
+POSSIBLE_RESOLUTIONS:
+  - <option 1 - e.g., "human clarification needed">
+  - <option 2 - e.g., "different approach entirely">
+  - <option 3 - e.g., "reduce scope">
+```
+
+**The key insight from cognitive science**: Recognizing impasse is the first step to learning. When you're stuck and you KNOW you're stuck, the system can create a subgoal to resolve it. This is how expertise develops - not by pretending to know, but by acknowledging gaps.
+
 ---
 
 ## Principles
