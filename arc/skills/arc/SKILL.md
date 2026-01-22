@@ -2,25 +2,77 @@
 
 A learning layer for Claude Code. Memory that compounds. Metacognition that knows when to pivot.
 
+**Plugin root**: This skill's files are at the path where this SKILL.md lives. All commands use paths relative to that root.
+
 ---
 
-## Command Execution
+## Commands
 
-### /arc:recall <query>
+### /arc:recall \<query\>
 
 Query memory for relevant failures and patterns.
 
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py recall "$QUERY"
+python3 lib/memory.py recall "<query>"
 ```
 
-**Show the user**: Relevant memories ranked by score. For each memory, show:
-- Name and type (failure/pattern)
-- Trigger (when this applies)
-- Resolution/insight (what to do)
-- Effectiveness score
+Run from the arc plugin root directory.
 
-If no memories match, say so.
+**Output**: Show memories ranked by score. For each:
+- Name, type (failure/pattern)
+- Trigger → Resolution
+- Score (relevance × effectiveness × recency)
+
+If empty, say "No relevant memories found."
+
+---
+
+### /arc:store
+
+Store a new failure or pattern. Interactive.
+
+**Ask**:
+1. Type: failure or pattern?
+2. Trigger: When does this apply?
+3. Resolution: What to do?
+
+```bash
+python3 lib/memory.py store --type "<failure|pattern>" --trigger "<trigger>" --resolution "<resolution>"
+```
+
+**Output**: Confirm what was stored.
+
+---
+
+### /arc:learn
+
+Close the feedback loop after completing work. Interactive.
+
+**Ask**:
+1. What memories were injected (shown to you)?
+2. Which ones did you actually use?
+
+```bash
+python3 lib/memory.py feedback --utilized '["name1", "name2"]' --injected '["name1", "name2", "name3"]'
+```
+
+**Output**: Show how many memories were marked as helpful vs unhelpful.
+
+---
+
+### /arc:chunk
+
+Extract a pattern from successful work. Interactive.
+
+**Ask**:
+1. What was the task?
+2. What approach worked?
+
+```bash
+python3 lib/memory.py chunk --task "<task>" --outcome "SUCCESS" --approach "<approach>"
+```
+
+**Output**: Confirm pattern created or strengthened.
 
 ---
 
@@ -29,161 +81,142 @@ If no memories match, say so.
 Check learning system status.
 
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py health
+python3 lib/memory.py health
 ```
 
-**Show the user**:
-- Total memories and breakdown by type
-- Overall effectiveness
-- Any issues (e.g., embeddings unavailable)
+**Output**: Total memories, effectiveness, issues.
 
 ---
 
 ### /arc:meta
 
-Check if current approach is working. Requires an active session.
+Check if current approach is working.
 
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "$SESSION_ID"
+python3 lib/meta.py assess --session "<session_id>"
 ```
 
-**Show the user**:
-- Status (healthy/struggling/failing)
-- Success rate
-- Consecutive failures
-- Recommendation (keep_going/slow_down/consider_pivot/pivot_now)
+If no session, say "No session tracked."
 
-If no session active, say "No session tracked. Start one with task.py new-session."
-
----
-
-### /arc:chunk
-
-Extract a pattern from successful work. Interactive.
-
-**Ask the user**:
-1. What was the task/objective?
-2. What approach worked?
-
-Then run:
-```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py chunk --task "$TASK" --outcome "SUCCESS" --approach "$APPROACH"
-```
-
-**Show the user**: Whether pattern was created or existing one strengthened.
+**Output**: Status, success rate, recommendation (keep_going/pivot).
 
 ---
 
 ### /arc:decay
 
-Show memories that would decay due to lack of use.
+Show memories that would decay.
 
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py decay --days 30 --min-uses 2
+python3 lib/memory.py decay
 ```
 
-**Show the user**: List of memories that haven't been used in 30 days with fewer than 2 feedback events. These are candidates for forgetting.
+**Output**: Memories unused for 30+ days with minimal feedback.
 
 ---
 
 ### /arc:consolidate
 
-Merge highly similar memories.
+Merge similar memories.
 
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py consolidate
+python3 lib/memory.py consolidate
 ```
 
-**Show the user**: How many memories were merged.
+**Output**: How many merged.
 
 ---
 
-## When to Use Arc (Proactively)
+## Proactive Usage
 
-### Before Starting Complex Work
+### Before Complex Work
 
-Query memory for relevant context:
+Read the guidance, then query memory:
+
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py recall "the objective"
+# Read guidance/reason.md for how to think
+# Then:
+python3 lib/memory.py recall "<what you're about to do>"
 ```
 
-Inject any relevant failures/patterns into your thinking.
+Inject relevant memories into your thinking.
 
-### After Completing Work Successfully
+### After Success
 
 Store what worked:
+
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py chunk --task "..." --outcome "SUCCESS" --approach "..."
+python3 lib/memory.py chunk --task "..." --outcome "SUCCESS" --approach "..."
 ```
 
-### After Failing
+### After Failure
 
-Store the failure so it's not repeated:
+Store so it's not repeated:
+
 ```bash
-python3 {{PLUGIN_ROOT}}/lib/memory.py store --type failure --trigger "what went wrong" --resolution "what to do instead"
+python3 lib/memory.py store --type failure --trigger "..." --resolution "..."
 ```
 
-### When Stuck Multiple Times
+### When Stuck Repeatedly
 
-Check metacognition:
-```bash
-python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "$SESSION_ID"
-```
-
-If it says pivot, try a different approach.
+Check metacognition. If failing, pivot.
 
 ---
 
-## Session Management
+## The Feedback Loop
 
-For tracking success/failure across a conversation:
+This is how arc learns:
+
+1. **Query** memory before work → get injected memories
+2. **Work** using (or not using) those memories
+3. **Report** which memories you actually utilized
+4. **Memory updates**: utilized → helped++, not utilized → failed++
+5. **Next query** ranks memories by effectiveness
+
+**If you don't close the loop, arc doesn't learn.**
+
+---
+
+## Guidance Files
+
+For cognitive guidance, read these files from the plugin root:
+
+- `guidance/reason.md` - How to think: impasse detection, complexity assessment, honest uncertainty
+- `guidance/act.md` - How to act: verification, scope discipline, honest reporting
+
+These are reference documents, not executable commands.
+
+---
+
+## Session Tracking (Optional)
+
+For multi-task work where you want metacognitive monitoring:
 
 ```bash
-# Start a session
-python3 {{PLUGIN_ROOT}}/lib/task.py new-session
-# Returns: {"session_id": "abc123"}
+# Start session
+python3 lib/task.py new-session
+# → {"session_id": "abc123"}
 
-# Record outcome after each task
-python3 {{PLUGIN_ROOT}}/lib/meta.py record --session "abc123" --seq 1 --success --notes "worked"
-python3 {{PLUGIN_ROOT}}/lib/meta.py record --session "abc123" --seq 2 --notes "failed because..."
+# After each task, record outcome
+python3 lib/meta.py record --session "abc123" --seq 1 --success
+python3 lib/meta.py record --session "abc123" --seq 2 --notes "failed because..."
 
 # Check if approach is working
-python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "abc123"
+python3 lib/meta.py assess --session "abc123"
 ```
 
 ---
 
-## Feedback Loop (Critical)
+## Summary
 
-When completing a task that used arc memories:
+| Command | Purpose |
+|---------|---------|
+| `/arc:recall <q>` | Find relevant memories |
+| `/arc:store` | Save failure or pattern |
+| `/arc:learn` | Close feedback loop |
+| `/arc:chunk` | Extract pattern from success |
+| `/arc:health` | System status |
+| `/arc:meta` | Is approach working? |
+| `/arc:decay` | Show unused memories |
+| `/arc:consolidate` | Merge similar |
 
-```bash
-python3 {{PLUGIN_ROOT}}/lib/task.py complete \
-  --session "$SESSION_ID" \
-  --seq $SEQ \
-  --delivered "what was delivered" \
-  --utilized '["memory-names-that-actually-helped"]'
-```
-
-This automatically updates memory effectiveness:
-- Memories you used → helped++
-- Memories injected but unused → failed++
-
-**Be honest about UTILIZED.** This is how the system learns which memories are valuable.
-
----
-
-## Guidance References
-
-For deeper cognitive guidance, see:
-- `guidance/reason.md` - How to think: impasse detection, complexity assessment
-- `guidance/act.md` - How to act: verification, honest reporting
-
----
-
-## Environment
-
-```
-PLUGIN_ROOT={{PLUGIN_ROOT}}
-Database: {{PLUGIN_ROOT}}/.arc/arc.db
-```
+The intelligence compounds in memory. Use it, report honestly, it gets smarter.

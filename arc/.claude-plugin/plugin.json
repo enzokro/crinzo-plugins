@@ -33,24 +33,22 @@
       "type": "command",
       "command": "arc:consolidate",
       "description": "Merge similar memories"
+    },
+    {
+      "type": "command",
+      "command": "arc:store",
+      "description": "Store a failure or pattern"
+    },
+    {
+      "type": "command",
+      "command": "arc:learn",
+      "description": "Close feedback loop for a task"
     }
   ],
   "hooks": [
     {
       "type": "SessionStart",
       "script": "scripts/setup-env.sh"
-    }
-  ],
-  "guidance": [
-    {
-      "name": "reasoning",
-      "description": "How to think: impasse detection, complexity assessment",
-      "path": "guidance/reason.md"
-    },
-    {
-      "name": "execution",
-      "description": "How to act: backpressure gates, honest reporting",
-      "path": "guidance/act.md"
     }
   ]
 }
