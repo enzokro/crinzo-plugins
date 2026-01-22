@@ -4,253 +4,186 @@ A learning layer for Claude Code. Memory that compounds. Metacognition that know
 
 ---
 
-## What Arc Is
+## Command Execution
 
-Arc is not an orchestrator. It's a set of tools that make Claude Code smarter over time:
+### /arc:recall <query>
 
-**Memory** (`lib/memory.py`)
-- Stores failures and patterns
-- Retrieves by relevance × effectiveness × recency
-- Automatically updates effectiveness based on what you actually use
-- Decays unused memories, consolidates similar ones
+Query memory for relevant failures and patterns.
 
-**Metacognition** (`lib/meta.py`)
-- Tracks success/failure across a session
-- Detects when your approach is failing
-- Recommends pivot before compound errors kill you
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py recall "$QUERY"
+```
 
-**Context** (`lib/context.py`)
-- Builds context from memory + codebase signals
-- Assesses complexity
+**Show the user**: Relevant memories ranked by score. For each memory, show:
+- Name and type (failure/pattern)
+- Trigger (when this applies)
+- Resolution/insight (what to do)
+- Effectiveness score
 
-**Task Tracking** (`lib/task.py`)
-- Tracks tasks within a session
-- Closes feedback loop automatically on completion
+If no memories match, say so.
 
 ---
 
-## Commands
+### /arc:health
+
+Check learning system status.
 
 ```bash
-# Query memory
-/arc:recall <query>
+python3 {{PLUGIN_ROOT}}/lib/memory.py health
+```
 
-# Check if your approach is working
-/arc:meta
+**Show the user**:
+- Total memories and breakdown by type
+- Overall effectiveness
+- Any issues (e.g., embeddings unavailable)
 
-# Learning system health
-/arc:health
+---
 
-# After success - extract pattern
-/arc:chunk
+### /arc:meta
 
-# Maintenance
-/arc:decay
-/arc:consolidate
+Check if current approach is working. Requires an active session.
+
+```bash
+python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "$SESSION_ID"
+```
+
+**Show the user**:
+- Status (healthy/struggling/failing)
+- Success rate
+- Consecutive failures
+- Recommendation (keep_going/slow_down/consider_pivot/pivot_now)
+
+If no session active, say "No session tracked. Start one with task.py new-session."
+
+---
+
+### /arc:chunk
+
+Extract a pattern from successful work. Interactive.
+
+**Ask the user**:
+1. What was the task/objective?
+2. What approach worked?
+
+Then run:
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py chunk --task "$TASK" --outcome "SUCCESS" --approach "$APPROACH"
+```
+
+**Show the user**: Whether pattern was created or existing one strengthened.
+
+---
+
+### /arc:decay
+
+Show memories that would decay due to lack of use.
+
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py decay --days 30 --min-uses 2
+```
+
+**Show the user**: List of memories that haven't been used in 30 days with fewer than 2 feedback events. These are candidates for forgetting.
+
+---
+
+### /arc:consolidate
+
+Merge highly similar memories.
+
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py consolidate
+```
+
+**Show the user**: How many memories were merged.
+
+---
+
+## When to Use Arc (Proactively)
+
+### Before Starting Complex Work
+
+Query memory for relevant context:
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py recall "the objective"
+```
+
+Inject any relevant failures/patterns into your thinking.
+
+### After Completing Work Successfully
+
+Store what worked:
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py chunk --task "..." --outcome "SUCCESS" --approach "..."
+```
+
+### After Failing
+
+Store the failure so it's not repeated:
+```bash
+python3 {{PLUGIN_ROOT}}/lib/memory.py store --type failure --trigger "what went wrong" --resolution "what to do instead"
+```
+
+### When Stuck Multiple Times
+
+Check metacognition:
+```bash
+python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "$SESSION_ID"
+```
+
+If it says pivot, try a different approach.
+
+---
+
+## Session Management
+
+For tracking success/failure across a conversation:
+
+```bash
+# Start a session
+python3 {{PLUGIN_ROOT}}/lib/task.py new-session
+# Returns: {"session_id": "abc123"}
+
+# Record outcome after each task
+python3 {{PLUGIN_ROOT}}/lib/meta.py record --session "abc123" --seq 1 --success --notes "worked"
+python3 {{PLUGIN_ROOT}}/lib/meta.py record --session "abc123" --seq 2 --notes "failed because..."
+
+# Check if approach is working
+python3 {{PLUGIN_ROOT}}/lib/meta.py assess --session "abc123"
 ```
 
 ---
 
-## How to Use Arc
+## Feedback Loop (Critical)
 
-### Starting Work
-
-Before diving into a task, query memory:
+When completing a task that used arc memories:
 
 ```bash
-python3 $ARC_ROOT/lib/memory.py recall "your objective here"
-```
-
-You'll get relevant failures (things to avoid) and patterns (approaches that worked).
-
-If continuing a session, check metacognition:
-
-```bash
-python3 $ARC_ROOT/lib/meta.py assess --session "$SESSION"
-```
-
-If it says "pivot_now" - stop. Your approach isn't working. Try something different.
-
-### While Working
-
-**When you're stuck**: Don't hallucinate forward. Recognize the impasse:
-- Is this a "no_approach" (genuinely don't know how)?
-- A "conflict" (contradicting requirements)?
-- A "missing_capability" (need something unavailable)?
-- A "repeated_failure" (tried and failed, trying again won't help)?
-
-Name it. Create a subgoal to resolve it. Or ask for help.
-
-**When you complete something**: Report honestly what memories you actually used.
-
-```bash
-python3 $ARC_ROOT/lib/task.py complete \
-  --session "$SESSION" \
+python3 {{PLUGIN_ROOT}}/lib/task.py complete \
+  --session "$SESSION_ID" \
   --seq $SEQ \
-  --delivered "what you delivered" \
-  --utilized '["memory-names-that-helped"]'
+  --delivered "what was delivered" \
+  --utilized '["memory-names-that-actually-helped"]'
 ```
 
-This automatically updates memory effectiveness. Memories you used get stronger. Memories you didn't use get weaker.
+This automatically updates memory effectiveness:
+- Memories you used → helped++
+- Memories injected but unused → failed++
 
-**When you fail**: Store the failure so you don't repeat it:
-
-```bash
-python3 $ARC_ROOT/lib/memory.py store \
-  --type failure \
-  --trigger "what went wrong" \
-  --resolution "what to do instead"
-```
-
-### After Success
-
-Extract a pattern from what worked:
-
-```bash
-python3 $ARC_ROOT/lib/memory.py chunk \
-  --task "the objective" \
-  --outcome "SUCCESS" \
-  --approach "what you did that worked"
-```
-
-This creates a reusable pattern, or strengthens an existing similar one.
+**Be honest about UTILIZED.** This is how the system learns which memories are valuable.
 
 ---
 
-## The Actual API
+## Guidance References
 
-### memory.py
-
-```python
-# Store a failure or pattern
-store(trigger, resolution, type="failure"|"pattern") → name
-
-# Find relevant memories
-recall(query, type=None, limit=10) → [memories ranked by score]
-
-# Close feedback loop
-feedback(utilized=["names"], injected=["names"]) → {helped, unhelpful}
-
-# Connect related memories
-relate(name_a, name_b, type="similar"|"causes"|"solves")
-
-# Get connected memories
-connected(name) → [related memories]
-
-# Remove ineffective memories
-prune(threshold=0.3) → {pruned, remaining}
-
-# System health
-health() → {total, effectiveness, issues}
-
-# Decay unused memories
-decay(threshold_days=30) → {candidates}
-
-# Extract pattern from success
-chunk(task, outcome, approach) → {status, name}
-
-# Merge similar memories
-consolidate(similarity=0.9) → {merged, remaining}
-```
-
-### meta.py
-
-```python
-# Track outcome
-record_outcome(session_id, task_seq, success, notes="")
-
-# Is approach working?
-assess_approach(session_id) → {status, success_rate, recommendation}
-
-# Should I pivot?
-should_pivot(session_id) → {should_pivot, confidence, suggestion}
-
-# Session summary
-session_summary(session_id) → {tasks, success_rate, failure_notes}
-
-# Start fresh
-clear_session(session_id)
-```
-
-### context.py
-
-```python
-# Build context for an objective
-build(objective, quick=False) → {
-  objective,
-  memory: {failures, patterns, connected, injected_names},
-  codebase: {structure signals},
-  complexity: {level, suggested_decomposition}
-}
-```
-
-### task.py
-
-```python
-# Start session
-new_session() → {session_id}
-
-# Add task
-add(session_id, seq, objective, delta=[], injected=[])
-
-# Complete task (auto-triggers feedback)
-complete(session_id, seq, delivered, utilized=[]) → {status, feedback}
-
-# Block task
-block(session_id, seq, obstacle, attempted)
-
-# Get task
-get(session_id, seq) → task
-
-# Pending tasks
-pending(session_id) → [tasks]
-```
-
----
-
-## Principles
-
-### Memory is where intelligence accumulates
-
-You are stateless. Memory is not. Use it.
-
-### Feedback must close
-
-When you complete a task, report what memories actually helped. This is how the system learns which memories are valuable.
-
-### Impasse is signal
-
-When you're stuck, say so explicitly. Don't generate plausible garbage. "I don't know how to proceed" is valuable. It creates a subgoal.
-
-### Verification is learning
-
-When verification fails, that's information. Loop until it passes, or explicitly block with why.
-
-### Decay is healthy
-
-Memories you don't use should fade. Don't fight it. Let relevance emerge from usage.
-
-### Know when to pivot
-
-If you've failed 3 times with the same approach, the 4th attempt probably won't work either. Check metacognition. Start fresh if needed.
+For deeper cognitive guidance, see:
+- `guidance/reason.md` - How to think: impasse detection, complexity assessment
+- `guidance/act.md` - How to act: verification, honest reporting
 
 ---
 
 ## Environment
 
-```bash
-ARC_ROOT=/path/to/arc        # Plugin root
-ARC_DB_PATH=.arc/arc.db      # Optional: custom db path
 ```
-
-Storage: SQLite with WAL mode at `.arc/arc.db`
-
----
-
-## That's It
-
-Arc is a learning layer. Query memory before you start. Report honestly when you finish. Extract patterns from success. Recognize when you're stuck.
-
-The intelligence compounds in the memory, not in elaborate orchestration.
-
-Use the tools. Get smarter over time.
+PLUGIN_ROOT={{PLUGIN_ROOT}}
+Database: {{PLUGIN_ROOT}}/.arc/arc.db
+```
