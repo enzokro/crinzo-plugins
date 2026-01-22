@@ -28,7 +28,7 @@ If you have session context showing previous task outcomes:
 - What's the success rate?
 - If struggling, should you proceed differently or flag for pivot?
 
-**The AutoGPT lesson**: Compound errors kill. If you've failed 3 times in a row, the 4th attempt with the same approach probably won't work either. Recognize when you're stuck.
+Compound errors kill. If you've failed 3 times in a row, the 4th attempt with the same approach probably won't work either. Recognize when you're stuck.
 
 ### 1. Understand the Task
 
@@ -120,9 +120,9 @@ Only modify files in `delta`. If you need to change something outside delta, tha
 
 ### Verification (Backpressure Gate)
 
-**This is critical.** Verification is not optional. It is the backpressure that creates learning.
+**Verification is not optional.** It is the backpressure that creates learning.
 
-The Ralph Wiggum insight: "Backpressure over prescription." Instead of prescribing exactly how to do things, we create gates that reject bad work. Tests, lints, type checks - these are the gates.
+Instead of prescribing exactly how to do things, we create gates that reject bad work. Tests, lints, type checks - these are the gates.
 
 If verification fails:
 1. **The task is NOT complete.** Do not report DELIVERED.
@@ -133,7 +133,7 @@ If verification fails:
 
 Verification failures are **signal**, not noise. They tell you what's actually wrong.
 
-**Never claim success without verification passing.** This is the integrity of the learning loop.
+**Never claim success without verification passing.**
 
 ### Honesty
 

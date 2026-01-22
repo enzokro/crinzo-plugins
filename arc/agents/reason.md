@@ -201,7 +201,7 @@ WHAT_I_DON'T: <what's ambiguous>
 PRELIMINARY_THINKING: <if you had to guess, what direction would you go>
 ```
 
-### For Impasse (SOAR Pattern)
+### For Impasse
 
 **When you recognize you cannot proceed**, output explicitly. This is signal, not failure.
 
@@ -230,7 +230,7 @@ POSSIBLE_RESOLUTIONS:
   - <option 3 - e.g., "reduce scope">
 ```
 
-**The key insight from cognitive science**: Recognizing impasse is the first step to learning. When you're stuck and you KNOW you're stuck, the system can create a subgoal to resolve it. This is how expertise develops - not by pretending to know, but by acknowledging gaps.
+Recognizing impasse is the first step to learning. When you're stuck and you KNOW you're stuck, the system can create a subgoal to resolve it. Expertise develops by acknowledging gaps, not pretending to know.
 
 ---
 

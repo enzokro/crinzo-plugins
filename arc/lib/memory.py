@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Memory: the persistence layer for learning.
 
-Core API:
+API:
 - store(trigger, resolution, type) → name
-- recall(query, limit) → memories with relevance + recency + decay
+- recall(query, limit) → memories ranked by relevance × effectiveness × recency
 - feedback(utilized, injected) → closes the loop
 - relate(a, b, type) → creates connection
 - connected(name) → related memories
 - prune() → removes ineffective memories
 - health() → system status
-
-Evolved API (from research synthesis):
-- decay() → apply half-life decay to unused memories (Mem0 pattern)
-- chunk(task, outcome, approach) → extract reusable rule from success (SOAR pattern)
-- consolidate() → merge similar memories, strengthen repeated patterns
+- decay() → apply half-life decay to unused memories
+- chunk(task, outcome, approach) → extract reusable rule from success
+- consolidate() → merge similar memories
 """
 
 import json

@@ -1,12 +1,10 @@
-# Arc (Evolved)
+# Arc
 
 > Think deeply. Act precisely. Learn automatically. Know when to pivot.
 
-*Evolved through synthesis of Claude Flow, Ralph Wiggum, Mem0, cognitive architectures (SOAR/ACT-R), and hard lessons from AutoGPT.*
-
 ---
 
-## The Evolved Loop
+## The Loop
 
 ```
          ┌─────────────────────────────────────────────┐
@@ -26,10 +24,10 @@
                    relevance × effectiveness × recency
 ```
 
-**REASON**: Understand, assess, decide. *Detect impasse explicitly.* (SOAR pattern)
-**ACT**: Execute with focus. *Backpressure gates verify.* (Ralph pattern)
-**LEARN**: Extract, chunk, decay. *Convert experience to rules.* (Cognitive pattern)
-**METACOGNITION**: Monitor approach. *Know when to pivot.* (Meta-AQUA pattern)
+**REASON**: Understand, assess, decide. Detect impasse explicitly.
+**ACT**: Execute with focus. Backpressure gates verify.
+**LEARN**: Extract, chunk, decay. Convert experience to rules.
+**METACOGNITION**: Monitor approach. Know when to pivot.
 
 ---
 
@@ -60,7 +58,7 @@ The full evolved loop.
    │  Before diving in:
    │  - How many recent failures?
    │  - Is current approach working?
-   │  - Should we pivot? (AutoGPT lesson: compound errors kill)
+   │  - Should we pivot? (compound errors kill)
    │
    │  If pivot recommended → flag for user, suggest alternatives
    │
@@ -72,7 +70,7 @@ The full evolved loop.
    │  - Assess codebase structure
    │  - Evaluate complexity signals
    │
-   │  Memory retrieval is activation-based (ACT-R pattern):
+   │  Memory retrieval is activation-based:
    │  score = relevance × effectiveness × recency
    │
    ▼
@@ -83,7 +81,7 @@ The full evolved loop.
    │  - How complex is it?
    │  - What's the approach?
    │
-   │  Output options (SOAR pattern):
+   │  Output options:
    │  - Assessment + Tasks (normal)
    │  - IMPASSE (explicit recognition of being stuck)
    │
@@ -106,7 +104,7 @@ The full evolved loop.
    │  - Report: DELIVERED or BLOCKED
    │  - Report: what memories were UTILIZED
    │
-   │  Backpressure (Ralph pattern):
+   │  Backpressure:
    │  - Verification failure = task NOT complete
    │  - Loop: fix → re-verify until pass or BLOCKED
    │  - Gates create learning, not just quality
@@ -116,21 +114,21 @@ The full evolved loop.
    │  - injected but unused → failed++
    │
    ▼
-4. LEARN (automatic + evolved)
+4. LEARN (automatic)
    │
    │  On BLOCKED:
    │  - Extract failure pattern → store in memory
    │  - Record outcome for metacognition
    │
    │  On DELIVERED:
-   │  - CHUNK the success (SOAR pattern)
+   │  - CHUNK the success
    │  - Extract: "this approach worked for this situation"
    │  - Store as pattern, or strengthen existing similar pattern
    │  - Record outcome for metacognition
    │
    │  Memory maintenance:
    │  - Effectiveness updates (helped/failed)
-   │  - DECAY unused memories (Mem0 pattern)
+   │  - DECAY unused memories
    │  - CONSOLIDATE similar memories
    │
    ▼
@@ -327,107 +325,96 @@ This captures the lesson for future sessions.
 
 ## Why This Works
 
-### Adaptive Depth (Original)
+### Adaptive Depth
 
 The REASON phase naturally scales:
 - Simple objective → Simple assessment → One task
 - Complex objective → Deep analysis → Multiple tasks
 
-No artificial forcing. Complexity emerges from the objective, not from the system.
+Complexity emerges from the objective, not from the system.
 
-### Automatic Feedback (Original)
+### Automatic Feedback
 
-You don't have to remember to close the loop. The task completion automatically triggers feedback. This is critical - manual feedback is forgotten, automatic feedback compounds.
+Task completion automatically triggers feedback. Manual feedback is forgotten, automatic feedback compounds.
 
-### Memory as Intelligence (Original)
+### Memory as Intelligence
 
-The agents themselves are stateless. The memory is where intelligence accumulates.
+The agents are stateless. Memory is where intelligence accumulates.
 
 Each session:
-1. Queries memory → gets relevant context
+1. Queries memory → relevant context
 2. Uses (or doesn't use) that context
 3. Reports what was utilized
-4. Memory effectiveness updates
+4. Effectiveness updates
 5. Next session gets better-ranked context
 
-This is compounding intelligence. Not in the agent. In the system.
+Compounding intelligence. Not in the agent. In the system.
 
-### Honest Reporting (Original)
+### Honest Reporting
 
 BLOCKED is not failure. BLOCKED with clear information is valuable learning.
 
-The ACT agent is instructed to report honestly. UTILIZED must be accurate. This creates signal, not noise.
+UTILIZED must be accurate. This creates signal, not noise.
 
----
+### Impasse Detection
 
-## Evolved Patterns (From Research Synthesis)
+Most agents don't know they're stuck. They generate plausible output instead of admitting "I don't know."
 
-### Impasse Detection (SOAR)
+Arc's REASON agent can output IMPASSE with explicit type and subgoal. Recognizing gaps is how expertise develops.
 
-Most agents don't know they're stuck. They generate plausible-sounding output instead of admitting "I don't know how to proceed."
+### Backpressure Gates
 
-Arc's REASON agent can output IMPASSE with explicit type and subgoal. This is how expertise develops - not by pretending to know, but by recognizing gaps and addressing them.
+Instead of prescribing exactly how to do things, create gates that reject bad work.
 
-### Backpressure Gates (Ralph Wiggum)
+Verification isn't optional. It's how learning happens. The ACT agent must loop until verification passes or explicitly BLOCK.
 
-"Backpressure over prescription." Instead of prescribing exactly how to do things, create gates that reject bad work.
+### Chunking
 
-Verification isn't optional quality control. It's how learning happens. When verification fails, that's signal. The ACT agent must loop until verification passes or explicitly BLOCK.
-
-### Chunking (SOAR/ACT-R)
-
-When deliberate problem-solving succeeds, compile that experience into a rule.
+When problem-solving succeeds, compile that experience into a rule.
 
 Arc's `chunk()` function:
 - Takes successful task completion
 - Extracts "this approach worked for this situation"
 - Stores as pattern (or strengthens existing similar pattern)
-- Next time → rule fires directly, no deliberation needed
+- Next time → fires directly, no deliberation
 
-This is how expertise develops: slow reasoning → fast intuition.
+Slow reasoning → fast intuition.
 
-### Memory Decay (Mem0)
+### Memory Decay
 
-Memories that aren't used should fade. Without decay, memory bloats with noise.
+Unused memories fade. Without decay, memory bloats with noise.
 
 Arc's `decay()` function:
 - Applies half-life to recency score
 - Unused memories gradually lose activation
-- Recall now weighs: relevance × effectiveness × recency
+- Recall weighs: relevance × effectiveness × recency
 
-This mirrors human memory - things you use stay accessible, things you don't fade.
+### Metacognition
 
-### Metacognition (Cognitive Architecture)
-
-Thinking about thinking. The agent monitors its own reasoning process.
+The agent monitors its own reasoning.
 
 Arc's metacognitive layer:
 - Tracks success/failure per session
 - Detects when approach isn't working (consecutive failures)
 - Recommends pivot before compound errors kill the session
 
-The AutoGPT lesson: if you've failed 3 times with the same approach, the 4th attempt probably won't work either.
+If you've failed 3 times with the same approach, the 4th attempt probably won't work either.
 
-### Activation-Based Retrieval (ACT-R)
+### Activation-Based Retrieval
 
-Memory retrieval isn't just similarity. It's:
+Memory retrieval isn't just similarity:
 
-```
-activation = base_level + spreading_activation + noise
-```
-
-Simplified for Arc:
 ```
 score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
 ```
 
-This explains why some memories are recalled instantly while others require effort. Frequently used, effective, recent memories are more accessible.
+Frequently used, effective, recent memories are more accessible.
 
-### Fresh Context Option (Ralph)
+### Fresh Context
 
-Sometimes the best move is to start fresh. Context rot is real - accumulated errors compound.
+Sometimes the best move is to start fresh. Context rot is real.
 
-Arc supports the Ralph pattern: clear session, start fresh, let git/files be the persistent state.
+Clear session, start fresh, let git/files be the persistent state.
 
 ---
 
@@ -444,34 +431,13 @@ Storage: `.arc/arc.db` (SQLite with WAL)
 
 ## The Point
 
-Arc is not about following a process. Arc is about thinking well and learning from experience.
+Arc is about thinking well and learning from experience.
 
 The REASON agent thinks - and knows when it's stuck.
 The ACT agent does - with backpressure gates that verify.
 The memory compounds - with decay and chunking.
 The metacognition monitors - knowing when to pivot.
 
-Over time, the system develops judgment - not through complex rules, but through accumulated experience with honest feedback, explicit impasse recognition, and automatic pattern extraction.
+Over time, the system develops judgment through accumulated experience with honest feedback, explicit impasse recognition, and automatic pattern extraction.
 
-That's the arc of learning.
-
----
-
-## Research Heritage
-
-Arc synthesizes insights from:
-
-| Source | Contribution |
-|--------|--------------|
-| **Claude Flow** | Memory as infrastructure, pattern confidence, smart routing |
-| **Ralph Wiggum** | Fresh context, backpressure over prescription, git as memory |
-| **Mem0** | Extract facts not conversations, decay, consolidation |
-| **LangGraph** | State machines, checkpointing, cycles are first-class |
-| **SOAR** | Impasse detection, chunking, subgoal creation |
-| **ACT-R** | Activation-based retrieval, frequency+recency weighting |
-| **AutoGPT lessons** | Bounded autonomy, compound errors, human checkpoints |
-| **Cognitive architectures** | Dual-process thinking, metacognition, production rules |
-
-The goal was never to copy these systems. It was to find the patterns underneath - the principles that make learning agents actually work.
-
-Arc is what emerged.
+That's arc.

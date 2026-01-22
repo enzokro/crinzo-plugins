@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Metacognition: thinking about thinking.
 
-This implements the metacognitive layer from cognitive architecture research.
-The key insight: agents need to monitor their own reasoning processes and
-recognize when their current approach isn't working.
+Agents need to monitor their own reasoning and recognize when
+their current approach isn't working.
 
-Core functions:
+API:
 - assess_approach(session_id) → is current approach working?
 - should_pivot(session_id) → recommendation to change strategy
 - record_outcome(session_id, task_seq, success, notes) → track results
 - session_summary(session_id) → what happened, what worked
-
-The Ralph Wiggum insight applies here: sometimes the best move is to
-start fresh with a clean context rather than accumulate errors.
+- clear_session(session_id) → start fresh
 """
 
 import json
