@@ -1,25 +1,25 @@
-# ftl (v2.4.18)
+# Helix (v1.0.0)
 
-A Claude Code orchestrator that builds knowledge over time.
+A Claude Code orchestrator with integrated memory that learns from every session.
 
 ## Introduction
 
-Before Opus 4.5, agentic harnesses focused on working *around* the two worst tendencies of LLMs: scope creep and over-engineering. Coding agents felt like overeager junior-savants that had to be carefully steered whenever projects became even moderately complex.
+Before Opus 4.5, agentic harnesses focused on working around the two worst tendencies of LLMs: scope creep and over-engineering. Coding agents felt like overeager junior-savants that had to be carefully steered whenever projects became even moderately complex.
 
 Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the shift. We are now living the transformation of LLM agents from spastic assistants to true collaborators.
 
-`ftl` builds on this shift. While previous harnesses were mostly meant to keep the models from drifting, `ftl` persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
+Helix builds on this shift. While previous harnesses were mostly meant to keep the models from drifting, helix persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
 
 ## Philosophy
 
-| Principle               | Meaning                                                           |
-| ----------------------- | ----------------------------------------------------------------- |
-| **Memory compounds**    | Each task leaves the system smarter                               |
-| **Verify first**        | Shape work by starting with proof-of-success                      |
-| **Bounded scope**       | Workspace files are explicit so humans can audit agent boundaries |
-| **Present over future** | Implement current requests, not anticipated needs                 |
-| **Edit over create**    | Modify what exists before creating something new                  |
-| **Blocking is success** | Informed handoff creates learning data, prevents budget waste     |
+| Principle | Meaning |
+|-----------|---------|
+| Feedback closes the loop | Every task completion updates memory effectiveness |
+| Verify first | Shape work by starting with proof-of-success |
+| Bounded scope | Delta files are explicit so humans can audit agent boundaries |
+| Present over future | Implement current requests, not anticipated needs |
+| Edit over create | Modify what exists before creating something new |
+| Blocking is success | Informed handoff creates learning data, prevents budget waste |
 
 ## Quick Start
 
@@ -27,95 +27,97 @@ Opus 4.5 broke this pattern. If you're reading this, then you've likely felt the
 # Add the crinzo-plugins marketplace
 claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
 
-# Install ftl
-claude plugin install ftl@crinzo-plugins
+# Install helix
+claude plugin install helix@crinzo-plugins
 ```
 
-Or from inside of Claude Code:
+Or from inside Claude Code:
 ```bash
 /plugin marketplace add https://github.com/enzokro/crinzo-plugins
-/plugin install ftl@crinzo-plugins
+/plugin install helix@crinzo-plugins
 ```
 
-## Why ftl?
+## Why Helix?
 
-**Learning compounds, not just stores.** Memory layers store and retrieve; ftl closes the loop. Every failure gets a `helped/failed` ratio updated by actual builder outcomes. Memories that work persist; memories that don't decay. The system gets smarter through use, not just accumulation.
+**Learning compounds, not just stores.** Memory layers store and retrieve; helix closes the loop. Every memory gets a helped/failed ratio updated by actual builder outcomes. Memories that work rise in ranking; memories that don't sink. The system gets smarter through use, not just accumulation.
 
-**Bounded execution, not infinite loops.** Four agents with explicit tool budgets (builders get 5-9 invocations). When a builder exhausts its budget or hits an unknown error, it blocks—creating learning data rather than burning tokens. Workspace files are auditable contracts. You always know what the agent is allowed to touch.
+**Bounded execution, not infinite loops.** Four agents with explicit tool budgets (builders get 5-9 invocations). When a builder exhausts its budget or hits an unknown error, it blocks—creating learning data rather than burning tokens. Delta files are auditable contracts. You always know what the agent is allowed to touch.
 
 **Framework enforcement, not suggestions.** When framework confidence ≥0.6, idiom compliance isn't a warning—it's a hard gate. The builder blocks even if tests pass when framework idioms are violated. This prevents the subtle rot of "working but wrong" code that accumulates across sessions.
 
-**Local-first, no cloud dependency.** SQLite database in `.ftl/ftl.db`. Your failures, patterns, and campaign history stay on your machine. No API keys for memory services, no usage fees, no data leaving your system.
+**Local-first, no cloud dependency.** SQLite database in `.helix/helix.db`. Your failures, patterns, and workspace history stay on your machine. No API keys for memory services, no usage fees, no data leaving your system.
+
+**Unified architecture, no integration friction.** Memory and orchestration are one system. Direct Python imports, not subprocess calls. The feedback loop closes within a single function call. No external plugin discovery, no silent degradation.
 
 ## Development Loop
 
 ```
-/ftl <task>
+/helix <task>
     │
     ▼
 ┌─────────────────────────────────────┐
-│  EXPLORER (4x parallel)             │
-│  structure │ pattern │ memory │ delta
+│  EXPLORER (haiku, 6 tools)          │
+│  structure │ patterns │ memory │ targets
 └─────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────┐
-│  PLANNER                            │
-│  Decompose → Verify → Budget → Order│
+│  PLANNER (opus)                     │
+│  Decompose → Dependencies → Budget  │
 └─────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────┐
-│  BUILDER (parallel where possible)  │
-│  Read spec → Implement → Verify     │
+│  BUILDER (opus, budget 5-9)         │
+│  Read → Implement → Verify → Report │
 └─────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────┐
-│  OBSERVER                           │
-│  Verify blocks → Extract patterns   │
+│  OBSERVER (opus)                    │
+│  Extract failures │ Chunk patterns  │
 └─────────────────────────────────────┘
 ```
 
-**Explorers** (Haiku) gather codebase context in parallel—structure, framework patterns, relevant memories, and candidate files for modification.
+**Explorer** (Haiku) gathers codebase context—structure, framework patterns, relevant memories, and candidate files for modification.
 
-**Planner** (Opus) decomposes work into a task DAG with dependencies, budgets, and verification criteria.
+**Planner** (Opus) decomposes work into a task DAG with dependencies, budgets, and verification criteria. Registers tasks in Claude Code's native Task system (visible via Ctrl+T).
 
-**Builders** (Opus, budget 5-9) execute tasks in parallel where dependencies allow. They block on unknown errors rather than debugging indefinitely.
+**Builders** (Opus, budget 5-9) execute tasks within constraints. They block on unknown errors rather than debugging indefinitely. Report DELIVERED or BLOCKED with honest UTILIZED list.
 
-**Observer** (Opus) extracts patterns from outcomes. Blocks are verified; false positives are skipped. Patterns require a minimum score to be stored.
+**Observer** (Opus) extracts patterns from outcomes via SOAR chunking. Failures from blocked workspaces become future warnings. Calls `feedback(utilized, injected)` to close the loop.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/ftl <task>` | Full pipeline: explore → plan → build → observe |
-| `/ftl campaign "objective"` | Multi-task campaign with DAG parallelization |
-| `/ftl query "topic"` | Surface relevant precedent from memory |
-| `/ftl status` | Current campaign and workspace state |
-| `/ftl stats` | Memory health metrics |
-| `/ftl prune` | Remove low-importance entries |
-| `/ftl related "name"` | Graph traversal from an entry |
-| `/ftl similar` | Find similar past campaigns |
+| `/helix <task>` | Full pipeline: explore → plan → build → observe |
+| `/helix-query "topic"` | Surface relevant precedent from memory |
+| `/helix-stats` | Memory health metrics |
 
 ## Memory System
 
 Failures and patterns are stored with 384-dimensional embeddings for semantic retrieval.
 
-**Hybrid scoring** balances relevance, cost, age, and track record:
+**Scoring formula** balances relevance, effectiveness, and recency:
+
 ```
-score = relevance × log₂(cost + 1) × help_ratio × age_decay
+score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
 ```
 
-**Feedback loop**: Builders report which memories they actually used. Observer updates `helped/failed` ratios. Memories that consistently help persist; ineffective ones decay faster.
+Where:
+- `effectiveness = helped / (helped + failed)` — default 0.5 if no feedback
+- `recency = 2^(-days_since_use / 7)` — ACT-R decay, 7-day half-life
 
-**Graph relationships** link related failures and patterns (causes, solves, co-occurs). Query with `/ftl related` to traverse connections.
+**Feedback loop**: Builders report which memories they actually used. Observer updates helped/failed counts. Memories that consistently help rise in ranking; ineffective ones decay faster.
 
-See [FTL_OVERVIEW.md](docs/FTL_OVERVIEW.md) for embedding details, tiered injection thresholds, deduplication rules, and pruning algorithms.
+**Graph relationships** link related failures and patterns (causes, solves, co_occurs). Query with `connected()` to traverse connections.
 
-## Campaign DAG
+See [HELIX_OVERVIEW.md](../docs/HELIX_OVERVIEW.md) for embedding details, deduplication rules, and maintenance operations.
 
-Campaigns support multi-parent task dependencies with parallel execution:
+## Task DAG
+
+Plans support task dependencies with verification at each step:
 
 ```
 001 (spec-auth) ──→ 003 (impl-auth) ──┐
@@ -123,51 +125,49 @@ Campaigns support multi-parent task dependencies with parallel execution:
 002 (spec-api) ──→ 004 (impl-api) ───┘
 ```
 
-When a parent blocks, **adaptive re-planning** triggers: the planner receives blocked context plus completed work and generates alternative paths. Campaigns complete gracefully with partial success rather than hanging.
+Each task has:
+- `delta` — files the builder may modify (hard constraint)
+- `verify` — command to verify completion
+- `depends` — tasks that must complete first
 
-**Sibling failure injection**: When task 001 blocks, its failure is injected into task 002's workspace at creation time—parallel branches learn from each other within a single campaign.
-
-See [FTL_OVERVIEW.md](docs/FTL_OVERVIEW.md) for cycle detection, cascade handling, and re-planning algorithms.
+Builders cannot modify files outside their delta. Verification must pass before claiming DELIVERED.
 
 ## Examples
 
 ### Single Task
-```bash
-/ftl add CRUD endpoints for user profiles with validation
-```
-Explorers map structure and detect framework. Planner produces spec→impl DAG. Builders execute. Observer extracts patterns from any blocked→fixed recovery.
 
-### Multi-Task Campaign
 ```bash
-/ftl campaign "add real-time notifications with WebSocket support"
+/helix add CRUD endpoints for user profiles with validation
 ```
-Independent branches execute in parallel. Convergent tasks wait for all parents. Blocks trigger re-planning with alternative paths.
+
+Explorer maps structure and detects framework. Planner produces spec→impl DAG. Builders execute with memory injection. Observer extracts patterns from any blocked→fixed recovery.
 
 ### Learning Across Sessions
+
 ```bash
-# Session 1: Builder blocks on FT concatenation error
+# Session 1: Builder blocks on circular import error
 # Observer extracts failure with fix
 
 # Session 2 (weeks later): Different project
-/ftl add a comment section component
+/helix add a notification service
 # Explorer retrieves the failure; builder avoids the mistake
 ```
 
 ## When to Use
 
-**Use ftl when:**
+**Use helix when:**
 - Work should persist as precedent
 - You want bounded, reviewable scope
 - Complex objectives need multi-task coordination
 - Framework-specific development with idiom enforcement
 - Past failures should inform future work
 
-**Skip ftl when:**
+**Skip helix when:**
 - Exploratory prototyping (let models wander)
 - Quick one-offs with no future value
-- Team collaboration (single-user design)
+- Simple single-file changes
 - Novel frameworks without idiom definitions
 
 ## Documentation
 
-For comprehensive technical reference—agent specifications, state machines, database schemas, configuration constants, and CLI tools—see **[docs/FTL_OVERVIEW.md](docs/FTL_OVERVIEW.md)**.
+For comprehensive technical reference—agent specifications, database schemas, configuration constants, and CLI tools—see [docs/HELIX_OVERVIEW.md](./docs/HELIX_OVERVIEW.md).
