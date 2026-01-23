@@ -1,5 +1,0 @@
-# Core (no dependencies beyond Python stdlib)
-# Arc works without external dependencies
-
-# Recommended for semantic search
-sentence-transformers>=2.0.0

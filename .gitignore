@@ -2,7 +2,7 @@
 .orphaned_at
 scratch/
 workspace/ 
-.ftl/
+.helix
 
 # macOS
 .DS_Store

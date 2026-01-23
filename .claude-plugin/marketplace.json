@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "ftl",
-      "source": "./ftl",
-      "description": "Claude Code orchestrators that build knowledge over time.",
-      "version": "1.0.77",
+      "name": "helix",
+      "source": "./helix",
+      "description": "Learning layer for Claude Code. Memory that compounds.",
+      "version": "3.0.0",
       "author": {
         "name": "crinzo"
       }

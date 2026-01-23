@@ -1,635 +1,244 @@
-# Helix - Advanced Self-Learning Orchestrator
+---
+name: helix
+description: Structured orchestrator with integrated memory. Spawns specialized agents for exploration, planning, building, and learning extraction.
+argument-hint: <objective>
+---
 
-> Learning spirals upward. Each cycle builds on the last.
+# Helix
 
-## Philosophy
+Orchestration with memory-driven context injection and feedback-based learning.
 
-Helix extends the core learning loop with sophisticated components:
-- **Explorer**: Gathers context before planning
-- **Planner**: Decomposes objectives into executable tasks
-- **Builder**: Executes tasks with memory injection
-- **Observer**: Extracts learning from outcomes
+## When to Use
 
-The memory system remains the persistence layer. The agents are the intelligence.
+- **Complex multi-step work** requiring exploration before implementation
+- **Tasks that benefit from learned context** (similar work done before)
+- **Work requiring verification** at each phase
+
+For simple single-file changes, just do the work directly.
+
+## Architecture
 
 ```
-    ┌─────────────────────────────────────────────────────┐
-    │                                                     │
-    │   EXPLORE → PLAN → BUILD* → OBSERVE → FEEDBACK     │
-    │      │                          │          │       │
-    │      │         memories         │          │       │
-    │      └──────────────────────────┴──────────┘       │
-    │                                                     │
-    │   * BUILD repeats for each task in the plan        │
-    │                                                     │
-    └─────────────────────────────────────────────────────┘
+ORCHESTRATION: EXPLORE → PLAN → BUILD → OBSERVE
+                  ↓         ↓        ↓        ↓
+MEMORY:      recall() → inject → feedback() → store()
+
+Scoring: (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
+Decay: 2^(-days_unused / 7)
+```
+
+## Workflow
+
+```
+/helix <objective>
+
+    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+    │ EXPLORE │───▶│  PLAN   │───▶│  BUILD  │───▶│ OBSERVE │
+    └─────────┘    └─────────┘    └─────────┘    └─────────┘
 ```
 
 ---
 
-## Commands
+## Phase 1: EXPLORE
 
-| Command | Description |
-|---------|-------------|
-| `/helix <objective>` | Full pipeline: explore → plan → build → observe |
-| `/helix:explore <objective>` | Just exploration (context gathering) |
-| `/helix:plan` | Just planning (uses most recent exploration) |
-| `/helix:query <text>` | Search memory by meaning |
-| `/helix:stats` | Memory and learning statistics |
-| `/helix:observe` | Extract learning from recent workspaces |
+**Purpose:** Gather codebase context before planning.
+
+**Agent:** `helix:helix-explorer` (haiku, 6 tool budget)
+
+**Process:**
+1. Query memory for relevant context
+2. Discover structure, framework, idioms
+3. Identify target files and functions
+
+**Output:** JSON with structure, patterns, memory, targets.
 
 ---
 
-## Environment
+## Phase 2: PLAN
 
+**Purpose:** Decompose objective into executable task DAG.
+
+**Agent:** `helix:helix-planner` (opus)
+
+**Process:**
+1. Analyze exploration context
+2. Create tasks with dependencies, deltas, verification commands
+3. Register tasks in Claude Code's native task system (visible via Ctrl+T)
+
+**Output:** Task DAG with seq, slug, objective, delta, verify, depends, budget.
+
+**Decision points:**
+- `PROCEED` - sufficient information to plan
+- `CLARIFY` - need answers before proceeding
+
+---
+
+## Phase 3: BUILD
+
+**Purpose:** Execute tasks in dependency order.
+
+**Agent:** `helix:helix-builder` (opus, per-task budget)
+
+**Per task:**
+1. Create workspace with memory injection (failures to avoid, patterns to apply)
+2. Execute within constraints (delta scope, tool budget)
+3. Verify completion
+4. Report DELIVERED or BLOCKED with UTILIZED list
+
+**Constraints enforced:**
+- Delta scope is hard - cannot modify files outside delta
+- Budget is hard - must complete or block when exhausted
+- Verification required - no success claims without passing verify
+
+**Metacognition:** After 3 failed attempts with similar approach → BLOCK with analysis, don't retry.
+
+---
+
+## Phase 4: OBSERVE
+
+**Purpose:** Extract learning from completed work.
+
+**Agent:** `helix:helix-observer` (opus)
+
+**Extracts:**
+- **Failures** from blocked workspaces (trigger + resolution)
+- **Patterns** from successful workspaces via SOAR chunking
+- **Relationships** between memories (co_occurs, causes, solves)
+
+**Closes the loop:**
+```python
+feedback(utilized, injected)
+# utilized memories: helped++
+# injected-but-unused: failed++
+```
+
+---
+
+## Memory System
+
+### Scoring Formula
+
+```
+score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
+
+effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
+recency = 2^(-days_since_use / 7)           # ACT-R decay
+```
+
+Memories that help rise in ranking. Memories that don't help sink.
+
+### Core Operations
+
+**Store:**
 ```bash
-PLUGIN_ROOT = <from .helix/plugin_root>
-HELIX_DB_PATH = <optional: custom database path>
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py store \
+    --trigger "Situation description" \
+    --resolution "What to do" \
+    --type failure  # or pattern
+```
+
+**Recall:**
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py recall "query" --limit 5
+```
+
+**Feedback:**
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py feedback \
+    --utilized '["mem-1"]' \
+    --injected '["mem-1", "mem-2"]'
+```
+
+**Chunk (SOAR pattern extraction):**
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py chunk \
+    --task "Task objective" \
+    --outcome "success" \
+    --approach "Technique used"
+```
+
+**Health:**
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py health
+```
+
+### Maintenance Operations
+
+**Consolidate** - merge similar memories:
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py consolidate
+```
+
+**Prune** - remove ineffective memories:
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py prune
+```
+
+**Decay** - find dormant memories:
+```bash
+python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py decay
 ```
 
 ---
 
-## State Machine
+## Cognitive Guidelines
 
+### Before Acting
+
+1. **Query memory first** - check for relevant failures and patterns
+2. **Assess complexity** - simple tasks don't need orchestration
+3. **Understand intent** - what does success actually look like?
+
+### During Execution
+
+1. **Stay in scope** - delta is a hard constraint
+2. **Verify before claiming success** - run the verify command
+3. **Block when stuck** - clear blocking info > broken code
+
+### Reporting
+
+**UTILIZED must be accurate.** Only report memories you actually applied:
 ```
-┌──────────┐
-│   INIT   │
-└────┬─────┘
-     │
-     ▼
-┌──────────┐     ┌──────────┐
-│ EXPLORE  │────▶│   PLAN   │
-└──────────┘     └────┬─────┘
-                      │
-            ┌─────────┴─────────┐
-            │                   │
-            ▼                   ▼
-     ┌──────────┐        ┌───────────┐
-     │  CLARIFY │        │   BUILD   │◀─┐
-     └──────────┘        └─────┬─────┘  │
-                               │        │
-                        ┌──────┴──────┐ │
-                        │             │ │
-                        ▼             ▼ │
-                 ┌──────────┐  ┌──────────┐
-                 │ COMPLETE │  │  NEXT    │──┘
-                 └────┬─────┘  └──────────┘
-                      │
-                      ▼
-               ┌──────────┐
-               │ OBSERVE  │
-               └────┬─────┘
-                    │
-                    ▼
-               ┌──────────┐
-               │ FEEDBACK │
-               └────┬─────┘
-                    │
-                    ▼
-               ┌──────────┐
-               │   DONE   │
-               └──────────┘
+UTILIZED:
+- memory-name: Applied validation pattern from resolution
 ```
+
+Not:
+```
+UTILIZED: memory-1, memory-2, memory-3  # listing everything injected
+```
+
+False positives corrupt the feedback signal.
 
 ---
 
-## INIT
+## Database
 
-Entry point. Determine command and route.
+Single SQLite database at `.helix/helix.db`:
 
-```yaml
-ENTRY:
-  DO: mkdir -p .helix
-  DO: echo "$CLAUDE_PLUGIN_ROOT" > .helix/plugin_root
-
-  CHECK: command type
-
-  IF: /helix <objective>
-    TRACK: OBJECTIVE = <objective>
-    GOTO: EXPLORE
-
-  IF: /helix:explore <objective>
-    TRACK: OBJECTIVE = <objective>
-    GOTO: EXPLORE
-    # Stop after exploration
-
-  IF: /helix:plan
-    GOTO: PLAN
-    # Uses most recent exploration
-
-  IF: /helix:query <text>
-    GOTO: QUERY
-
-  IF: /helix:stats
-    GOTO: STATS
-
-  IF: /helix:observe
-    GOTO: OBSERVE
-```
+| Table | Purpose |
+|-------|---------|
+| memory | Failures and patterns with embeddings |
+| memory_edge | Relationships between memories |
+| exploration | Gathered context |
+| plan | Task decompositions |
+| workspace | Task execution contexts |
 
 ---
 
-## EXPLORE
-
-Gather context for planning.
-
-```yaml
-STATE: EXPLORE
-GOAL: Understand the codebase and task context
-
-ACTIONS:
-  # Launch explorer agent
-  DO: Task(helix:helix-explorer)
-      INPUT:
-        OBJECTIVE: $OBJECTIVE
-        PLUGIN_ROOT: $PLUGIN_ROOT
-      CAPTURE: exploration_json
-
-  # Parse explorer output
-  PARSE: exploration_json for EXPLORATION_RESULT
-
-  # Save exploration
-  DO: echo '$exploration_json' | python3 $PLUGIN_ROOT/lib/exploration.py save
-      CAPTURE: exploration_id
-
-  OUTPUT: |
-    ## Exploration Complete
-
-    Structure: ${exploration.structure.directories}
-    Framework: ${exploration.patterns.framework} (${exploration.patterns.framework_confidence})
-    Failures loaded: ${len(exploration.memory.relevant_failures)}
-    Patterns loaded: ${len(exploration.memory.relevant_patterns)}
-    Target files: ${exploration.targets.files}
-
-  IF: command was /helix:explore
-    GOTO: DONE
-
-  GOTO: PLAN
-```
-
-### Explorer Contract
-
-The explorer outputs:
-```json
-{
-  "objective": "...",
-  "structure": {"directories": {}, "entry_points": [], ...},
-  "patterns": {"framework": "...", "idioms": {...}},
-  "memory": {"relevant_failures": [], "relevant_patterns": []},
-  "targets": {"files": [], "functions": []}
-}
-```
-
----
-
-## PLAN
-
-Decompose objective into executable tasks.
-
-```yaml
-STATE: PLAN
-GOAL: Create a task DAG for execution
-
-ACTIONS:
-  # Load most recent exploration
-  DO: python3 $PLUGIN_ROOT/lib/exploration.py load
-      CAPTURE: exploration
-
-  # Launch planner agent
-  DO: Task(helix:helix-planner)
-      INPUT:
-        OBJECTIVE: $OBJECTIVE
-        EXPLORATION: $exploration
-      CAPTURE: plan_json
-
-  # Parse planner output
-  PARSE: plan_json for PLAN_RESULT
-
-  # Handle decision
-  IF: plan.decision == "CLARIFY"
-    TRACK: QUESTIONS = plan.questions
-    GOTO: CLARIFY
-
-  IF: plan.decision == "PROCEED"
-    # Save plan
-    DO: echo '$plan_json' | python3 $PLUGIN_ROOT/lib/plan.py save
-        CAPTURE: plan_result
-
-    IF: plan_result.error
-      OUTPUT: "Plan error: ${plan_result.error}"
-      GOTO: ERROR
-
-    TRACK: PLAN_ID = plan_result.id
-    TRACK: TASK_COUNT = plan_result.task_count
-
-    OUTPUT: |
-      ## Plan Created
-
-      Tasks: $TASK_COUNT
-      Framework: ${plan.framework}
-
-      Task sequence:
-      ${for task in plan.tasks: "${task.seq}: ${task.slug} [depends: ${task.depends}]"}
-
-    GOTO: BUILD
-```
-
-### Planner Contract
-
-The planner outputs:
-```json
-{
-  "decision": "PROCEED|CLARIFY",
-  "plan": {
-    "objective": "...",
-    "framework": "...",
-    "idioms": {},
-    "tasks": [{"seq", "slug", "objective", "delta", "verify", "depends", "budget"}]
-  },
-  "questions": []  // if CLARIFY
-}
-```
-
----
-
-## CLARIFY
-
-Handle planner's clarification request.
-
-```yaml
-STATE: CLARIFY
-GOAL: Get missing information from user
-
-ACTIONS:
-  OUTPUT: |
-    ## Clarification Needed
-
-    The planner needs more information:
-
-    ${for q in QUESTIONS: "- $q"}
-
-    Please provide answers and run /helix again.
-
-  GOTO: DONE
-```
-
----
-
-## BUILD
-
-Execute tasks in dependency order.
-
-```yaml
-STATE: BUILD
-GOAL: Execute ready tasks
-
-ACTIONS:
-  # Get ready tasks
-  DO: python3 $PLUGIN_ROOT/lib/plan.py ready-tasks --plan-id $PLAN_ID
-      CAPTURE: ready_tasks
-
-  IF: ready_tasks is empty
-    # Check cascade status
-    DO: python3 $PLUGIN_ROOT/lib/plan.py cascade-status --plan-id $PLAN_ID
-        CAPTURE: cascade
-
-    IF: cascade.state == "complete"
-      GOTO: COMPLETE
-
-    IF: cascade.state == "stuck"
-      OUTPUT: |
-        ## Plan Stuck
-
-        Unreachable tasks due to blocked dependencies:
-        ${cascade.unreachable}
-
-      GOTO: COMPLETE
-
-    # Else all_blocked or in_progress (waiting)
-    GOTO: COMPLETE
-
-  # Execute each ready task
-  FOR: task IN ready_tasks
-    GOTO: BUILD_TASK with task
-
-  # After all ready tasks complete, check for more
-  GOTO: BUILD
-```
-
----
-
-## BUILD_TASK
-
-Execute a single task.
-
-```yaml
-STATE: BUILD_TASK
-GOAL: Execute one task with full context
-
-ACTIONS:
-  # Load plan for framework/idioms
-  DO: python3 $PLUGIN_ROOT/lib/plan.py load --id $PLAN_ID
-      CAPTURE: plan
-
-  # Create workspace with memory injection
-  DO: python3 $PLUGIN_ROOT/lib/workspace.py create \
-        --plan-id $PLAN_ID \
-        --task '${json(task)}' \
-        --framework '${plan.framework}' \
-        --idioms '${json(plan.idioms)}'
-      CAPTURE: workspace
-
-  OUTPUT: |
-    ### Building: ${task.seq} - ${task.slug}
-
-    Objective: ${task.objective}
-    Delta: ${task.delta}
-    Budget: ${task.budget}
-    Injected memories: ${len(workspace.failures) + len(workspace.patterns)}
-
-  # Launch builder agent
-  DO: Task(helix:helix-builder)
-      INPUT:
-        WORKSPACE: $workspace
-      CAPTURE: builder_output
-
-  # Parse builder output
-  PARSE: builder_output for DELIVERED or BLOCKED
-
-  IF: DELIVERED found
-    # Extract utilized memories
-    PARSE: builder_output for UTILIZED
-
-    # Complete workspace
-    DO: python3 $PLUGIN_ROOT/lib/workspace.py complete \
-          --id ${workspace._id} \
-          --delivered "$DELIVERED" \
-          --utilized '${json(UTILIZED)}'
-
-    OUTPUT: "✓ ${task.seq}: $DELIVERED"
-
-  IF: BLOCKED found
-    # Extract reason and any utilized
-    PARSE: builder_output for BLOCKED reason
-    PARSE: builder_output for UTILIZED (may be empty)
-
-    # Block workspace
-    DO: python3 $PLUGIN_ROOT/lib/workspace.py block \
-          --id ${workspace._id} \
-          --reason "$BLOCKED" \
-          --utilized '${json(UTILIZED)}'
-
-    OUTPUT: "✗ ${task.seq}: BLOCKED - $BLOCKED"
-
-  RETURN: to BUILD loop
-```
-
----
-
-## COMPLETE
-
-All tasks processed. Summarize and proceed to observation.
-
-```yaml
-STATE: COMPLETE
-GOAL: Summarize build results
-
-ACTIONS:
-  DO: python3 $PLUGIN_ROOT/lib/workspace.py list --plan-id $PLAN_ID
-      CAPTURE: workspaces
-
-  TRACK: complete_count = count where status == "complete"
-  TRACK: blocked_count = count where status == "blocked"
-
-  OUTPUT: |
-    ## Build Complete
-
-    ✓ Completed: $complete_count
-    ✗ Blocked: $blocked_count
-
-    ${for ws in workspaces: "${ws.task_seq}: ${ws.status} - ${ws.delivered[:50]}..."}
-
-  GOTO: OBSERVE
-```
-
----
-
-## OBSERVE
-
-Extract learning from completed work.
-
-```yaml
-STATE: OBSERVE
-GOAL: Extract failures and patterns for future use
-
-ACTIONS:
-  # Get workspaces for observation
-  DO: python3 $PLUGIN_ROOT/lib/workspace.py list --plan-id $PLAN_ID
-      CAPTURE: workspaces
-
-  # Launch observer agent
-  DO: Task(helix:helix-observer)
-      INPUT:
-        WORKSPACES: $workspaces
-        PLUGIN_ROOT: $PLUGIN_ROOT
-      CAPTURE: observer_output
-
-  # Parse observer output
-  PARSE: observer_output for OBSERVATION_RESULT
-
-  OUTPUT: |
-    ## Learning Extracted
-
-    Analyzed: ${observation.analyzed.complete} complete, ${observation.analyzed.blocked} blocked
-
-    New failures: ${len(observation.extracted.failures)}
-    ${for f in observation.extracted.failures: "  - ${f.name}: ${f.trigger[:40]}..."}
-
-    New patterns: ${len(observation.extracted.patterns)}
-    ${for p in observation.extracted.patterns: "  - ${p.name}: ${p.trigger[:40]}..."}
-
-    Relationships: ${len(observation.extracted.relationships)}
-
-  GOTO: FEEDBACK
-```
-
----
-
-## FEEDBACK
-
-Verify the learning loop is closed.
-
-```yaml
-STATE: FEEDBACK
-GOAL: Verify learning loop closure
-
-ACTIONS:
-  DO: python3 $PLUGIN_ROOT/lib/memory.py verify
-      CAPTURE: verify_result
-
-  OUTPUT: |
-    ## Learning Loop: ${verify_result.status}
-
-    Memories: ${verify_result.stats.total}
-    With feedback: ${verify_result.stats.with_feedback}
-    Overall effectiveness: ${verify_result.stats.overall_effectiveness}
-
-    ${if verify_result.issues: "Issues:"}
-    ${for issue in verify_result.issues: "  - $issue"}
-
-  # Mark plan complete
-  DO: python3 $PLUGIN_ROOT/lib/plan.py complete --plan-id $PLAN_ID
-
-  GOTO: DONE
-```
-
----
-
-## QUERY
-
-Search memory by meaning.
-
-```yaml
-STATE: QUERY
-GOAL: Find relevant memories
-
-ACTIONS:
-  DO: python3 $PLUGIN_ROOT/lib/memory.py query "$QUERY_TEXT" --limit 10
-      CAPTURE: results
-
-  OUTPUT: |
-    ## Memory Search: "$QUERY_TEXT"
-
-    ${for m in results:}
-    **${m.name}** (${m.type}, effectiveness: ${m.effectiveness})
-    - Trigger: ${m.trigger}
-    - Resolution: ${m.resolution}
-    - Relevance: ${m._relevance}
-    ${endfor}
-
-  GOTO: DONE
-```
-
----
-
-## STATS
-
-Display memory statistics.
-
-```yaml
-STATE: STATS
-GOAL: Show learning system health
-
-ACTIONS:
-  DO: python3 $PLUGIN_ROOT/lib/memory.py stats
-      CAPTURE: stats
-
-  DO: python3 $PLUGIN_ROOT/lib/memory.py verify
-      CAPTURE: verify
-
-  OUTPUT: |
-    ## Helix Memory Statistics
-
-    **Total memories**: ${stats.total}
-    - Failures: ${stats.by_type.failure.count if 'failure' in stats.by_type else 0}
-    - Patterns: ${stats.by_type.pattern.count if 'pattern' in stats.by_type else 0}
-
-    **Effectiveness**
-    - Overall: ${stats.overall_effectiveness}
-    - Total helped: ${stats.total_helped}
-    - Total failed: ${stats.total_failed}
-
-    **Feedback Loop**
-    - With feedback: ${stats.with_feedback}
-    - Without feedback: ${stats.without_feedback}
-
-    **Graph**
-    - Relationships: ${stats.relationships}
-    - Embedding coverage: ${stats.embedding_coverage}
-
-    **Loop Status**: ${verify.status}
-    ${for issue in verify.issues: "  ⚠ $issue"}
-
-  GOTO: DONE
-```
-
----
-
-## DONE
-
-Terminal state.
-
-```yaml
-STATE: DONE
-GOAL: Clean exit
-
-ACTIONS:
-  # Nothing to do - orchestration complete
-```
-
----
-
-## ERROR
-
-Error handling state.
-
-```yaml
-STATE: ERROR
-GOAL: Handle errors gracefully
-
-ACTIONS:
-  OUTPUT: |
-    ## Error Occurred
-
-    ${ERROR_MESSAGE}
-
-    Memory state preserved. Run /helix:stats to check health.
-
-  GOTO: DONE
-```
-
----
-
-## The Learning Spiral
-
-```
-    Session 1:
-    ┌──────────────────────────────────────────┐
-    │ EXPLORE → PLAN → BUILD → OBSERVE         │
-    │                              │            │
-    │                              ▼            │
-    │                         [memories]        │
-    └──────────────────────────────────────────┘
-                                   │
-                                   ▼
-    Session 2:
-    ┌──────────────────────────────────────────┐
-    │ EXPLORE ────────────────────┐            │
-    │    │                        │            │
-    │    │    [memories injected] │            │
-    │    ▼                        │            │
-    │  PLAN → BUILD → OBSERVE ────┘            │
-    │              │                           │
-    │              ▼                           │
-    │         [more memories]                  │
-    │         [feedback updates]               │
-    └──────────────────────────────────────────┘
-                                   │
-                                   ▼
-    Session N:
-    ┌──────────────────────────────────────────┐
-    │  Accumulated knowledge makes             │
-    │  exploration richer, planning smarter,   │
-    │  building more reliable.                 │
-    │                                          │
-    │  The spiral ascends.                     │
-    └──────────────────────────────────────────┘
-```
-
-Each session:
-1. Benefits from previous sessions' memories
-2. Contributes new memories for future sessions
-3. Feedback adjusts memory rankings
-4. Ineffective memories fade, effective ones rise
-
-**This is how learning compounds.**
+## Integration Points
+
+**PreToolUse hook** (`inject-context.py`):
+- Triggers on Edit/Write
+- Injects relevant memories
+- Requests UTILIZED reporting
+
+**SessionStart hook** (`setup-env.sh`):
+- Initializes database
+- Sets environment variables
+- Reports memory health
+
+**Native Task system**:
+- Tasks visible via Ctrl+T or /todos
+- Status updates during execution
+- Dependencies tracked

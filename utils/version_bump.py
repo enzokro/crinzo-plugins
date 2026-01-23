@@ -16,7 +16,7 @@ from pathlib import Path
 plugin_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # home dir where claude plugins live
-ftl_plugin_cache_home = Path('/Users/cck/.claude/plugins/cache/crinzo-plugins/ftl')
+helix_plugin_cache_home = Path('/Users/cck/.claude/plugins/cache/crinzo-plugins/helix')
 
 new_version = None
 old_version_str = None
@@ -37,7 +37,7 @@ with open(os.path.join(plugin_path, '.claude-plugin/marketplace.json'), 'r') as 
 
 # change the versions in plugin.json files
 print("[version_bump] Updating plugin.json files...")
-for plugin in ['ftl']:
+for plugin in ['helix']:
     plugin_json_path = os.path.join(plugin_path, plugin, '.claude-plugin/plugin.json')
     with open(plugin_json_path, 'r') as f:
         plugin_json = json.load(f)
@@ -51,7 +51,7 @@ for plugin in ['ftl']:
             json.dump(new_plugin_json, f, indent=2)
 
 # update version in SKILL.md frontmatter
-skill_md_path = os.path.join(plugin_path, 'ftl/skills/ftl/SKILL.md')
+skill_md_path = os.path.join(plugin_path, 'helix/skills/helix/SKILL.md')
 if os.path.exists(skill_md_path):
     print("[version_bump] Updating SKILL.md frontmatter...")
     with open(skill_md_path, 'r') as f:
@@ -67,19 +67,19 @@ if os.path.exists(skill_md_path):
     else:
         print(f"  SKILL.md: version pattern not found (skipped)")
 
-# force copy the entire ftl plugin to the ftl cache folder to ensure the new version is used next time
+# force copy the entire helix plugin to the helix cache folder to ensure the new version is used next time
 print("[version_bump] Clearing plugin cache...")
-if ftl_plugin_cache_home.exists():
-    shutil.rmtree(ftl_plugin_cache_home)
-    print(f"  Removed: {ftl_plugin_cache_home}")
+if helix_plugin_cache_home.exists():
+    shutil.rmtree(helix_plugin_cache_home)
+    print(f"  Removed: {helix_plugin_cache_home}")
 
 new_version_str = '.'.join(new_version)
-new_cache_dir = os.path.join(ftl_plugin_cache_home, new_version_str)
+new_cache_dir = os.path.join(helix_plugin_cache_home, new_version_str)
 os.makedirs(new_cache_dir, exist_ok=True)
 
-print(f"[version_bump] Copying ftl to cache: {new_cache_dir}")
+print(f"[version_bump] Copying helix to cache: {new_cache_dir}")
 shutil.copytree(
-    os.path.join(plugin_path, 'ftl'),
+    os.path.join(plugin_path, 'helix'),
     new_cache_dir,
     dirs_exist_ok=True,
     ignore=shutil.ignore_patterns('venv', '.venv', '__pycache__', '*.pyc', '.git')

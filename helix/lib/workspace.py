@@ -5,10 +5,11 @@ A workspace contains everything the builder needs:
 - Task details (objective, delta, verify)
 - Memory context (failures to avoid, patterns to apply)
 - Lineage (what previous tasks delivered)
+
+Memory is now integrated directly (no subprocess calls).
 """
 
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -16,11 +17,40 @@ from typing import Optional, List
 
 try:
     from .db.connection import get_db, write_lock
-    from . import memory
+    from .memory import recall, feedback
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from db.connection import get_db, write_lock
-    import memory
+    from memory import recall, feedback
+
+
+def _query_memory(objective: str, limit: int = 5) -> List[dict]:
+    """Query memory system for relevant memories.
+
+    Direct call to memory layer - no subprocess overhead.
+    """
+    try:
+        return recall(objective, limit=limit)
+    except Exception:
+        return []
+
+
+def _send_feedback(utilized: List[str], injected: List[str]) -> dict:
+    """Send feedback to memory system - CLOSES THE LOOP.
+
+    Direct call to memory layer - guaranteed execution.
+
+    Args:
+        utilized: Memory names that actually helped (honest reporting!)
+        injected: Memory names that were injected
+
+    Returns:
+        Result dict with helped/unhelpful counts
+    """
+    try:
+        return feedback(utilized, injected)
+    except Exception as e:
+        return {"status": "error", "reason": str(e)}
 
 
 def create(
@@ -28,6 +58,7 @@ def create(
     task: dict,
     framework: Optional[str] = None,
     idioms: Optional[dict] = None,
+    memories: Optional[List[dict]] = None,
 ) -> dict:
     """Create a workspace for a task.
 
@@ -43,9 +74,13 @@ def create(
     task_slug = task.get("slug", f"task-{task_seq}")
     objective = task.get("objective", "")
 
-    # Query memory for relevant context
-    failures = memory.query(objective, memory_type="failure", limit=5)
-    patterns = memory.query(objective, memory_type="pattern", limit=3)
+    # Query memory if not provided
+    if memories is None:
+        memories = _query_memory(objective, limit=8)
+
+    # Separate by type
+    failures = [m for m in memories if m.get("type") == "failure"]
+    patterns = [m for m in memories if m.get("type") == "pattern"]
 
     # Build lineage from parent tasks
     lineage = _build_lineage(plan_id, task.get("depends", "none"))
@@ -113,9 +148,10 @@ def complete(workspace_id: int, delivered: str, utilized: List[str]) -> dict:
     Args:
         workspace_id: Workspace to complete
         delivered: Summary of what was delivered
-        utilized: List of memory names that actually helped
+        utilized: List of memory names that actually helped (HONEST REPORTING!)
     """
     db = get_db()
+    feedback_result = None
 
     with write_lock():
         # Update workspace
@@ -131,8 +167,8 @@ def complete(workspace_id: int, delivered: str, utilized: List[str]) -> dict:
             injected = [f["name"] for f in data.get("failures", [])] + \
                        [p["name"] for p in data.get("patterns", [])]
 
-            # Close the feedback loop
-            memory.feedback(utilized, injected)
+            # CLOSE THE LOOP - direct call, guaranteed execution!
+            feedback_result = _send_feedback(utilized, injected)
 
             # Update plan task
             if row["plan_id"]:
@@ -145,7 +181,12 @@ def complete(workspace_id: int, delivered: str, utilized: List[str]) -> dict:
 
         db.commit()
 
-    return {"status": "complete", "workspace_id": workspace_id, "utilized": utilized}
+    return {
+        "status": "complete",
+        "workspace_id": workspace_id,
+        "utilized": utilized,
+        "feedback": feedback_result
+    }
 
 
 def block(workspace_id: int, reason: str, utilized: List[str] = None) -> dict:
@@ -158,6 +199,7 @@ def block(workspace_id: int, reason: str, utilized: List[str] = None) -> dict:
     """
     utilized = utilized or []
     db = get_db()
+    feedback_result = None
 
     with write_lock():
         db.execute(
@@ -173,7 +215,7 @@ def block(workspace_id: int, reason: str, utilized: List[str] = None) -> dict:
                        [p["name"] for p in data.get("patterns", [])]
 
             # Feedback even on block - we learn what didn't help
-            memory.feedback(utilized, injected)
+            feedback_result = _send_feedback(utilized, injected)
 
             # Update plan task
             if row["plan_id"]:
@@ -186,7 +228,12 @@ def block(workspace_id: int, reason: str, utilized: List[str] = None) -> dict:
 
         db.commit()
 
-    return {"status": "blocked", "workspace_id": workspace_id, "reason": reason}
+    return {
+        "status": "blocked",
+        "workspace_id": workspace_id,
+        "reason": reason,
+        "feedback": feedback_result
+    }
 
 
 def list_workspaces(status: Optional[str] = None, plan_id: Optional[int] = None) -> List[dict]:
@@ -266,6 +313,7 @@ def _cli():
     p.add_argument("--task", required=True, help="JSON task dict")
     p.add_argument("--framework", default=None)
     p.add_argument("--idioms", default=None, help="JSON idioms dict")
+    p.add_argument("--memories", default=None, help="JSON list of memories to inject")
 
     # load
     p = subparsers.add_parser("load")
@@ -293,7 +341,8 @@ def _cli():
 
     if args.command == "create":
         idioms = json.loads(args.idioms) if args.idioms else None
-        result = create(args.plan_id, json.loads(args.task), args.framework, idioms)
+        memories = json.loads(args.memories) if args.memories else None
+        result = create(args.plan_id, json.loads(args.task), args.framework, idioms, memories)
     elif args.command == "load":
         result = load(args.id, args.task_seq)
         if result is None:

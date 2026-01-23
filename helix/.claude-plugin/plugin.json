@@ -1,66 +1,29 @@
 {
   "name": "helix",
-  "version": "1.0.0",
-  "description": "Advanced self-learning orchestrator with exploration, planning, building, and observation. Learning spirals upward.",
-  "entryPoint": "skills/helix/SKILL.md",
-  "triggers": [
-    {
-      "type": "command",
-      "command": "helix",
-      "description": "Execute a task with full learning pipeline"
-    },
-    {
-      "type": "command",
-      "command": "helix:explore",
-      "description": "Explore codebase for a task"
-    },
-    {
-      "type": "command",
-      "command": "helix:plan",
-      "description": "Plan task decomposition"
-    },
-    {
-      "type": "command",
-      "command": "helix:query",
-      "description": "Search memory by meaning"
-    },
-    {
-      "type": "command",
-      "command": "helix:stats",
-      "description": "Memory and learning statistics"
-    },
-    {
-      "type": "command",
-      "command": "helix:observe",
-      "description": "Extract learning from recent work"
-    }
-  ],
-  "hooks": [
-    {
-      "type": "SessionStart",
-      "script": "scripts/setup-env.sh"
-    }
-  ],
-  "agents": [
-    {
-      "name": "helix-explorer",
-      "description": "Gathers context: structure, patterns, memory, targets",
-      "entryPoint": "agents/explorer.md"
-    },
-    {
-      "name": "helix-planner",
-      "description": "Decomposes objectives into executable tasks",
-      "entryPoint": "agents/planner.md"
-    },
-    {
-      "name": "helix-builder",
-      "description": "Executes tasks with memory context",
-      "entryPoint": "agents/builder.md"
-    },
-    {
-      "name": "helix-observer",
-      "description": "Extracts learning from outcomes",
-      "entryPoint": "agents/observer.md"
-    }
-  ]
+  "version": "3.0.0",
+  "description": "Structured orchestrator with integrated memory. Explore → Plan → Build → Observe with feedback-based learning.",
+  "author": { "name": "crinzo" },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-context.py"
+          }
+        ]
+      }
+    ]
+  }
 }
