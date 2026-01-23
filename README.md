@@ -113,7 +113,7 @@ Where:
 
 **Graph relationships** link related failures and patterns (causes, solves, co_occurs). Query with `connected()` to traverse connections.
 
-See [HELIX_OVERVIEW.md](../docs/HELIX_OVERVIEW.md) for embedding details, deduplication rules, and maintenance operations.
+See [HELIX_OVERVIEW.md](./docs/HELIX_OVERVIEW.md) for embedding details, deduplication rules, and maintenance operations.
 
 ## Task DAG
 
