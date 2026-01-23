@@ -1,7 +1,6 @@
-# Helix dependencies
+# Helix: Semantic Memory Dependencies
+# These enable embedding-based semantic search.
+# Without them, helix falls back to effectiveness-based ranking.
 
-# Semantic embeddings (optional but recommended)
 sentence-transformers>=2.2.0
-
-# Numerical operations for embeddings
-numpy>=1.21.0
+numpy>=1.24.0
