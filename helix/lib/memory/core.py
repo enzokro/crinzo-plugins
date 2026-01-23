@@ -546,6 +546,7 @@ if __name__ == "__main__":
     s.add_argument("--task", required=True)
     s.add_argument("--outcome", required=True)
     s.add_argument("--approach", required=True)
+    s.add_argument("--source", default="chunked")
 
     sub.add_parser("consolidate")
 
@@ -571,7 +572,7 @@ if __name__ == "__main__":
     elif args.cmd == "decay":
         r = decay(args.days, args.min_uses)
     elif args.cmd == "chunk":
-        r = chunk(args.task, args.outcome, args.approach)
+        r = chunk(args.task, args.outcome, args.approach, args.source)
     elif args.cmd == "consolidate":
         r = consolidate()
     elif args.cmd == "get":

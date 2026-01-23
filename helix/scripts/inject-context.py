@@ -35,10 +35,16 @@ def main():
 
     try:
         # Direct import - no subprocess!
-        from memory import recall
+        from memory import recall, get
 
         # Query for relevant memories
         memories = recall(file_path, limit=3)
+
+        if not memories:
+            sys.exit(0)
+
+        # Validate memories exist (defensive - handles stale/deleted entries)
+        memories = [m for m in memories if m.get("name") and get(m["name"])]
 
         if not memories:
             sys.exit(0)
