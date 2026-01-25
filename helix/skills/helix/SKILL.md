@@ -25,7 +25,7 @@ INIT -> EXPLORING -> EXPLORED -> PLANNING -> PLANNED -> BUILDING -> BUILT -> DON
                                                STALLED -> (replan | skip | abort)
 ```
 
-State is implicit in conversation flow. Checkpoints persist at EXPLORED, PLANNED, BUILT.
+State is implicit in conversation flow.
 
 ---
 
@@ -120,61 +120,48 @@ Parse this to track seq-to-taskId mapping.
 2. For each pending: TaskGet(blocker_id) for each in blockedBy
    → ready if all blockers have metadata.helix_outcome="delivered"
 3. If no ready tasks: STALLED → AskUserQuestion (Replan | Skip | Abort)
-4. For each ready task: execute Steps A–J below
+4. For each ready task: execute Steps A–I below
 5. Go to 1
 ```
 
 ### Execute Single Task
 
-**Step A: Query memory**
+**Step A: Check for systemic warnings**
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "{task.description}" --limit 5
+warning=$(python3 "$HELIX/lib/memory/meta.py" warnings --objective "{objective}" | jq -r '.warning // empty')
 ```
 
-Output is JSON list. Extract `name`, `trigger`, `resolution` fields.
+**Step B: Build lineage from delivered blockers**
 
-**Step B: Check for systemic warnings**
+Collect TaskGet output for each delivered blocker:
 
 ```bash
-python3 "$HELIX/lib/memory/meta.py" warnings --objective "{objective}"
+lineage=$(python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]')
 ```
 
-If `warning` is non-null, include in builder context.
-
-**Step C: Build lineage from completed blockers**
-
-Collect TaskGet output for each delivered blocker, then:
+**Step C: Build unified context**
 
 ```bash
-python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[{"subject":"001: auth","metadata":{"helix_outcome":"delivered","delivered_summary":"Added JWT middleware"}}]'
+context=$(python3 "$HELIX/lib/context.py" build-context \
+    --task-data "$(TaskGet {task_id} | jq -c)" \
+    --lineage "$lineage" \
+    --warning "$warning")
+
+# Extract for builder and feedback tracking
+prompt=$(echo "$context" | jq -r '.prompt')
+injected=$(echo "$context" | jq -c '.injected')
 ```
 
-Returns `[{"seq": "001", "slug": "auth", "delivered": "Added JWT middleware"}]`.
+This consolidates memory recall, context formatting, and memory injection tracking into one call.
 
-**Step D: Construct builder prompt**
-
-```
-TASK_ID: {task.id}
-TASK_SUBJECT: {task.subject}
-OBJECTIVE: {task.description}
-VERIFY: {task.metadata.verify}
-RELEVANT_FILES: {task.metadata.relevant_files}
-FRAMEWORK: {task.metadata.framework}
-FAILURES_TO_AVOID: ["{trigger} -> {resolution}", ...]
-PATTERNS_TO_APPLY: ["{trigger} -> {resolution}", ...]
-INJECTED_MEMORIES: ["memory-name-1", "memory-name-2"]
-PARENT_DELIVERIES: [{seq, slug, delivered}, ...]
-WARNING: {systemic_warning or omit}
-```
-
-**Step E: Spawn builder**
+**Step D: Spawn builder**
 
 ```python
-Task(subagent_type="helix:helix-builder", prompt=builder_prompt)
+Task(subagent_type="helix:helix-builder", prompt=prompt)
 ```
 
-**Step F: Parse result**
+**Step E: Parse result**
 
 ```bash
 python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
@@ -182,7 +169,7 @@ python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
 
 Returns `{"status": "delivered"|"blocked", "summary": "...", ...}`.
 
-**Step G: Run verification**
+**Step F: Run verification**
 
 ```bash
 {task.metadata.verify}
@@ -190,7 +177,7 @@ Returns `{"status": "delivered"|"blocked", "summary": "...", ...}`.
 
 Capture exit code. `0` = passed.
 
-**Step H: Close feedback loop**
+**Step G: Close feedback loop**
 
 ```bash
 python3 "$HELIX/lib/tasks.py" feedback-verify \
@@ -199,7 +186,7 @@ python3 "$HELIX/lib/tasks.py" feedback-verify \
     --injected '["memory-name-1", "memory-name-2"]'
 ```
 
-**Step I: Record metacognition**
+**Step H: Record metacognition**
 
 ```bash
 python3 "$HELIX/lib/memory/meta.py" complete \
@@ -209,7 +196,7 @@ python3 "$HELIX/lib/memory/meta.py" complete \
     --duration-ms {elapsed}
 ```
 
-**Step J: Learning extraction (judgment)**
+**Step I: Learning extraction (judgment)**
 
 After task completes, decide whether to store a memory:
 
@@ -263,7 +250,8 @@ All tasks done. Session ends.
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5
 python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
 python3 "$HELIX/lib/memory/core.py" health
-python3 "$HELIX/lib/memory/core.py" prune --threshold 0.3
+python3 "$HELIX/lib/memory/core.py" prune --threshold 0.3 --min-uses 3
+python3 "$HELIX/lib/memory/core.py" feedback-verify --task-id "..." --verify-passed true --injected '[...]'
 ```
 
 ### Tasks
@@ -285,24 +273,16 @@ python3 "$HELIX/lib/memory/meta.py" health --objective "..."
 
 ```bash
 python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
-python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
+python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]' --warning "..."
 ```
 
-### Orchestrator
+### Orchestrator Utilities
 
 ```bash
-python3 "$HELIX/lib/orchestrator.py" status --objective "..."
 python3 "$HELIX/lib/orchestrator.py" clear
+python3 "$HELIX/lib/orchestrator.py" detect-cycles --dependencies '{...}'
+python3 "$HELIX/lib/orchestrator.py" check-stalled --tasks '[...]'
 ```
-
----
-
-## Checkpoints
-
-Saved automatically at state boundaries:
-- `.helix/checkpoints/explored.json`
-- `.helix/checkpoints/planned.json`
-- `.helix/checkpoints/built.json`
 
 ---
 

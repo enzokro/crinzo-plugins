@@ -5,11 +5,10 @@ Core API:
 - store(trigger, resolution, type) -> name
 - recall(query, limit) -> memories ranked by relevance x effectiveness x recency
 - recall_by_file_patterns(patterns, limit) -> memories matching file patterns
-- feedback(utilized, injected) -> closes the loop (THE critical function)
-- feedback_from_verification(task_id, verify_passed, injected) -> verification-based feedback
+- feedback_from_verification(task_id, verify_passed, injected) -> closes the loop (THE critical function)
 - chunk(task, outcome, approach) -> extract reusable rule from success (SOAR)
 - health() -> system status
-- prune() -> removes ineffective memories
+- prune(min_effectiveness, min_uses) -> removes ineffective memories
 - decay() -> find dormant memories
 - consolidate() -> merge similar memories
 - get(name) -> retrieve specific memory
@@ -306,48 +305,6 @@ def recall_by_file_patterns(
     return matches[:limit]
 
 
-def feedback(utilized: List[str], injected: List[str]) -> dict:
-    """Update effectiveness based on what was actually used.
-
-    DEPRECATED: Prefer feedback_from_verification() which uses objective
-    verification outcomes instead of self-reported utilization.
-
-    Args:
-        utilized: Memory names that ACTUALLY HELPED (honest reporting!)
-        injected: Memory names that were provided
-
-    Result:
-        - utilized memories get helped++, last_used updated
-        - injected-but-not-utilized get failed++
-    """
-    db = get_db()
-    now = datetime.now().isoformat()
-    helped = 0
-    unhelpful = 0
-    missing = []
-
-    util_set = set(utilized)
-    inj_set = set(injected)
-
-    with write_lock():
-        for name in inj_set:
-            row = db.execute("SELECT id FROM memory WHERE name=?", (name,)).fetchone()
-            if not row:
-                missing.append(name)
-                continue
-
-            if name in util_set:
-                db.execute("UPDATE memory SET helped=helped+1, last_used=? WHERE name=?", (now, name))
-                helped += 1
-            else:
-                db.execute("UPDATE memory SET failed=failed+1 WHERE name=?", (name,))
-                unhelpful += 1
-
-        db.commit()
-
-    return {"helped": helped, "unhelpful": unhelpful, "missing": missing}
-
-
 def feedback_from_verification(
     task_id: str,
     verify_passed: bool,
@@ -407,8 +364,15 @@ def feedback_from_verification(
                     WHERE name = ?
                 """, (now, name))
                 credited += 1
-            # Failure: no penalty - we don't know which memory (if any) caused it
-            # Just don't update anything
+            else:
+                # Failure: add penalty to enable pruning
+                # Without this, effectiveness can only go UP, making prune impossible
+                db.execute("""
+                    UPDATE memory
+                    SET failed = failed + 0.5,
+                        last_used = ?
+                    WHERE name = ?
+                """, (now, name))
 
         db.commit()
 
@@ -553,14 +517,6 @@ def consolidate(similarity_threshold: float = 0.9) -> dict:
                         "UPDATE memory SET helped=helped+?, failed=failed+? WHERE name=?",
                         (remove["helped"] or 0, remove["failed"] or 0, keep["name"])
                     )
-                    db.execute(
-                        "UPDATE memory_edge SET from_name=? WHERE from_name=?",
-                        (keep["name"], remove["name"])
-                    )
-                    db.execute(
-                        "UPDATE memory_edge SET to_name=? WHERE to_name=?",
-                        (keep["name"], remove["name"])
-                    )
                     db.execute("DELETE FROM memory WHERE name=?", (remove["name"],))
                     db.commit()
 
@@ -630,16 +586,14 @@ if __name__ == "__main__":
     s.add_argument("--type", default=None)
     s.add_argument("--limit", type=int, default=5)
 
-    s = sub.add_parser("feedback")
-    s.add_argument("--utilized", required=True)
-    s.add_argument("--injected", required=True)
-
     s = sub.add_parser("feedback-verify", help="Feedback from verification outcome")
     s.add_argument("--task-id", required=True)
     s.add_argument("--verify-passed", type=lambda x: x.lower() == "true", required=True)
     s.add_argument("--injected", required=True)
 
-    sub.add_parser("prune")
+    s = sub.add_parser("prune")
+    s.add_argument("--threshold", type=float, default=0.25, dest="min_effectiveness")
+    s.add_argument("--min-uses", type=int, default=3)
     sub.add_parser("health")
 
     s = sub.add_parser("decay")
@@ -663,8 +617,6 @@ if __name__ == "__main__":
         r = store(args.trigger, args.resolution, args.type, args.source)
     elif args.cmd == "recall":
         r = recall(args.query, args.type, args.limit)
-    elif args.cmd == "feedback":
-        r = feedback(json.loads(args.utilized), json.loads(args.injected))
     elif args.cmd == "feedback-verify":
         r = feedback_from_verification(
             task_id=args.task_id,
@@ -672,7 +624,7 @@ if __name__ == "__main__":
             injected=json.loads(args.injected)
         )
     elif args.cmd == "prune":
-        r = prune()
+        r = prune(min_effectiveness=args.min_effectiveness, min_uses=args.min_uses)
     elif args.cmd == "health":
         r = health()
     elif args.cmd == "decay":

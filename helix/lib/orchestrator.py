@@ -1,627 +1,174 @@
 #!/usr/bin/env python3
-"""State Machine Orchestrator for Helix.
+"""Orchestrator utilities for Helix.
 
-Replaces the pseudo-code in SKILL.md with explicit state transitions.
-The state machine provides:
-- Explicit transition guards (validation before state change)
-- Checkpoints at significant states (for recovery)
-- Clear error states with typed reasons
-- Recovery paths from STALLED state
+Provides utility functions for the prose-driven orchestrator (SKILL.md):
+- Cycle detection in task dependencies
+- Task state derivation from TaskList metadata
+- Checkpoint management
 
 ARCHITECTURAL PRINCIPLE: Single Source of Truth
 -----------------------------------------------
-The orchestrator derives task state FROM TaskList, not from parallel tracking.
-Task metadata includes 'helix_outcome' (delivered/blocked) for helix-specific state.
-This eliminates divergence risk between orchestrator state and actual task state.
-
-State Diagram:
-    INIT -> EXPLORING -> EXPLORED -> PLANNING -> PLANNED -> BUILDING -> BUILT -> DONE
-                                                    |
-                                                    v
-                                                 STALLED -> (PLANNING | BUILT | ERROR)
-                                                    |
-    Any state -------------------------------------> ERROR
-
-Learning extraction happens inline during BUILDING phase.
-Agents are spawned at appropriate states, their output triggers transitions.
+Task state is derived FROM TaskList metadata (helix_outcome field),
+not maintained in parallel. The orchestrator is prose-driven (SKILL.md),
+not code-driven - these are utilities, not a state machine.
 """
 
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
-class State(Enum):
-    """Orchestrator states."""
-    INIT = auto()
-    EXPLORING = auto()
-    EXPLORED = auto()
-    PLANNING = auto()
-    PLANNED = auto()
-    BUILDING = auto()
-    STALLED = auto()
-    BUILT = auto()
-    # OBSERVING removed - learning extraction integrated into BUILD
-    DONE = auto()
-    ERROR = auto()
+def detect_cycles(dependencies: Dict[str, List[str]]) -> List[List[str]]:
+    """Detect cycles in dependency graph using DFS.
 
+    Args:
+        dependencies: Dict mapping task_id -> list of blocker task_ids
 
-class ErrorReason(Enum):
-    """Typed error reasons for ERROR state."""
-    EMPTY_EXPLORATION = "empty_exploration"
-    NO_TASKS = "no_tasks"
-    CYCLES_DETECTED = "cycles_detected"
-    ALL_BLOCKED = "all_blocked"
-    VELOCITY_COLLAPSE = "velocity_collapse"
-    SYSTEMIC_FAILURE = "systemic_failure"
-    INVALID_TRANSITION = "invalid_transition"
-    USER_ABORT = "user_abort"
-
-
-@dataclass
-class Checkpoint:
-    """Serializable checkpoint at a state boundary."""
-    state: str  # State.name
-    data: Dict[str, Any]
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-
-
-@dataclass
-class TransitionResult:
-    """Result of a state transition attempt."""
-    success: bool
-    from_state: State
-    to_state: State
-    data: Optional[Dict[str, Any]] = None
-    error_reason: Optional[ErrorReason] = None
-    error_context: Optional[Dict[str, Any]] = None
-
-
-class Orchestrator:
-    """Explicit state machine orchestrator for Helix.
-
-    SINGLE SOURCE OF TRUTH: Task state is derived from TaskList, not maintained
-    separately. The 'helix_outcome' metadata field tracks delivered/blocked status.
-
-    Usage:
-        orch = Orchestrator(objective="Add user authentication")
-
-        # Start exploration
-        orch.transition("start")  # INIT -> EXPLORING
-
-        # After explorer completes
-        exploration_data = {...}
-        result = orch.transition("exploration_complete", exploration_data)
-        if result.to_state == State.ERROR:
-            handle_error(result.error_reason)
-
-        # Continue through states...
+    Returns:
+        List of cycles found (each cycle is a list of task_ids)
     """
+    cycles = []
+    visited = set()
+    rec_stack = set()
 
-    def __init__(self, objective: str):
-        """Initialize orchestrator for an objective.
-
-        Args:
-            objective: The user's goal
-        """
-        self.objective = objective
-        self.state = State.INIT
-        self.checkpoints: Dict[State, Checkpoint] = {}
-        self.error_context: Optional[Dict[str, Any]] = None
-
-        # Phase data
-        self.exploration_result: Optional[Dict[str, Any]] = None
-        self.task_ids: List[str] = []
-        self.task_mapping: Dict[str, str] = {}  # seq -> task_id
-        self.dependencies: Dict[str, List[str]] = {}  # task_id -> blocker_ids
-
-    def transition(
-        self,
-        event: str,
-        data: Optional[Dict[str, Any]] = None
-    ) -> TransitionResult:
-        """Execute a state transition.
-
-        Args:
-            event: The event triggering transition
-            data: Optional data associated with the event
-
-        Returns:
-            TransitionResult with success/failure and new state
-        """
-        data = data or {}
-
-        # Define valid transitions: (current_state, event) -> handler
-        transitions = {
-            (State.INIT, "start"): self._to_exploring,
-            (State.EXPLORING, "exploration_complete"): self._to_explored,
-            (State.EXPLORED, "start_planning"): self._to_planning,
-            (State.PLANNING, "tasks_created"): self._to_planned,
-            (State.PLANNING, "clarify_needed"): self._stay_planning,
-            (State.PLANNED, "start_building"): self._to_building,
-            (State.BUILDING, "task_complete"): self._task_complete,
-            (State.BUILDING, "all_complete"): self._to_built,
-            (State.BUILDING, "stalled"): self._to_stalled,
-            (State.STALLED, "replan"): self._stalled_to_planning,
-            (State.STALLED, "skip"): self._stalled_to_built,
-            (State.STALLED, "abort"): self._to_error,
-            (State.BUILT, "complete"): self._to_done,  # Direct transition, no OBSERVING
-        }
-
-        key = (self.state, event)
-        if key not in transitions:
-            return TransitionResult(
-                success=False,
-                from_state=self.state,
-                to_state=State.ERROR,
-                error_reason=ErrorReason.INVALID_TRANSITION,
-                error_context={"current_state": self.state.name, "event": event}
-            )
-
-        handler = transitions[key]
-        return handler(data)
-
-    def _to_exploring(self, data: Dict) -> TransitionResult:
-        """INIT -> EXPLORING: Always succeeds."""
-        from_state = self.state
-        self.state = State.EXPLORING
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state
-        )
-
-    def _to_explored(self, data: Dict) -> TransitionResult:
-        """EXPLORING -> EXPLORED: Guard - must have targets."""
-        from_state = self.state
-
-        # Guard: exploration must have targets
-        targets = data.get("targets", {})
-        files = targets.get("files", [])
-
-        if not files:
-            self.state = State.ERROR
-            self.error_context = {"reason": "empty_exploration", "data": data}
-            return TransitionResult(
-                success=False,
-                from_state=from_state,
-                to_state=State.ERROR,
-                error_reason=ErrorReason.EMPTY_EXPLORATION,
-                error_context=data
-            )
-
-        self.exploration_result = data
-        self.state = State.EXPLORED
-        self._checkpoint(State.EXPLORED, data)
-
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _to_planning(self, data: Dict) -> TransitionResult:
-        """EXPLORED -> PLANNING: Always succeeds."""
-        from_state = self.state
-        self.state = State.PLANNING
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state
-        )
-
-    def _stay_planning(self, data: Dict) -> TransitionResult:
-        """PLANNING -> PLANNING: Clarification loop."""
-        return TransitionResult(
-            success=True,
-            from_state=State.PLANNING,
-            to_state=State.PLANNING,
-            data={"questions": data.get("questions", [])}
-        )
-
-    def _to_planned(self, data: Dict) -> TransitionResult:
-        """PLANNING -> PLANNED: Guard - must have tasks, no cycles."""
-        from_state = self.state
-
-        task_ids = data.get("task_ids", [])
-        if not task_ids:
-            self.state = State.ERROR
-            return TransitionResult(
-                success=False,
-                from_state=from_state,
-                to_state=State.ERROR,
-                error_reason=ErrorReason.NO_TASKS,
-                error_context=data
-            )
-
-        # Check for cycles
-        dependencies = data.get("dependencies", {})
-        cycles = self._detect_cycles(dependencies)
-        if cycles:
-            self.state = State.ERROR
-            return TransitionResult(
-                success=False,
-                from_state=from_state,
-                to_state=State.ERROR,
-                error_reason=ErrorReason.CYCLES_DETECTED,
-                error_context={"cycles": cycles}
-            )
-
-        self.task_ids = task_ids
-        self.task_mapping = data.get("task_mapping", {})
-        self.dependencies = dependencies
-        self.state = State.PLANNED
-        self._checkpoint(State.PLANNED, data)
-
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _to_building(self, data: Dict) -> TransitionResult:
-        """PLANNED -> BUILDING: Always succeeds."""
-        from_state = self.state
-        self.state = State.BUILDING
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state
-        )
-
-    def _task_complete(self, data: Dict) -> TransitionResult:
-        """BUILDING -> BUILDING: Task completion loop.
-
-        Note: Task state is tracked in TaskList metadata (helix_outcome),
-        not in the orchestrator. This handler just acknowledges the event.
-        """
-        return TransitionResult(
-            success=True,
-            from_state=State.BUILDING,
-            to_state=State.BUILDING,
-            data=data
-        )
-
-    def _to_built(self, data: Dict) -> TransitionResult:
-        """BUILDING -> BUILT: All tasks complete."""
-        from_state = self.state
-        self.state = State.BUILT
-
-        # Get current task state from TaskList for checkpoint
-        completed = self.get_completed_task_ids(data.get("all_tasks", []))
-        blocked = self.get_blocked_task_ids(data.get("all_tasks", []))
-
-        self._checkpoint(State.BUILT, {
-            "completed": completed,
-            "blocked": blocked
-        })
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _to_stalled(self, data: Dict) -> TransitionResult:
-        """BUILDING -> STALLED: No ready tasks but pending exist."""
-        from_state = self.state
-        self.state = State.STALLED
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _stalled_to_planning(self, data: Dict) -> TransitionResult:
-        """STALLED -> PLANNING: User chose to replan."""
-        from_state = self.state
-        self.state = State.PLANNING
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _stalled_to_built(self, data: Dict) -> TransitionResult:
-        """STALLED -> BUILT: User chose to skip blocked tasks."""
-        from_state = self.state
-        self.state = State.BUILT
-
-        # Get current task state from TaskList for checkpoint
-        all_tasks = data.get("all_tasks", [])
-        completed = self.get_completed_task_ids(all_tasks)
-        blocked = self.get_blocked_task_ids(all_tasks)
-
-        self._checkpoint(State.BUILT, {
-            "completed": completed,
-            "blocked": blocked,
-            "skipped": data.get("skipped", [])
-        })
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _to_done(self, data: Dict) -> TransitionResult:
-        """BUILT -> DONE: Always succeeds."""
-        from_state = self.state
-        self.state = State.DONE
-        return TransitionResult(
-            success=True,
-            from_state=from_state,
-            to_state=self.state,
-            data=data
-        )
-
-    def _to_error(self, data: Dict) -> TransitionResult:
-        """Any -> ERROR: Explicit error transition."""
-        from_state = self.state
-        self.state = State.ERROR
-        self.error_context = data
-
-        reason = ErrorReason.USER_ABORT
-        if "reason" in data:
+    def dfs(node: str, path: List[str]) -> None:
+        if node in rec_stack:
             try:
-                reason = ErrorReason(data["reason"])
+                cycle_start = path.index(node)
+                cycle = path[cycle_start:] + [node]
+                cycles.append(cycle)
             except ValueError:
                 pass
+            return
 
-        return TransitionResult(
-            success=False,
-            from_state=from_state,
-            to_state=State.ERROR,
-            error_reason=reason,
-            error_context=data
+        if node in visited:
+            return
+
+        visited.add(node)
+        rec_stack.add(node)
+
+        for neighbor in dependencies.get(node, []):
+            dfs(neighbor, path + [node])
+
+        rec_stack.discard(node)
+
+    for node in dependencies:
+        if node not in visited:
+            dfs(node, [])
+
+    return cycles
+
+
+def get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
+    """Get task IDs that completed successfully (delivered).
+
+    Derives state from TaskList metadata, not from parallel tracking.
+
+    Args:
+        all_tasks: List of task data from TaskList
+
+    Returns:
+        List of task IDs with helix_outcome == "delivered"
+    """
+    return [
+        t.get("id") for t in all_tasks
+        if t.get("status") == "completed"
+        and t.get("metadata", {}).get("helix_outcome") == "delivered"
+    ]
+
+
+def get_blocked_task_ids(all_tasks: List[Dict]) -> List[str]:
+    """Get task IDs that were blocked.
+
+    Derives state from TaskList metadata, not from parallel tracking.
+
+    Args:
+        all_tasks: List of task data from TaskList
+
+    Returns:
+        List of task IDs with helix_outcome == "blocked"
+    """
+    return [
+        t.get("id") for t in all_tasks
+        if t.get("status") == "completed"
+        and t.get("metadata", {}).get("helix_outcome") == "blocked"
+    ]
+
+
+def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
+    """Get task IDs that are ready to execute.
+
+    A task is ready if:
+    - status == "pending"
+    - all blockedBy tasks are completed with helix_outcome == "delivered"
+
+    Args:
+        all_tasks: List of task data from TaskList
+
+    Returns:
+        List of task IDs ready for execution
+    """
+    ready = []
+
+    # Build set of successfully completed task IDs
+    completed_ids = set(get_completed_task_ids(all_tasks))
+    blocked_ids = set(get_blocked_task_ids(all_tasks))
+
+    for task in all_tasks:
+        if task.get("status") != "pending":
+            continue
+
+        blockers = task.get("blockedBy", [])
+        # All blockers must be completed AND not blocked
+        all_blockers_done = all(
+            b in completed_ids and b not in blocked_ids
+            for b in blockers
         )
 
-    def _checkpoint(self, state: State, data: Dict[str, Any]) -> None:
-        """Save checkpoint to disk for recovery."""
-        cp = Checkpoint(state=state.name, data=data)
-        self.checkpoints[state] = cp
+        if all_blockers_done:
+            ready.append(task.get("id"))
 
-        # Persist to disk
-        cp_dir = Path.cwd() / ".helix" / "checkpoints"
-        cp_dir.mkdir(parents=True, exist_ok=True)
+    return ready
 
-        cp_path = cp_dir / f"{state.name.lower()}.json"
-        cp_path.write_text(json.dumps({
-            "state": state.name,
-            "objective": self.objective,
-            "data": data,
-            "timestamp": cp.timestamp
-        }, indent=2))
 
-    def _detect_cycles(self, dependencies: Dict[str, List[str]]) -> List[List[str]]:
-        """Detect cycles in dependency graph using DFS.
+def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
+    """Check if build is stalled.
 
-        This is the canonical implementation. The duplicate in tasks.py
-        has been removed.
-        """
-        cycles = []
-        visited = set()
-        rec_stack = set()
+    Stalled = pending tasks exist but none are ready
+    (all are blocked by BLOCKED tasks)
 
-        def dfs(node: str, path: List[str]) -> None:
-            if node in rec_stack:
-                try:
-                    cycle_start = path.index(node)
-                    cycle = path[cycle_start:] + [node]
-                    cycles.append(cycle)
-                except ValueError:
-                    pass
-                return
+    Args:
+        all_tasks: List of task data from TaskList
 
-            if node in visited:
-                return
+    Returns:
+        (is_stalled, stall_info)
+    """
+    pending = [t for t in all_tasks if t.get("status") == "pending"]
+    if not pending:
+        return False, None
 
-            visited.add(node)
-            rec_stack.add(node)
+    ready = get_ready_tasks(all_tasks)
+    if ready:
+        return False, None
 
-            for neighbor in dependencies.get(node, []):
-                dfs(neighbor, path + [node])
+    # Stalled - analyze why
+    blocked_ids = set(get_blocked_task_ids(all_tasks))
+    blocked_by_blocked = []
 
-            rec_stack.discard(node)
+    for task in pending:
+        blockers = task.get("blockedBy", [])
+        blocked_blockers = [b for b in blockers if b in blocked_ids]
+        if blocked_blockers:
+            blocked_by_blocked.append({
+                "task_id": task.get("id"),
+                "subject": task.get("subject"),
+                "blocked_by": blocked_blockers
+            })
 
-        for node in dependencies:
-            if node not in visited:
-                dfs(node, [])
-
-        return cycles
-
-    # =========================================================================
-    # SINGLE SOURCE OF TRUTH: Derive task state from TaskList
-    # =========================================================================
-
-    def get_completed_task_ids(self, all_tasks: List[Dict]) -> List[str]:
-        """Get task IDs that completed successfully (delivered).
-
-        Derives state from TaskList metadata, not from parallel tracking.
-
-        Args:
-            all_tasks: List of task data from TaskList
-
-        Returns:
-            List of task IDs with helix_outcome == "delivered"
-        """
-        return [
-            t.get("id") for t in all_tasks
-            if t.get("status") == "completed"
-            and t.get("metadata", {}).get("helix_outcome") == "delivered"
-        ]
-
-    def get_blocked_task_ids(self, all_tasks: List[Dict]) -> List[str]:
-        """Get task IDs that were blocked.
-
-        Derives state from TaskList metadata, not from parallel tracking.
-
-        Args:
-            all_tasks: List of task data from TaskList
-
-        Returns:
-            List of task IDs with helix_outcome == "blocked"
-        """
-        return [
-            t.get("id") for t in all_tasks
-            if t.get("status") == "completed"
-            and t.get("metadata", {}).get("helix_outcome") == "blocked"
-        ]
-
-    def get_orphan_task_ids(self, all_tasks: List[Dict]) -> List[str]:
-        """Get task IDs that are orphaned (in_progress with no owner).
-
-        These are tasks that were started but never completed, likely
-        due to a session crash or interruption.
-
-        Args:
-            all_tasks: List of task data from TaskList
-
-        Returns:
-            List of orphaned task IDs
-        """
-        return [
-            t.get("id") for t in all_tasks
-            if t.get("status") == "in_progress"
-        ]
-
-    def get_ready_tasks(self, all_tasks: List[Dict]) -> List[str]:
-        """Get task IDs that are ready to execute.
-
-        A task is ready if:
-        - status == "pending"
-        - all blockedBy tasks are completed with helix_outcome == "delivered"
-
-        Args:
-            all_tasks: List of task data from TaskList
-
-        Returns:
-            List of task IDs ready for execution
-        """
-        ready = []
-
-        # Build set of successfully completed task IDs
-        completed_ids = set(self.get_completed_task_ids(all_tasks))
-        blocked_ids = set(self.get_blocked_task_ids(all_tasks))
-
-        for task in all_tasks:
-            if task.get("status") != "pending":
-                continue
-
-            blockers = task.get("blockedBy", [])
-            # All blockers must be completed AND not blocked
-            all_blockers_done = all(
-                b in completed_ids and b not in blocked_ids
-                for b in blockers
-            )
-
-            if all_blockers_done:
-                ready.append(task.get("id"))
-
-        return ready
-
-    def check_stalled(self, all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
-        """Check if build is stalled.
-
-        Stalled = pending tasks exist but none are ready
-        (all are blocked by BLOCKED tasks)
-
-        Args:
-            all_tasks: List of task data from TaskList
-
-        Returns:
-            (is_stalled, stall_info)
-        """
-        pending = [t for t in all_tasks if t.get("status") == "pending"]
-        if not pending:
-            return False, None
-
-        ready = self.get_ready_tasks(all_tasks)
-        if ready:
-            return False, None
-
-        # Stalled - analyze why
-        blocked_ids = set(self.get_blocked_task_ids(all_tasks))
-        blocked_by_blocked = []
-
-        for task in pending:
-            blockers = task.get("blockedBy", [])
-            blocked_blockers = [b for b in blockers if b in blocked_ids]
-            if blocked_blockers:
-                blocked_by_blocked.append({
-                    "task_id": task.get("id"),
-                    "subject": task.get("subject"),
-                    "blocked_by": blocked_blockers
-                })
-
-        return True, {
-            "pending_count": len(pending),
-            "blocked_by_blocked": blocked_by_blocked
-        }
-
-    def get_state(self) -> Dict[str, Any]:
-        """Get current orchestrator state for inspection."""
-        return {
-            "state": self.state.name,
-            "objective": self.objective,
-            "task_ids": self.task_ids,
-            "has_exploration": self.exploration_result is not None,
-            "checkpoints": list(self.checkpoints.keys())
-        }
-
-    @classmethod
-    def resume(cls, objective: str) -> "Orchestrator":
-        """Resume orchestrator from checkpoints.
-
-        Loads the most recent checkpoint and restores state.
-
-        Args:
-            objective: The objective to resume
-
-        Returns:
-            Orchestrator instance at last checkpoint state
-        """
-        orch = cls(objective)
-        cp_dir = Path.cwd() / ".helix" / "checkpoints"
-
-        if not cp_dir.exists():
-            return orch
-
-        # Load checkpoints in order
-        state_order = [State.EXPLORED, State.PLANNED, State.BUILT]
-        for state in state_order:
-            cp_path = cp_dir / f"{state.name.lower()}.json"
-            if cp_path.exists():
-                try:
-                    data = json.loads(cp_path.read_text())
-                    if data.get("objective") == objective:
-                        orch.checkpoints[state] = Checkpoint(
-                            state=state.name,
-                            data=data.get("data", {}),
-                            timestamp=data.get("timestamp", "")
-                        )
-                        orch.state = state
-
-                        # Restore data from checkpoint
-                        if state == State.EXPLORED:
-                            orch.exploration_result = data.get("data", {})
-                        elif state == State.PLANNED:
-                            orch.task_ids = data.get("data", {}).get("task_ids", [])
-                            orch.task_mapping = data.get("data", {}).get("task_mapping", {})
-                            orch.dependencies = data.get("data", {}).get("dependencies", {})
-                        # Note: BUILT checkpoint data is informational only
-                        # Actual state is derived from TaskList
-                except Exception:
-                    pass
-
-        return orch
+    return True, {
+        "pending_count": len(pending),
+        "blocked_by_blocked": blocked_by_blocked
+    }
 
 
 def clear_checkpoints() -> int:
@@ -642,48 +189,36 @@ def clear_checkpoints() -> int:
     return count
 
 
-# CLI for testing and inspection
+# CLI for utilities
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Helix orchestrator state machine")
+    parser = argparse.ArgumentParser(description="Helix orchestrator utilities")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
-
-    # status command
-    p = subparsers.add_parser("status", help="Show current orchestrator state")
-    p.add_argument("--objective", required=True, help="The objective")
 
     # clear command
     subparsers.add_parser("clear", help="Clear all checkpoints")
 
-    # transitions command
-    subparsers.add_parser("transitions", help="List valid transitions")
+    # detect-cycles command
+    p = subparsers.add_parser("detect-cycles", help="Check for cycles in dependencies")
+    p.add_argument("--dependencies", required=True, help="JSON dict of task_id -> blocker_ids")
+
+    # check-stalled command
+    p = subparsers.add_parser("check-stalled", help="Check if build is stalled")
+    p.add_argument("--tasks", required=True, help="JSON list of task data from TaskList")
 
     args = parser.parse_args()
 
-    if args.cmd == "status":
-        orch = Orchestrator.resume(args.objective)
-        print(json.dumps(orch.get_state(), indent=2))
-
-    elif args.cmd == "clear":
+    if args.cmd == "clear":
         count = clear_checkpoints()
         print(json.dumps({"cleared": count}))
 
-    elif args.cmd == "transitions":
-        transitions = [
-            "INIT -> EXPLORING (event: start)",
-            "EXPLORING -> EXPLORED (event: exploration_complete, guard: targets.files not empty)",
-            "EXPLORED -> PLANNING (event: start_planning)",
-            "PLANNING -> PLANNED (event: tasks_created, guard: task_ids not empty, no cycles)",
-            "PLANNING -> PLANNING (event: clarify_needed, loop for questions)",
-            "PLANNED -> BUILDING (event: start_building)",
-            "BUILDING -> BUILDING (event: task_complete, loop for each task + inline learning)",
-            "BUILDING -> BUILT (event: all_complete)",
-            "BUILDING -> STALLED (event: stalled, when no ready tasks)",
-            "STALLED -> PLANNING (event: replan)",
-            "STALLED -> BUILT (event: skip)",
-            "STALLED -> ERROR (event: abort)",
-            "BUILT -> DONE (event: complete)",  # Direct, no OBSERVING phase
-        ]
-        for t in transitions:
-            print(t)
+    elif args.cmd == "detect-cycles":
+        deps = json.loads(args.dependencies)
+        cycles = detect_cycles(deps)
+        print(json.dumps({"cycles": cycles, "has_cycles": len(cycles) > 0}))
+
+    elif args.cmd == "check-stalled":
+        tasks = json.loads(args.tasks)
+        is_stalled, info = check_stalled(tasks)
+        print(json.dumps({"stalled": is_stalled, "info": info}))

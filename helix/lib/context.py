@@ -91,6 +91,7 @@ def build_context(
 
     # Build prompt with enrichment model
     prompt_lines = [
+        f"TASK_ID: {task_data.get('id', '')}",
         f"TASK: {task_data.get('subject', '')}",
         f"OBJECTIVE: {objective}",
         f"VERIFY: {metadata.get('verify', '')}",

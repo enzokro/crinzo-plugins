@@ -123,44 +123,6 @@ def close_feedback_loop_verified(
         return {"status": "error", "reason": str(e)}
 
 
-def extract_task_id_mapping(planner_output: str) -> dict:
-    """Extract seq -> taskId mapping from planner output.
-
-    Planner should output mapping like:
-        TASK_MAPPING:
-        001 -> task-abc123
-        002 -> task-def456
-
-    Args:
-        planner_output: Raw planner agent output
-
-    Returns:
-        {"001": "task-abc123", "002": "task-def456"}
-    """
-    mapping = {}
-
-    in_mapping = False
-    for line in planner_output.strip().split("\n"):
-        if "TASK_MAPPING:" in line:
-            in_mapping = True
-            continue
-
-        if in_mapping:
-            if not line.strip():
-                continue
-            if "->" in line:
-                parts = line.split("->")
-                if len(parts) == 2:
-                    seq = parts[0].strip()
-                    task_id = parts[1].strip()
-                    mapping[seq] = task_id
-            elif not line.startswith(" ") and line.strip():
-                # End of mapping section
-                in_mapping = False
-
-    return mapping
-
-
 # CLI
 def _cli():
     import argparse
@@ -178,10 +140,6 @@ def _cli():
     p.add_argument("--verify-passed", required=True, help="true/false - did verify command pass?")
     p.add_argument("--injected", required=True, help="JSON list of injected memory names")
 
-    # extract-mapping
-    p = subparsers.add_parser("extract-mapping", help="Extract task ID mapping from planner output")
-    p.add_argument("output", help="Planner output string")
-
     args = parser.parse_args()
 
     if args.command == "parse-output":
@@ -196,10 +154,6 @@ def _cli():
             verify_passed=verify_passed,
             injected=injected
         )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "extract-mapping":
-        result = extract_task_id_mapping(args.output)
         print(json.dumps(result, indent=2))
 
 

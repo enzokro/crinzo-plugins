@@ -2,12 +2,12 @@
 
 Core modules:
 - memory: Semantic memory with feedback loop
-- exploration: Context gathering
-- context: Builder context building (replaces workspace)
+- context: Builder context building
 - tasks: Task operation helpers for orchestrator
+- orchestrator: Utility functions (cycle detection, stall checking)
 
-Note: Plan and workspace modules have been removed.
-Task management is now handled by Claude Code's native Task system.
+Architecture: Prose-driven orchestration (SKILL.md) with memory enrichment.
+Task management is handled by Claude Code's native Task system.
 """
 
 __version__ = "2.0.0"

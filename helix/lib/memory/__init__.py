@@ -4,8 +4,7 @@ Exports the core API:
 - store: Store new memory with semantic deduplication
 - recall: Semantic search ranked by relevance x effectiveness x recency
 - recall_by_file_patterns: Search by file patterns
-- feedback: Close the learning loop (THE critical mechanism)
-- feedback_from_verification: Verification-based feedback (incorruptible)
+- feedback_from_verification: Verification-based feedback (THE critical mechanism)
 - chunk: SOAR chunking - extract reusable pattern from success
 - health: System status check
 - prune: Remove ineffective memories
@@ -18,7 +17,6 @@ from .core import (
     store,
     recall,
     recall_by_file_patterns,
-    feedback,
     feedback_from_verification,
     chunk,
     health,
@@ -33,7 +31,6 @@ __all__ = [
     "store",
     "recall",
     "recall_by_file_patterns",
-    "feedback",
     "feedback_from_verification",
     "chunk",
     "health",

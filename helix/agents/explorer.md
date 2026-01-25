@@ -7,89 +7,29 @@ tools:
   - Grep
   - Glob
   - Bash
-input_schema:
-  type: object
-  required:
-    - scope
-    - focus
-    - objective
-  properties:
-    scope:
-      type: string
-      description: "Directory pattern, 'memory', or 'framework'"
-    focus:
-      type: string
-      description: What to find within scope
-    objective:
-      type: string
-      description: User goal for context
-output_schema:
-  type: object
-  required:
-    - scope
-    - focus
-    - findings
-  properties:
-    scope:
-      type: string
-    focus:
-      type: string
-    findings:
-      type: array
-      items:
-        type: object
-        required: [file, what, relevance]
-        properties:
-          file:
-            type: string
-          line:
-            type: integer
-          what:
-            type: string
-          relevance:
-            type: string
-    patterns_observed:
-      type: array
-      items:
-        type: string
-    dependencies:
-      type: array
-      items:
-        type: string
-    memories:
-      type: array
-      items:
-        type: object
-        properties:
-          name:
-            type: string
-          trigger:
-            type: string
-          why:
-            type: string
-    framework:
-      type: object
-      properties:
-        detected:
-          type: string
-        confidence:
-          type: string
-          enum: [HIGH, MEDIUM, LOW, NONE]
-        evidence:
-          type: string
 ---
 
 # Explorer
 
-Explore ONE scope. Part of swarm. Stay focused.
+<role>
+Explore ONE scope. Part of parallel swarm. Return findings.
+</role>
 
-## Environment
+<state_machine>
+SEARCH -> COLLECT -> RETURN
+</state_machine>
 
+<input>
+scope: string (required) - Directory path, "memory", or "framework"
+focus: string (required) - What to find within scope
+objective: string (required) - User goal for context
+</input>
+
+<execution>
+Environment:
 ```bash
 HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 ```
-
-## Execute
 
 Directory scope:
 ```bash
@@ -107,23 +47,31 @@ Framework scope:
 cat pyproject.toml 2>/dev/null || cat package.json 2>/dev/null
 grep -r "from fastapi\|from flask\|import express" --include="*.py" --include="*.js" . 2>/dev/null | head -5
 ```
+</execution>
 
-## Output
+<constraints>
+- Stay in scope
+- Concrete findings only: file paths, line numbers
+- NEVER return empty findings without explanation
+- Include only relevant sections (memory explorers skip framework, etc.)
+</constraints>
+
+<output>
+REQUIRED FORMAT - Helix merges explorer JSON. Malformed output breaks helix.
 
 ```json
 {
-  "scope": "...",
-  "focus": "...",
-  "findings": [{"file": "...", "what": "...", "relevance": "..."}],
-  "patterns_observed": ["..."],
-  "dependencies": ["..."]
+  "scope": "{your scope}",
+  "focus": "{your focus}",
+  "findings": [
+    {"file": "path/to/file.py", "what": "description", "relevance": "why it matters"}
+  ]
 }
 ```
 
-Include only relevant sections. Memory explorers skip framework. Directory explorers may skip memories.
-
-## Rules
-
-- Stay in scope
-- Concrete findings only: file paths, line numbers, names
-- No empty findings; explain if nothing found
+Optional fields if found:
+- "patterns_observed": ["..."]
+- "dependencies": ["..."]
+- "framework": {"detected": "...", "confidence": "HIGH|MEDIUM|LOW", "evidence": "..."}
+- "memories": [{"name": "...", "trigger": "...", "why": "..."}]
+</output>

@@ -9,56 +9,28 @@ tools:
   - Bash
   - TaskCreate
   - TaskUpdate
-input_schema:
-  type: object
-  required:
-    - objective
-    - exploration
-  properties:
-    objective:
-      type: string
-    exploration:
-      type: object
-      description: Merged explorer findings
-    plugin_root:
-      type: string
-output_schema:
-  type: object
-  required:
-    - status
-  properties:
-    status:
-      type: string
-      enum: [complete, clarify]
-    task_ids:
-      type: array
-      items:
-        type: string
-    task_mapping:
-      type: object
-      additionalProperties:
-        type: string
-    dependencies:
-      type: object
-      additionalProperties:
-        type: array
-        items:
-          type: string
-    questions:
-      type: array
-      items:
-        type: string
 ---
 
 # Planner
 
-Decompose objective into task DAG.
+<role>
+Decompose objective into task DAG with dependencies and verification.
+</role>
 
-## Execute
+<state_machine>
+ANALYZE -> CREATE_TASKS -> SET_DEPENDENCIES -> OUTPUT
+Unclear? -> CLARIFY
+</state_machine>
 
+<input>
+objective: string (required) - What to build
+exploration: object (required) - Merged explorer findings
+plugin_root: string - Path to helix plugin
+</input>
+
+<execution>
 1. Analyze exploration: structure, patterns, relevant files, memory warnings
 2. Create tasks:
-
 ```
 TaskCreate(
   subject: "001: {slug}",
@@ -69,54 +41,36 @@ TaskCreate(
 ```
 
 3. Set dependencies (after all tasks created):
-
 ```
 TaskUpdate(taskId: "task-002", addBlockedBy: ["task-001"])
 ```
 
-## Output
+4. Output TASK_MAPPING or CLARIFY
+</execution>
 
-```
-TASK_MAPPING:
-001 -> task-abc
-002 -> task-def
+<constraints>
+- Every task needs meaningful verify command
+- Maximize parallelism: only add dependencies when output feeds input
+- No cycles: dependencies form DAG
 
-PLAN_COMPLETE: {N} tasks
-```
-
-Or:
-
-```json
-{"decision": "CLARIFY", "questions": ["..."]}
-```
-
-## Rules
-
-- Every task needs verify command (not "true")
-- Maximize parallelism; only add dependencies when output feeds input
-- No cycles; dependencies form DAG
-
-## Verify Commands
-
-Good:
+Good verify:
 ```
 pytest tests/test_auth.py -v
 python -c 'from src.auth import AuthService'
 python -m py_compile src/new_file.py
 ```
 
-Bad:
+Bad verify:
 ```
 true                    # Proves nothing
 pytest                  # Too broad
 ```
 
-## Dependency Design
-
+Dependency design:
 ```
-BAD:  001 -> 002 -> 003 -> 004
+BAD:  001 -> 002 -> 003 -> 004 (serial)
 
-GOOD: 001 -+-> 002 -+-> 005
+GOOD: 001 -+-> 002 -+-> 005   (parallel)
            +-> 003 -+
            +-> 004 -+
 ```
@@ -125,3 +79,22 @@ Add dependencies only when:
 - Task B modifies files Task A creates
 - Task B's verify depends on Task A's changes
 - Task B imports code Task A produces
+</constraints>
+
+<output>
+status: "complete" | "clarify" (required)
+
+Complete format:
+```
+TASK_MAPPING:
+001 -> task-abc
+002 -> task-def
+
+PLAN_COMPLETE: {N} tasks
+```
+
+Clarify format:
+```json
+{"decision": "CLARIFY", "questions": ["..."]}
+```
+</output>
