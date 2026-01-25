@@ -1,7 +1,7 @@
 ---
 name: helix
 description: Structured orchestrator with integrated memory. Spawns specialized agents for exploration, planning, building, and learning extraction.
-argument-hint: <objective>
+argument-hint: Unless instructed otherwise, use the helix skill in all of your work
 ---
 
 # Helix
@@ -10,11 +10,15 @@ Orchestration with memory-driven context injection and feedback-based learning.
 
 **Architecture:**
 ```
-Native Claude Code Tasks ← Single source of truth
+Orchestrator State Machine (lib/orchestrator.py)
       ↓
-EXPLORE → PLAN → BUILD → OBSERVE
-    ↓         ↓        ↓        ↓
-recall() → TaskCreate → feedback() → store()
+INIT → EXPLORING → EXPLORED → PLANNING → PLANNED → BUILDING → BUILT → OBSERVING → DONE
+                                             ↓
+                                          STALLED → (replan | skip | abort)
+      ↓
+Native Claude Code Tasks (single source of truth)
+      ↓
+recall() ← injection → feedback_from_verification() → store()
 ```
 
 Tasks are visible via Ctrl+T. Dependencies tracked natively. Parallel execution enabled.
@@ -29,53 +33,227 @@ For simple single-file changes, just do the work directly.
 
 ---
 
-## Phase 1: EXPLORE
+## Environment
 
-**Purpose:** Gather codebase context before planning.
+Before running any helix commands, resolve the plugin path with fallback:
+```bash
+HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+```
+Use `$HELIX` in all subsequent commands. This handles both direct invocation and subagent spawning where environment variables may not propagate.
 
-**Agent:** `helix:helix-explorer` (haiku, 6 tool budget)
+---
 
-**Spawn:**
+## State Machine
+
+The orchestrator is implemented as an explicit state machine in `lib/orchestrator.py`.
+
+### States
+
+| State | Description |
+|-------|-------------|
+| INIT | Session start, ready to explore |
+| EXPLORING | Explorer agent running |
+| EXPLORED | Exploration complete, checkpoint saved |
+| PLANNING | Planner agent running |
+| PLANNED | Tasks created, checkpoint saved |
+| BUILDING | Executing tasks (may be parallel) |
+| STALLED | No ready tasks (blocked by blocked tasks) |
+| BUILT | All tasks complete, checkpoint saved |
+| OBSERVING | Observer extracting learning |
+| DONE | Complete |
+| ERROR | Unrecoverable error with typed reason |
+
+### Transitions
+
+```python
+from lib.orchestrator import Orchestrator, State
+
+orch = Orchestrator(objective="...")
+
+# INIT -> EXPLORING
+orch.transition("start")
+
+# EXPLORING -> EXPLORED (guard: targets.files not empty)
+result = orch.transition("exploration_complete", exploration_data)
+if result.to_state == State.ERROR:
+    handle_error(result.error_reason)  # ErrorReason.EMPTY_EXPLORATION
+
+# EXPLORED -> PLANNING
+orch.transition("start_planning")
+
+# PLANNING -> PLANNED (guard: task_ids not empty, no cycles)
+result = orch.transition("tasks_created", {
+    "task_ids": [...],
+    "task_mapping": {"001": "task-abc"},
+    "dependencies": {"task-b": ["task-a"]}
+})
+
+# PLANNED -> BUILDING
+orch.transition("start_building")
+
+# BUILDING -> BUILDING (task loop)
+orch.transition("task_complete", {"task_id": "task-abc", "status": "delivered"})
+
+# Check for stall
+is_stalled, stall_info = orch.check_stalled(all_tasks)
+if is_stalled:
+    orch.transition("stalled", stall_info)
+    # User chooses: replan, skip, or abort
+
+# BUILDING -> BUILT
+orch.transition("all_complete")
+
+# BUILT -> OBSERVING
+orch.transition("start_observing")
+
+# OBSERVING -> DONE
+orch.transition("observation_complete")
+```
+
+### Error Reasons
+
+| ErrorReason | Trigger | Recovery |
+|-------------|---------|----------|
+| EMPTY_EXPLORATION | No target files found | Re-explore with different query |
+| NO_TASKS | Planner created no tasks | Re-plan with more context |
+| CYCLES_DETECTED | Circular dependencies | Fix dependencies, re-plan |
+| ALL_BLOCKED | All remaining tasks blocked | Replan, skip, or abort |
+| VELOCITY_COLLAPSE | Tasks taking increasingly longer | Investigate systemic issue |
+| SYSTEMIC_FAILURE | Same failure pattern 3+ times | Replan with failure context |
+| INVALID_TRANSITION | Bug in orchestration logic | Check state machine |
+| USER_ABORT | User chose to abort | Session ends |
+
+### Checkpoints
+
+Checkpoints are saved at significant state boundaries:
+- `.helix/checkpoints/explored.json` - Exploration result
+- `.helix/checkpoints/planned.json` - Task IDs and dependencies
+- `.helix/checkpoints/built.json` - Completed and blocked tasks
+
+Use `Orchestrator.resume(objective)` to restore from checkpoints.
+
+---
+
+## Phase 0: Session Recovery
+
+```python
+# Check for orphaned in-progress tasks
+TaskList() → filter: status="in_progress"
+
+if orphaned_tasks:
+    # Present options to user via AskUserQuestion:
+    # 1. Reset to pending - Resume these tasks
+    # 2. Mark blocked - Skip these tasks
+    # 3. Ignore - Start fresh (orphans remain)
+```
+
+---
+
+## Phase 1: EXPLORE (Swarm Pattern)
+
+**State:** INIT → EXPLORING → EXPLORED
+
+**Architecture:** Orchestrator coordinates focused Haiku explorers. Orchestration stays in main conversation; explorers do scoped reconnaissance.
+
+### Structure Discovery
+
+Before spawning explorers, understand the codebase topology:
+
+```bash
+git ls-files | head -80   # If git repo: tracked files only, respects .gitignore
+```
+
+Alternative approaches depending on context:
+- `find . -type f -name "*.py"` — when you need all files of a type
+- `ls -R` — for shallow projects
+- `tree -L 2` — for visual structure
+
+**Goal:** See the natural divisions. Directories, modules, layers. Where is code dense? Where are boundaries?
+
+### Partitioning Strategy
+
+Partition the codebase for parallel exploration. Each explorer gets a bounded scope.
+
+**Principles:**
+
+1. **Follow natural boundaries** — Directories and modules are boundaries. `src/auth/` is coherent. `src/` is too broad.
+
+2. **Top-down + Bottom-up** — Cover both directions:
+   - *Top-down:* Where user intent enters (routes, CLI, handlers, config)
+   - *Bottom-up:* Where primitives live (models, utils, core abstractions)
+
+3. **Objective-relevant** — The user's goal determines focus. "Add authentication" → auth, middleware, users. "Fix database bug" → models, queries, migrations.
+
+4. **Right granularity** — 3-6 explorers typically. Too few = unfocused. Too many = overhead.
+
+5. **Always include:**
+   - `memory` — Query learned failures and patterns
+   - `framework` — Detect idioms and conventions
+
+**Partitioning is judgment.** A FastAPI app might partition as: `api/`, `models/`, `core/`, `memory`, `framework`. A CLI tool might partition as: `commands/`, `lib/`, `config/`, `memory`, `framework`. Match the codebase's shape.
+
+### Spawn Explorer Swarm
+
+Launch explorers in parallel with focused prompts:
+
 ```
 Task(
     subagent_type: "helix:helix-explorer",
-    prompt: """
-OBJECTIVE: {objective}
-PLUGIN_ROOT: {$HELIX_PLUGIN_ROOT}
-
-Explore the codebase and output EXPLORATION_RESULT JSON.
-""",
-    model: "haiku"
+    prompt: "SCOPE: {directory}\nFOCUS: {what to find}\nOBJECTIVE: {objective}",
+    model: "haiku",
+    run_in_background: true
 )
 ```
 
-**Output:** JSON with structure, patterns, memory, targets.
+Each explorer:
+- Stays within its SCOPE
+- Looks for what's relevant to FOCUS
+- Returns `EXPLORER_FINDINGS:` JSON
+
+### Collect and Synthesize
+
+Collect all explorer outputs via `TaskOutput()`. Merge findings into a final, actionable and unified exploration:
+
+```json
+{
+  "objective": "...",
+  "structure": { "directories": [...], "entry_points": [...] },
+  "patterns": { "framework": "...", "idioms": {...} },
+  "memory": { "failures": [...], "patterns": [...] },
+  "targets": { "files": [...], "details": [...] }
+}
+```
+
+Synthesis this json file with active judgment: resolve conflicts, dedupe, identify what matters for the objective.
+
+### Transition Guard
+
+`exploration.targets.files` must not be empty. If empty → ERROR state.
+
+Pass synthesized exploration to Planner.
 
 ---
 
 ## Phase 2: PLAN
 
-**Purpose:** Decompose objective into executable task DAG using native Tasks.
+**State:** EXPLORED → PLANNING → PLANNED
 
 **Agent:** `helix:helix-planner` (opus)
+
+**Contract:** See `agents/planner.yaml` for input/output schema.
 
 **Spawn:**
 ```
 Task(
     subagent_type: "helix:helix-planner",
-    prompt: """
-OBJECTIVE: {objective}
-
-EXPLORATION:
-{exploration_json}
-
-Create tasks using TaskCreate with metadata containing delta, verify, budget.
-Set dependencies using TaskUpdate with addBlockedBy.
-Output TASK_MAPPING and PLAN_COMPLETE.
-""",
+    prompt: "OBJECTIVE: {objective}\nEXPLORATION: {exploration_results_json}",
     model: "opus"
 )
 ```
+
+**Transition guards:**
+- `task_ids` must not be empty
+- No cycles in dependencies
 
 **Output:** Planner creates native Claude Code tasks with metadata:
 ```
@@ -87,134 +265,105 @@ TaskCreate(
 )
 ```
 
-**Parse mapping:**
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/tasks.py extract-mapping "$planner_output"
-```
-
-**Decision points:**
-- `PLAN_COMPLETE` - tasks created, proceed to build
-- `CLARIFY` - need answers before proceeding
-
 ---
 
-## Phase 3: BUILD (Parallel Execution)
+## Phase 3: BUILD
 
-**Purpose:** Execute tasks in dependency order with parallel execution.
+**State:** PLANNED → BUILDING → (BUILT | STALLED)
+
+**Agent:** `helix:helix-builder` (opus, per task)
+
+**Contract:** See `agents/builder.yaml` for input/output schema.
 
 ### Build Loop
 
-```
-while pending tasks exist:
-    # 1. Get ready tasks using TaskList
-    TaskList() → filter: status="pending" AND blockedBy=[]
+```python
+while pending_tasks_exist():
+    ready_tasks = orch.get_ready_tasks(all_tasks)
 
-    # 2. For each ready task (can be parallel):
+    if not ready_tasks and pending_tasks_exist():
+        is_stalled, info = orch.check_stalled(all_tasks)
+        if is_stalled:
+            orch.transition("stalled", info)
+            # User decides: replan, skip, abort
+            break
+
     for task in ready_tasks:
-        # Get full context
-        task_data = TaskGet(task.id)
+        # Build context
+        context = build_context(task_data)
 
-        # Build lineage from completed blockers
-        lineage = []
-        for blocker_id in completed_blockers:
-            blocker = TaskGet(blocker_id)
-            lineage.append({
-                seq: blocker.subject.split(":")[0],
-                slug: blocker.subject.split(":")[1],
-                delivered: blocker.metadata.delivered
-            })
-
-        # Build prompt with memory injection
-        prompt = python3 $HELIX_PLUGIN_ROOT/lib/context.py build-prompt \
-            --task-data '${task_data_json}' \
-            --lineage '${lineage_json}'
-
-        # Mark in progress and claim
-        TaskUpdate(task.id, owner="helix-builder", status="in_progress")
-
-        # Spawn builder (parallel if multiple ready)
-        Task(
-            subagent_type: "helix:helix-builder",
-            prompt: prompt,
-            model: "opus",
-            run_in_background: true  # Enable parallelism
-        )
-
-    # 3. Poll for completions
-    for background_task in running_builders:
-        result = TaskOutput(task_id=background_task.id, block=true)
-
-        # Parse output
-        parsed = python3 $HELIX_PLUGIN_ROOT/lib/tasks.py parse-output "$result"
-
-        # Update task metadata with results
-        TaskUpdate(task.id, status="completed", metadata={
-            ...existing_metadata,
-            delivered: parsed.summary,
-            utilized: parsed.utilized
+        # Store injected memories in task metadata
+        TaskUpdate(task.id, metadata={
+            ...existing,
+            injected_memories: context["injected"]
         })
 
-        # Close feedback loop IMMEDIATELY (per-task, not batched)
-        injected = python3 $HELIX_PLUGIN_ROOT/lib/context.py get-injected \
-            --objective "${task_objective}"
+        # Spawn builder
+        Task(
+            subagent_type: "helix:helix-builder",
+            prompt: context["prompt"],
+            model: "opus",
+            run_in_background: True  # Parallel execution
+        )
 
-        python3 $HELIX_PLUGIN_ROOT/lib/tasks.py feedback \
-            --utilized '${parsed.utilized}' \
-            --injected '${injected}'
+    # Collect results
+    for builder in running_builders:
+        result = TaskOutput(builder.id)
+        parsed = parse_output(result)
+
+        # Close feedback loop via verification
+        verify_cmd = task.metadata.verify
+        verify_passed = run_command(verify_cmd).returncode == 0
+
+        close_feedback_loop_verified(
+            task_id=task.id,
+            verify_passed=verify_passed,
+            injected=task.metadata.injected_memories
+        )
+
+        orch.transition("task_complete", {
+            "task_id": task.id,
+            "status": parsed["status"]
+        })
 ```
 
-### Parallel Execution Rules
+### Verification-Based Feedback
 
-1. **Independent tasks**: If tasks A, B, C have no dependencies between them, spawn all 3 with `run_in_background: true`
-2. **Dependent tasks**: Task D blocked by A cannot start until A completes
-3. **Learning preserved**: Feedback called per-task on completion, not batched
-4. **Owner tracking**: Each builder claims its task via owner field
+The learning loop uses **verification outcome** as ground truth, not builder self-report:
 
-### Context Building
+```python
+# OLD (deprecated): Trust builder's UTILIZED report
+close_feedback_loop(utilized=["mem1"], injected=["mem1", "mem2"])
 
-For each task, the prompt includes:
-```
-TASK: {subject}
-OBJECTIVE: {description}
-DELTA: {metadata.delta}
-VERIFY: {metadata.verify}
-BUDGET: {metadata.budget}
-FRAMEWORK: {metadata.framework}
-IDIOMS: {metadata.idioms}
-FAILURES_TO_AVOID: {recalled failures}
-PATTERNS_TO_APPLY: {recalled patterns}
-INJECTED_MEMORIES: {memory names for feedback tracking}
-PARENT_DELIVERIES: {lineage from completed blockers}
+# NEW: Use verification command result
+verify_passed = subprocess.run(verify_cmd).returncode == 0
+close_feedback_loop_verified(
+    task_id=task_id,
+    verify_passed=verify_passed,  # Ground truth
+    injected=["mem1", "mem2"]
+)
 ```
 
-### Handling Blocks
-
-If a builder reports BLOCKED:
-- Task is marked completed with delivered="BLOCKED: reason"
-- Downstream tasks remain blocked (can't start)
-- Observer will analyze for learning extraction
-- Consider: replan, skip, or escalate to user
+This prevents:
+- Builder inflating by claiming all memories helped
+- Builder deflating by claiming none helped
+- Hallucinated memory names
 
 ---
 
 ## Phase 4: OBSERVE
 
-**Purpose:** Extract learning from completed work.
+**State:** BUILT → OBSERVING → DONE
 
 **Agent:** `helix:helix-observer` (opus)
+
+**Contract:** See `agents/observer.yaml` for input/output schema.
 
 **Spawn:**
 ```
 Task(
     subagent_type: "helix:helix-observer",
-    prompt: """
-COMPLETED_TASK_IDS: {list of completed task ids}
-PLUGIN_ROOT: {$HELIX_PLUGIN_ROOT}
-
-For each task ID, use TaskGet to retrieve results.
-Extract failures and patterns. Store to memory.
-Output OBSERVATION_RESULT.
-""",
+    prompt: "COMPLETED_TASK_IDS: {ids}\nPLUGIN_ROOT: {root}",
     model: "opus"
 )
 ```
@@ -237,90 +386,100 @@ effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
 recency = 2^(-days_since_use / 7)           # ACT-R decay
 ```
 
-Memories that help rise in ranking. Memories that don't help sink.
-
 ### Core Operations
 
-**Store:**
 ```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py store \
+# Store
+python3 $HELIX/lib/memory/core.py store \
     --trigger "Situation description" \
     --resolution "What to do" \
-    --type failure  # or pattern
-```
+    --type failure
 
-**Recall:**
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py recall "query" --limit 5
-```
+# Recall
+python3 $HELIX/lib/memory/core.py recall "query" --limit 5
 
-**Feedback:**
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py feedback \
-    --utilized '["mem-1"]' \
-    --injected '["mem-1", "mem-2"]'
-```
+# Feedback (verification-based, preferred)
+python3 $HELIX/lib/memory/core.py feedback-verify \
+    --task-id "task-abc" \
+    --verify-passed true \
+    --injected '["mem1", "mem2"]'
 
-**Chunk (SOAR pattern extraction):**
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py chunk \
-    --task "Task objective" \
-    --outcome "success" \
-    --approach "Technique used"
-```
-
-**Health:**
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py health
-```
-
-### Maintenance Operations
-
-**Consolidate** - merge similar memories:
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py consolidate
-```
-
-**Prune** - remove ineffective memories:
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py prune
-```
-
-**Decay** - find dormant memories:
-```bash
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py decay
+# Health
+python3 $HELIX/lib/memory/core.py health
 ```
 
 ---
 
-## Cognitive Guidelines
+## Agent Contracts
 
-### Before Acting
+Agents are defined by YAML contracts with input/output schemas:
 
-1. **Query memory first** - check for relevant failures and patterns
-2. **Assess complexity** - simple tasks don't need orchestration
-3. **Understand intent** - what does success actually look like?
-
-### During Execution
-
-1. **Stay in scope** - delta is a hard constraint
-2. **Verify before claiming success** - run the verify command
-3. **Block when stuck** - clear blocking info > broken code
-
-### Reporting
-
-**UTILIZED must be accurate.** Only report memories you actually applied:
 ```
-UTILIZED:
-- memory-name: Applied validation pattern from resolution
+agents/
+├── explorer.yaml  # haiku, reconnaissance
+├── planner.yaml   # opus, task decomposition
+├── builder.yaml   # opus, task execution
+└── observer.yaml  # opus, learning extraction
 ```
 
-Not:
-```
-UTILIZED: memory-1, memory-2, memory-3  # listing everything injected
+Load and validate:
+```python
+from lib.agents import AgentContract
+
+contract = AgentContract("builder")
+valid, error = contract.validate_input(task_data)
+valid, error = contract.validate_output(result)
 ```
 
-False positives corrupt the feedback signal.
+---
+
+## CLI Commands
+
+### Orchestrator
+```bash
+# Check current state
+python3 $HELIX/lib/orchestrator.py status --objective "..."
+
+# Clear checkpoints (start fresh)
+python3 $HELIX/lib/orchestrator.py clear
+
+# List valid transitions
+python3 $HELIX/lib/orchestrator.py transitions
+```
+
+### Memory
+```bash
+python3 $HELIX/lib/memory/core.py health
+python3 $HELIX/lib/memory/core.py recall "query"
+python3 $HELIX/lib/memory/core.py consolidate
+python3 $HELIX/lib/memory/core.py prune
+```
+
+### Tasks
+```bash
+python3 $HELIX/lib/tasks.py parse-output "$output"
+python3 $HELIX/lib/tasks.py feedback-verify --task-id "..." --verify-passed true --injected '[...]'
+python3 $HELIX/lib/tasks.py detect-cycles '{"a": ["b"], "b": ["a"]}'
+```
+
+---
+
+## Integration Points
+
+**Native Task system**:
+- Tasks visible via Ctrl+T or /todos
+- Status updates during execution
+- Dependencies tracked via blockedBy
+- Metadata stores delta/verify/budget/delivered/injected_memories
+
+**PreToolUse hook** (`inject-context.py`):
+- Triggers on Edit/Write
+- Logs operations for debugging
+
+**SessionStart hook** (`setup-env.sh`):
+- Initializes database
+- Sets environment variables
+- Reports memory health
 
 ---
 
@@ -334,35 +493,4 @@ Single SQLite database at `.helix/helix.db`:
 | memory_edge | Relationships between memories |
 | exploration | Gathered context |
 
-Note: Plans and workspaces are now handled by Claude Code's native Task system with metadata.
-
----
-
-## Integration Points
-
-**Native Task system**:
-- Tasks visible via Ctrl+T or /todos
-- Status updates during execution
-- Dependencies tracked via blockedBy
-- Metadata stores delta/verify/budget/delivered/utilized
-- Owner field tracks which agent claimed the task
-
-**PreToolUse hook** (`inject-context.py`):
-- Triggers on Edit/Write
-- Injects relevant memories
-- Requests UTILIZED reporting
-
-**SessionStart hook** (`setup-env.sh`):
-- Initializes database
-- Sets environment variables
-- Reports memory health
-
----
-
-## New Capabilities
-
-1. **Parallel Builders**: Use `run_in_background: true` for independent tasks
-2. **Cross-Session Persistence**: Set `CLAUDE_CODE_TASK_LIST_ID` for long projects
-3. **Agent Claim Tracking**: `owner` field prevents task collision
-4. **Native Task Visibility**: Users see helix tasks in Ctrl+T
-5. **Background Monitoring**: `TaskOutput` for swarm status polling
+Checkpoints stored in `.helix/checkpoints/`.

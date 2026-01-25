@@ -1,84 +1,61 @@
 #!/usr/bin/env python3
-"""
-PreToolUse hook that injects relevant memories before Edit/Write operations.
-Returns additionalContext that Claude sees before executing the tool.
+"""PreToolUse hook for logging Edit/Write operations.
 
-Direct memory import - no subprocess overhead.
+Context injection is now handled by build_context() at task start.
+This hook only logs file operations for debugging and audit purposes.
+
+The dual-path injection (build_prompt + hook) has been unified:
+- OLD: Hook queries memory, injects context, tracks in separate file
+- NEW: build_context() does all injection at task start, single tracking location
+
+This hook is kept for:
+1. Logging file operations for debugging
+2. Potential future delta enforcement (checking files are in delta)
 """
 import json
 import sys
 import os
 from pathlib import Path
+from datetime import datetime
 
-# Add lib to path for direct import
-lib_path = Path(__file__).parent.parent / "lib"
-sys.path.insert(0, str(lib_path))
+
+def log(status: str, file_path: str, details: str):
+    """Append log entry to .helix/hook.log"""
+    log_path = Path.cwd() / ".helix" / "hook.log"
+    try:
+        log_path.parent.mkdir(exist_ok=True)
+        with open(log_path, "a") as f:
+            timestamp = datetime.now().isoformat()
+            f.write(f"{timestamp} | {status} | {file_path} | {details}\n")
+    except Exception:
+        pass  # Don't fail if logging fails
 
 
 def main():
     # Read hook input
     try:
         hook_input = json.load(sys.stdin)
-    except:
+    except Exception as e:
+        log("FAIL", "N/A", f"Invalid JSON input: {e}")
         sys.exit(0)
 
     tool_name = hook_input.get("tool_name", "")
     tool_input = hook_input.get("tool_input", {})
 
-    # Only inject for Edit/Write
+    # Only process Edit/Write
     if tool_name not in ["Edit", "Write"]:
         sys.exit(0)
 
     file_path = tool_input.get("file_path", "")
     if not file_path:
+        log("SKIP", "N/A", "No file_path in tool_input")
         sys.exit(0)
 
-    try:
-        # Direct import - no subprocess!
-        from memory import recall, get
+    # Log the operation
+    log("OK", file_path, f"Tool: {tool_name}")
 
-        # Query for relevant memories
-        memories = recall(file_path, limit=3)
-
-        if not memories:
-            sys.exit(0)
-
-        # Validate memories exist (defensive - handles stale/deleted entries)
-        memories = [m for m in memories if m.get("name") and get(m["name"])]
-
-        if not memories:
-            sys.exit(0)
-
-        # Format memories as brief text for injection
-        lines = []
-        names = []
-        for m in memories:
-            eff = m.get("effectiveness", 0.5)
-            mtype = m.get("type", "unknown")
-            trigger = m.get("trigger", "")[:60]
-            name = m.get("name", "")
-            lines.append(f"- **{name}** [{mtype}] {trigger}... (eff: {eff:.0%})")
-            names.append(name)
-
-        brief = "\n".join(lines)
-        names_str = ", ".join(names)
-
-    except Exception:
-        sys.exit(0)
-
-    # Return additionalContext
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "additionalContext": (
-                f"**Memories for {os.path.basename(file_path)}:**\n{brief}\n\n"
-                f"Apply relevant patterns. Avoid listed failures.\n"
-                f"When complete, report UTILIZED: [{names_str}] (only those that actually helped)"
-            )
-        }
-    }
-
-    print(json.dumps(output))
+    # No output = no modification to tool behavior
+    # Context injection is handled by build_context() at task start
     sys.exit(0)
 
 

@@ -1,0 +1,65 @@
+# Helix Planner Agent Contract
+# Decomposes objectives into executable task DAG
+
+name: helix-planner
+description: Decomposes objectives into executable task DAG with dependencies
+model: opus
+
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - TaskCreate
+  - TaskUpdate
+
+input_schema:
+  type: object
+  required:
+    - objective
+    - exploration
+  properties:
+    objective:
+      type: string
+      description: What the user wants to accomplish
+    exploration:
+      type: object
+      description: Context gathered by explorer agent
+    plugin_root:
+      type: string
+      description: Path to helix plugin installation
+
+output_schema:
+  type: object
+  required:
+    - status
+  properties:
+    status:
+      type: string
+      enum:
+        - complete
+        - clarify
+    task_ids:
+      type: array
+      items:
+        type: string
+      description: List of created task IDs (when status is complete)
+    task_mapping:
+      type: object
+      additionalProperties:
+        type: string
+      description: "Mapping of seq (001, 002) to task IDs"
+    dependencies:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          type: string
+      description: "Task ID to list of blocker task IDs"
+    questions:
+      type: array
+      items:
+        type: string
+      description: Questions needing answers (when status is clarify)
+
+constraints: []

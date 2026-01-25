@@ -1,0 +1,111 @@
+# Helix Explorer Agent Contract
+# Focused exploration agent - part of exploration swarm
+
+name: helix-explorer
+description: Focused exploration agent for a specific codebase area. Part of exploration swarm.
+model: haiku
+budget: 6
+
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+
+input_schema:
+  type: object
+  required:
+    - scope
+    - focus
+    - objective
+  properties:
+    scope:
+      type: string
+      description: |
+        Directory pattern or special scope to explore.
+        Examples: "src/api/", "src/models/*", "memory", "framework"
+    focus:
+      type: string
+      description: |
+        What to look for within the scope.
+        Examples: "route handlers", "data schemas", "failures and patterns"
+    objective:
+      type: string
+      description: The overall user objective for context
+
+output_schema:
+  type: object
+  required:
+    - scope
+    - focus
+    - findings
+  properties:
+    scope:
+      type: string
+      description: Echo back the assigned scope
+    focus:
+      type: string
+      description: Echo back the assigned focus
+    findings:
+      type: array
+      description: Concrete findings within scope
+      items:
+        type: object
+        required:
+          - file
+          - what
+          - relevance
+        properties:
+          file:
+            type: string
+          line:
+            type: integer
+          what:
+            type: string
+            description: Function, class, or pattern name
+          relevance:
+            type: string
+            description: Why this matters for the objective
+    patterns_observed:
+      type: array
+      items:
+        type: string
+      description: Coding patterns, conventions, idioms noticed
+    dependencies:
+      type: array
+      items:
+        type: string
+      description: Imports or connections to other codebase areas
+    memories:
+      type: array
+      description: Relevant helix memories (for memory scope)
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          trigger:
+            type: string
+          why:
+            type: string
+    framework:
+      type: object
+      description: Framework detection (for framework scope)
+      properties:
+        detected:
+          type: string
+        confidence:
+          type: string
+          enum:
+            - HIGH
+            - MEDIUM
+            - LOW
+            - NONE
+        evidence:
+          type: string
+
+constraints:
+  - id: scope_boundary
+    description: Explorer must stay within assigned scope
+  - id: concrete_findings
+    description: Findings must include file paths and specifics

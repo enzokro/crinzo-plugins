@@ -1,0 +1,122 @@
+# Helix Builder Agent Contract
+# Executes individual tasks within strict constraints
+
+name: helix-builder
+description: Executes individual tasks within strict constraints
+model: opus
+
+tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+  - TaskUpdate
+
+input_schema:
+  type: object
+  required:
+    - task_id
+    - objective
+    - delta
+    - verify
+    - budget
+  properties:
+    task_id:
+      type: string
+      description: The task ID being executed
+    task_subject:
+      type: string
+      description: "Task subject (e.g., '001: impl-auth')"
+    objective:
+      type: string
+      description: What this task should accomplish
+    delta:
+      type: array
+      items:
+        type: string
+      description: Files the builder MAY modify (strict constraint)
+    verify:
+      type: string
+      description: Command to verify task completion
+    budget:
+      type: integer
+      minimum: 1
+      maximum: 15
+      description: Maximum tool calls allowed
+    framework:
+      type: string
+      description: Detected framework or null
+    idioms:
+      type: object
+      properties:
+        required:
+          type: array
+          items:
+            type: string
+        forbidden:
+          type: array
+          items:
+            type: string
+    failures_to_avoid:
+      type: array
+      items:
+        type: string
+      description: Memory-derived failure hints
+    patterns_to_apply:
+      type: array
+      items:
+        type: string
+      description: Memory-derived pattern hints
+    injected_memories:
+      type: array
+      items:
+        type: string
+      description: Names of injected memories for tracking
+    parent_deliveries:
+      type: array
+      items:
+        type: object
+        properties:
+          seq:
+            type: string
+          slug:
+            type: string
+          delivered:
+            type: string
+      description: What upstream tasks delivered
+
+output_schema:
+  type: object
+  required:
+    - status
+    - summary
+  properties:
+    status:
+      type: string
+      enum:
+        - delivered
+        - blocked
+    summary:
+      type: string
+      maxLength: 200
+      description: Brief summary of what was delivered or why blocked
+    tried:
+      type: string
+      description: What was attempted (for blocked status)
+    error:
+      type: string
+      description: Error message if any
+    utilized:
+      type: array
+      items:
+        type: string
+      description: Memory names that were actually used (optional, for logging)
+
+constraints:
+  - id: delta_enforcement
+    description: Write/Edit only to files in delta list
+    hook: PreToolUse
+    matcher: "Write|Edit"
+    validation: "tool_input.file_path in task_input.delta"

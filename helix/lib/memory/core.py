@@ -54,6 +54,30 @@ def _slug(text: str) -> str:
     return s[:50] if len(s) > 50 else s
 
 
+def _extract_file_patterns(trigger: str, resolution: str) -> List[str]:
+    """Extract file path patterns from memory text.
+
+    Used for structured matching - complements semantic search
+    when file paths don't have natural language semantics.
+    """
+    text = f"{trigger} {resolution}"
+    patterns = set()
+
+    # Match common source file extensions
+    file_pattern = r'[\w\-./]+\.(py|js|ts|tsx|jsx|go|rs|java|rb|php|vue|svelte|md|json|yaml|yml|toml|sql|sh|css|scss|html)'
+    for match in re.findall(file_pattern, text, re.IGNORECASE):
+        # Get the full match by re-searching
+        for full_match in re.finditer(file_pattern, text, re.IGNORECASE):
+            patterns.add(full_match.group(0))
+
+    # Match directory patterns like src/auth, lib/memory, etc.
+    dir_pattern = r'(?:src|lib|app|components|utils|services|api|tests?|scripts?)/[\w\-/]+'
+    for match in re.findall(dir_pattern, text):
+        patterns.add(match)
+
+    return list(patterns)
+
+
 def _effectiveness(row) -> float:
     """Calculate effectiveness from helped/failed."""
     h, f = row["helped"] or 0, row["failed"] or 0
@@ -136,14 +160,18 @@ def store(
     if e:
         emb_blob = to_blob(e)
 
+    # Extract file patterns for structured matching
+    file_patterns = _extract_file_patterns(trigger, resolution)
+    file_patterns_json = json.dumps(file_patterns) if file_patterns else None
+
     db = get_db()
     now = datetime.now().isoformat()
 
     with write_lock():
         try:
             db.execute(
-                "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source) VALUES (?,?,?,?,?,?,?)",
-                (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source)
+                "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source, file_patterns) VALUES (?,?,?,?,?,?,?,?)",
+                (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source, file_patterns_json)
             )
             db.commit()
             return {"status": "added", "name": name, "reason": ""}
@@ -151,11 +179,11 @@ def store(
             if "UNIQUE" in str(e):
                 name = f"{name}-{datetime.now().strftime('%H%M%S')}"
                 db.execute(
-                    "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source) VALUES (?,?,?,?,?,?,?)",
-                    (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source)
+                    "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source, file_patterns) VALUES (?,?,?,?,?,?,?,?)",
+                    (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source, file_patterns_json)
                 )
                 db.commit()
-                return {"status": "added", "name": name, "reason": ""}
+                return {"status": "added", "name": name, "reason": "", "file_patterns": file_patterns}
             raise
 
 
@@ -213,10 +241,76 @@ def recall(
     return [m for _, m in scored[:limit]]
 
 
+def recall_by_file_patterns(
+    delta_files: List[str],
+    limit: int = 3
+) -> List[dict]:
+    """Query memories by file path patterns.
+
+    Uses structured file_patterns column for matching, not semantic search.
+    Complements recall() for cases where file paths don't have
+    natural language semantics (e.g., "src/auth/jwt.py" vs "authentication").
+
+    Args:
+        delta_files: List of file paths to match against
+        limit: Maximum memories to return
+
+    Returns:
+        List of matching memories, sorted by effectiveness
+    """
+    db = get_db()
+    matches = []
+    seen_names = set()
+
+    for delta_file in delta_files:
+        # Extract components for matching
+        try:
+            from pathlib import Path
+            parts = Path(delta_file).parts
+            filename = Path(delta_file).name
+            stem = Path(delta_file).stem
+            # Last two path components for partial matching
+            partial_path = "/".join(parts[-2:]) if len(parts) >= 2 else filename
+        except Exception:
+            filename = delta_file.split("/")[-1] if "/" in delta_file else delta_file
+            stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+            partial_path = delta_file
+
+        # Query for pattern matches in file_patterns JSON column
+        # SQLite's LIKE works on JSON strings
+        rows = db.execute("""
+            SELECT * FROM memory
+            WHERE file_patterns IS NOT NULL
+              AND (
+                file_patterns LIKE ? OR
+                file_patterns LIKE ? OR
+                file_patterns LIKE ?
+              )
+            ORDER BY (helped * 1.0 / (helped + failed + 1)) DESC
+            LIMIT ?
+        """, (
+            f'%{filename}%',
+            f'%{stem}%',
+            f'%{partial_path}%',
+            limit * 2  # Get more than needed for deduplication
+        )).fetchall()
+
+        for row in rows:
+            name = row["name"]
+            if name not in seen_names:
+                seen_names.add(name)
+                matches.append(_to_dict(row))
+
+    # Sort by effectiveness and limit
+    matches.sort(key=lambda m: m.get("effectiveness", 0.5), reverse=True)
+    return matches[:limit]
+
+
 def feedback(utilized: List[str], injected: List[str]) -> dict:
     """Update effectiveness based on what was actually used.
 
-    THIS IS THE CRITICAL FUNCTION THAT CLOSES THE LEARNING LOOP.
+    DEPRECATED: Prefer feedback_from_verification() which uses objective
+    verification outcomes instead of self-reported utilization.
 
     Args:
         utilized: Memory names that ACTUALLY HELPED (honest reporting!)
@@ -252,6 +346,78 @@ def feedback(utilized: List[str], injected: List[str]) -> dict:
         db.commit()
 
     return {"helped": helped, "unhelpful": unhelpful, "missing": missing}
+
+
+def feedback_from_verification(
+    task_id: str,
+    verify_passed: bool,
+    injected: List[str],
+    task_objective: str = ""
+) -> dict:
+    """Close feedback loop based on verification outcome.
+
+    This replaces self-reported UTILIZED with objective verification.
+    The verification command (e.g., pytest) is ground truth - if it passes
+    and memories were injected, those memories get credit.
+
+    This approach is immune to builder dishonesty:
+    - Builder can't inflate by claiming all memories helped
+    - Builder can't deflate by claiming none helped
+    - Credit is based on objective verification result
+
+    Args:
+        task_id: The task that completed
+        verify_passed: Whether the verify command succeeded (exit 0)
+        injected: Memory names that were injected for this task
+        task_objective: Optional objective for logging
+
+    Returns:
+        {
+            "credited": N,           # Memories that got credit
+            "task_id": str,
+            "verify_passed": bool,
+            "injected_count": N
+        }
+
+    Attribution logic:
+        - Success (verify passed): Give partial credit (0.5) to all injected
+          memories. We can't know which memory specifically helped, but the
+          task succeeded with this context.
+        - Failure (verify failed): No penalty. We don't know if the failure
+          was due to memories or something else. Avoids punishing memories
+          for unrelated issues.
+    """
+    db = get_db()
+    now = datetime.now().isoformat()
+    credited = 0
+
+    with write_lock():
+        for name in injected:
+            row = db.execute("SELECT id FROM memory WHERE name=?", (name,)).fetchone()
+            if not row:
+                continue
+
+            if verify_passed:
+                # Success: give partial credit (0.5) to all injected memories
+                # Weight 0.5 because we can't attribute precisely
+                db.execute("""
+                    UPDATE memory
+                    SET helped = helped + 0.5,
+                        last_used = ?
+                    WHERE name = ?
+                """, (now, name))
+                credited += 1
+            # Failure: no penalty - we don't know which memory (if any) caused it
+            # Just don't update anything
+
+        db.commit()
+
+    return {
+        "credited": credited,
+        "task_id": task_id,
+        "verify_passed": verify_passed,
+        "injected_count": len(injected)
+    }
 
 
 def chunk(
@@ -527,6 +693,11 @@ if __name__ == "__main__":
     s.add_argument("--utilized", required=True)
     s.add_argument("--injected", required=True)
 
+    s = sub.add_parser("feedback-verify", help="Feedback from verification outcome")
+    s.add_argument("--task-id", required=True)
+    s.add_argument("--verify-passed", type=lambda x: x.lower() == "true", required=True)
+    s.add_argument("--injected", required=True)
+
     s = sub.add_parser("relate")
     s.add_argument("--from", dest="from_name", required=True)
     s.add_argument("--to", dest="to_name", required=True)
@@ -561,6 +732,12 @@ if __name__ == "__main__":
         r = recall(args.query, args.type, args.limit)
     elif args.cmd == "feedback":
         r = feedback(json.loads(args.utilized), json.loads(args.injected))
+    elif args.cmd == "feedback-verify":
+        r = feedback_from_verification(
+            task_id=args.task_id,
+            verify_passed=args.verify_passed,
+            injected=json.loads(args.injected)
+        )
     elif args.cmd == "relate":
         r = relate(args.from_name, args.to_name, args.rel_type)
     elif args.cmd == "connected":

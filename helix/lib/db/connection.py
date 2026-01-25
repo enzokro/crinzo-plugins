@@ -53,6 +53,25 @@ def get_db() -> sqlite3.Connection:
         return _db
 
 
+def _apply_migrations(db: sqlite3.Connection) -> None:
+    """Apply schema migrations for existing databases."""
+    # Get existing columns
+    cursor = db.execute("PRAGMA table_info(memory)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    # Migration: Add file_patterns column if missing
+    if "file_patterns" not in columns:
+        try:
+            db.execute("ALTER TABLE memory ADD COLUMN file_patterns TEXT")
+            db.commit()
+        except Exception:
+            pass  # Column might already exist
+
+    # Migration: Change helped/failed from INTEGER to REAL
+    # (SQLite is flexible, so existing INTEGER values work with REAL)
+    # No action needed - SQLite handles this automatically
+
+
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
     if db is None:
@@ -66,12 +85,13 @@ def init_db(db: sqlite3.Connection = None) -> None:
             type TEXT NOT NULL CHECK (type IN ('failure', 'pattern')),
             trigger TEXT NOT NULL,
             resolution TEXT NOT NULL,
-            helped INTEGER DEFAULT 0,
-            failed INTEGER DEFAULT 0,
+            helped REAL DEFAULT 0,
+            failed REAL DEFAULT 0,
             embedding BLOB,
             source TEXT DEFAULT '',
             created_at TEXT NOT NULL,
-            last_used TEXT
+            last_used TEXT,
+            file_patterns TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type);
@@ -100,6 +120,9 @@ def init_db(db: sqlite3.Connection = None) -> None:
         );
     """)
     db.commit()
+
+    # Apply migrations for existing databases
+    _apply_migrations(db)
 
 
 @contextmanager
