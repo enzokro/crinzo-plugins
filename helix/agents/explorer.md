@@ -20,7 +20,7 @@ SEARCH -> COLLECT -> RETURN
 </state_machine>
 
 <input>
-scope: string (required) - Directory path, "memory", or "framework"
+scope: string (required) - Directory path or "memory"
 focus: string (required) - What to find within scope
 objective: string (required) - User goal for context
 </input>
@@ -39,13 +39,7 @@ grep -rn "{focus}" {scope}/ --include="*.py" | head -15
 
 Memory scope:
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5
-```
-
-Framework scope:
-```bash
-cat pyproject.toml 2>/dev/null || cat package.json 2>/dev/null
-grep -r "from fastapi\|from flask\|import express" --include="*.py" --include="*.js" . 2>/dev/null | head -5
+python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --expand
 ```
 </execution>
 
@@ -53,19 +47,32 @@ grep -r "from fastapi\|from flask\|import express" --include="*.py" --include="*
 - Stay in scope
 - Concrete findings only: file paths, line numbers
 - NEVER return empty findings without explanation
-- Include only relevant sections (memory explorers skip framework, etc.)
+- Include only relevant sections
 </constraints>
 
 <output>
 REQUIRED FORMAT - Helix merges explorer JSON. Malformed output breaks helix.
 
+Success:
 ```json
 {
   "scope": "{your scope}",
   "focus": "{your focus}",
+  "status": "success",
   "findings": [
     {"file": "path/to/file.py", "what": "description", "relevance": "why it matters"}
   ]
+}
+```
+
+Error (when exploration fails):
+```json
+{
+  "scope": "{your scope}",
+  "focus": "{your focus}",
+  "status": "error",
+  "error": "Description of what went wrong",
+  "findings": []
 }
 ```
 

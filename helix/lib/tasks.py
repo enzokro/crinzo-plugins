@@ -69,15 +69,19 @@ def parse_builder_output(output: str) -> dict:
 
     lines = output.strip().split("\n")
 
-    # Find DELIVERED or BLOCKED
+    # Find DELIVERED or BLOCKED - FIRST match wins (fix for last-match bug)
     for line in lines:
-        if line.startswith("DELIVERED:"):
-            result["status"] = "delivered"
-            result["summary"] = line.replace("DELIVERED:", "").strip()
-        elif line.startswith("BLOCKED:"):
-            result["status"] = "blocked"
-            result["summary"] = line.replace("BLOCKED:", "").strip()
-        elif line.startswith("TRIED:"):
+        # Only set status on first match
+        if result["status"] == "unknown":
+            if line.startswith("DELIVERED:"):
+                result["status"] = "delivered"
+                result["summary"] = line.replace("DELIVERED:", "").strip()
+            elif line.startswith("BLOCKED:"):
+                result["status"] = "blocked"
+                result["summary"] = line.replace("BLOCKED:", "").strip()
+
+        # These can appear anywhere
+        if line.startswith("TRIED:"):
             result["tried"] = line.replace("TRIED:", "").strip()
         elif line.startswith("ERROR:"):
             result["error"] = line.replace("ERROR:", "").strip()

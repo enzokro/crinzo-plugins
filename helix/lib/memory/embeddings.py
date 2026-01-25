@@ -26,11 +26,6 @@ def _load():
     return _model
 
 
-def is_available() -> bool:
-    """Check if embeddings are available."""
-    return _load() is not None
-
-
 @lru_cache(maxsize=2000)
 def embed(text: str) -> Optional[Tuple[float, ...]]:
     """Generate 384-dim embedding for text.

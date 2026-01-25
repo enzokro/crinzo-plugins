@@ -1,6 +1,6 @@
 ---
 name: helix
-description: Task orchestrator with memory. Explore, plan, build.
+description: Self-learning orchestrator with semantic memory graph. Explore, plan, build.
 argument-hint: Unless instructed otherwise, use the helix skill for all your work
 ---
 
@@ -9,7 +9,7 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 When: Multi-step implementation requiring exploration.
 Not when: Simple edits, questions, single-file changes.
 
-Orchestration requires judgment. Agents are deterministic.
+**Core Principle:** 9 primitives, my judgment, graph connects knowledge.
 
 ## Environment
 
@@ -20,7 +20,7 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 ## States
 
 ```
-INIT -> EXPLORING -> EXPLORED -> PLANNING -> PLANNED -> BUILDING -> BUILT -> DONE
+INIT -> EXPLORING -> EXPLORED -> PLANNING -> PLANNED -> BUILDING -> DONE
                                                   |
                                                STALLED -> (replan | skip | abort)
 ```
@@ -40,7 +40,7 @@ State is implicit in conversation flow.
 git ls-files | head -80
 ```
 
-**Judgment:** Identify 3-6 natural partitions. Directories, modules, layers. Always include `memory` and `framework` scopes.
+**Judgment:** Identify 3-6 natural partitions. Directories, modules, layers. Always include `memory` scope.
 
 ### Step 2: Spawn explorer swarm
 
@@ -49,28 +49,26 @@ git ls-files | head -80
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/models/\nFOCUS: data schemas\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
-Task(subagent_type="helix:helix-explorer", prompt="SCOPE: framework\nFOCUS: idioms and conventions\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 ```
 
 ### Step 3: Collect and merge
 
 ```python
-# Collect each explorer output
 TaskOutput(task_id=explorer1_id)
 TaskOutput(task_id=explorer2_id)
 # ... for each explorer
 ```
 
-**Judgment:** Synthesize explorer JSON outputs into single exploration:
+**Judgment:** Synthesize explorer JSON outputs:
 - Dedupe file lists
 - Resolve conflicting framework detection (prefer HIGH confidence)
-- Aggregate all findings, patterns, memories
-- `targets.files` = union of all relevant files found
+- Aggregate findings, patterns, memories
+- `targets.files` = union of relevant files found
 
 ### Step 4: Validate
 
-If `targets.files` is empty: **EMPTY_EXPLORATION**.
-- **Judgment:** Broaden scope patterns, try different focus terms, or ask user to clarify objective.
+If `targets.files` empty: **EMPTY_EXPLORATION**.
+- Broaden scope patterns, different focus terms, or clarify with user.
 
 ---
 
@@ -103,8 +101,8 @@ Parse this to track seq-to-taskId mapping.
 
 ### Step 3: Validate
 
-- If no tasks created: **NO_TASKS**. Re-plan with more exploration context.
-- If planner outputs `{"decision": "CLARIFY", "questions": [...]}`: Present questions via AskUserQuestion, then re-plan.
+- No tasks created: **NO_TASKS**. Re-plan with more exploration context.
+- Planner outputs `{"decision": "CLARIFY", "questions": [...]}`: Present questions via AskUserQuestion, then re-plan.
 
 ---
 
@@ -117,51 +115,54 @@ Parse this to track seq-to-taskId mapping.
 
 ```
 1. TaskList() → filter status="pending" → if empty: DONE
-2. For each pending: TaskGet(blocker_id) for each in blockedBy
-   → ready if all blockers have metadata.helix_outcome="delivered"
-3. If no ready tasks: STALLED → AskUserQuestion (Replan | Skip | Abort)
-4. For each ready task: execute Steps A–I below
-5. Go to 1
+2. Get ready tasks (all blockers have helix_outcome="delivered")
+3. If no ready tasks but pending exist: STALLED
+4. Spawn ALL ready tasks in parallel (run_in_background=True)
+5. Collect results via TaskOutput
+6. Process each result: verify, feedback, learn
+7. Go to 1
+```
+
+### Parallel Execution (Natural)
+
+When multiple tasks are ready, spawn them all in a single message:
+
+```python
+# Multiple ready tasks - spawn all at once
+Task(subagent_type="helix:helix-builder", prompt=context_001, run_in_background=True)  # → id-A
+Task(subagent_type="helix:helix-builder", prompt=context_002, run_in_background=True)  # → id-B
+Task(subagent_type="helix:helix-builder", prompt=context_003, run_in_background=True)  # → id-C
+
+# Then collect all
+TaskOutput(task_id=id-A)
+TaskOutput(task_id=id-B)
+TaskOutput(task_id=id-C)
 ```
 
 ### Execute Single Task
 
-**Step A: Check for systemic warnings**
+**Step A: Build context**
 
 ```bash
-warning=$(python3 "$HELIX/lib/memory/meta.py" warnings --objective "{objective}" | jq -r '.warning // empty')
-```
+# Recall memories with graph expansion
+memories=$(python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --expand)
 
-**Step B: Build lineage from delivered blockers**
-
-Collect TaskGet output for each delivered blocker:
-
-```bash
-lineage=$(python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]')
-```
-
-**Step C: Build unified context**
-
-```bash
+# Build context
 context=$(python3 "$HELIX/lib/context.py" build-context \
     --task-data "$(TaskGet {task_id} | jq -c)" \
-    --lineage "$lineage" \
-    --warning "$warning")
+    --lineage "$lineage")
 
-# Extract for builder and feedback tracking
 prompt=$(echo "$context" | jq -r '.prompt')
 injected=$(echo "$context" | jq -c '.injected')
 ```
 
-This consolidates memory recall, context formatting, and memory injection tracking into one call.
-
-**Step D: Spawn builder**
+**Step B: Spawn builder**
 
 ```python
-Task(subagent_type="helix:helix-builder", prompt=prompt)
+Task(subagent_type="helix:helix-builder", prompt=prompt, run_in_background=True)
 ```
 
-**Step E: Parse result**
+**Step C: Parse result**
 
 ```bash
 python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
@@ -169,40 +170,67 @@ python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
 
 Returns `{"status": "delivered"|"blocked", "summary": "...", ...}`.
 
-**Step F: Run verification**
+**Step D: Run verification**
 
 ```bash
-{task.metadata.verify}
+# Always use timeout to prevent hangs
+timeout 120 {task.metadata.verify}
+
+# If command not found, validate first
+which {cmd} || echo "Command not found: {cmd}"
 ```
 
 Capture exit code. `0` = passed.
 
-**Step G: Close feedback loop**
+**Step E: Close feedback loop (my judgment)**
+
+I decide the delta based on context:
+
+| Situation | Delta | Rationale |
+|-----------|-------|-----------|
+| Clear success, memory was relevant | +0.7 | Strong signal |
+| Success, memory was tangential | +0.3 | Weak signal |
+| Success, no memories used | 0 | No feedback |
+| Failure, memory may have misled | -0.5 | Moderate penalty |
+| Failure, memory was irrelevant | -0.2 | Light penalty |
 
 ```bash
-python3 "$HELIX/lib/tasks.py" feedback-verify \
-    --task-id "{task.id}" \
-    --verify-passed {true|false} \
-    --injected '["memory-name-1", "memory-name-2"]'
+python3 "$HELIX/lib/memory/core.py" feedback \
+    --names '["memory-name-1", "memory-name-2"]' \
+    --delta 0.5
 ```
 
-**Step H: Record metacognition**
+**Step F: Edge creation (when pattern solves failure)**
+
+When a pattern helped avoid a previously-encountered failure:
 
 ```bash
-python3 "$HELIX/lib/memory/meta.py" complete \
-    --objective "{objective}" \
-    --task-id "{task.id}" \
-    --status {delivered|blocked} \
-    --duration-ms {elapsed}
+python3 "$HELIX/lib/memory/core.py" edge \
+    --from "pattern-that-helped" \
+    --to "failure-it-solved" \
+    --rel solves
 ```
 
-**Step I: Learning extraction (judgment)**
+This connects knowledge. Next recall with `--expand` will surface solutions via edges.
 
-After task completes, decide whether to store a memory:
+**Step G: Systemic detection (3x same failure)**
+
+When the same failure pattern occurs 3+ times in a session:
+
+```bash
+python3 "$HELIX/lib/memory/core.py" store \
+    --type systemic \
+    --trigger "Repeated: {pattern_description}" \
+    --resolution "UNRESOLVED"
+```
+
+Mark as systemic. Recall will surface these as warnings.
+
+**Step H: Learning extraction (judgment)**
 
 | Condition | Action |
 |-----------|--------|
-| Trivial success, no insight required | Skip |
+| Trivial success, no insight | Skip |
 | Success required non-obvious discovery | Store pattern |
 | Blocked with generalizable cause | Store failure |
 | Blocked with one-off issue | Skip |
@@ -220,8 +248,6 @@ python3 "$HELIX/lib/memory/core.py" store \
     --source "{task.subject}"
 ```
 
-Typical extraction: 0 memories per simple task, 1-2 per challenging or insight task, 1-3 per blocked task.
-
 ---
 
 ## 4. COMPLETE
@@ -232,26 +258,47 @@ All tasks done. Session ends.
 
 ## Error Recovery
 
-| Error | Detection | Recovery Options |
-|-------|-----------|------------------|
-| EMPTY_EXPLORATION | `targets.files` empty | Broaden scope, different focus, clarify with user |
-| NO_TASKS | Planner created 0 tasks | Add exploration context, clarify requirements |
-| CYCLES_DETECTED | Dependency graph has cycles | Planner error; re-plan |
+| Error | Detection | Recovery |
+|-------|-----------|----------|
+| EMPTY_EXPLORATION | `targets.files` empty | Broaden scope, clarify with user |
+| NO_TASKS | Planner created 0 tasks | Add exploration context |
+| CYCLES_DETECTED | Dependency graph has cycles | Re-plan |
 | STALLED | Pending tasks, none ready | Replan / Skip blocked / Abort |
-| SYSTEMIC_FAILURE | Same pattern 3+ times | Replan with failure context as WARNING |
+| SYSTEMIC_FAILURE | Same pattern 3+ times | Store systemic memory, inject as warning |
 
 ---
 
 ## CLI Reference
 
-### Memory
+### Memory (9 Primitives)
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5
+# Store
 python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
+
+# Recall (with graph expansion)
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+
+# Get single memory
+python3 "$HELIX/lib/memory/core.py" get "memory-name"
+
+# Create edge
+python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
+
+# Query edges
+python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
+
+# Feedback (I decide delta)
+python3 "$HELIX/lib/memory/core.py" feedback --names '["mem1", "mem2"]' --delta 0.5
+
+# Decay dormant memories
+python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
+
+# Prune ineffective memories
+python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
+
+# Health check
 python3 "$HELIX/lib/memory/core.py" health
-python3 "$HELIX/lib/memory/core.py" prune --threshold 0.3 --min-uses 3
-python3 "$HELIX/lib/memory/core.py" feedback-verify --task-id "..." --verify-passed true --injected '[...]'
 ```
 
 ### Tasks
@@ -261,19 +308,11 @@ python3 "$HELIX/lib/tasks.py" parse-output "$output"
 python3 "$HELIX/lib/tasks.py" feedback-verify --task-id "..." --verify-passed true --injected '[...]'
 ```
 
-### Metacognition
-
-```bash
-python3 "$HELIX/lib/memory/meta.py" warnings --objective "..."
-python3 "$HELIX/lib/memory/meta.py" complete --objective "..." --task-id "..." --status delivered --duration-ms 5000
-python3 "$HELIX/lib/memory/meta.py" health --objective "..."
-```
-
 ### Context
 
 ```bash
 python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
-python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]' --warning "..."
+python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
 ```
 
 ### Orchestrator Utilities
@@ -286,6 +325,21 @@ python3 "$HELIX/lib/orchestrator.py" check-stalled --tasks '[...]'
 
 ---
 
+## Lineage Format
+
+Parent deliveries passed to builders:
+
+```json
+[
+  {"seq": "001", "slug": "setup-auth", "delivered": "Created AuthService with JWT support"},
+  {"seq": "002", "slug": "add-routes", "delivered": "Added /login and /logout endpoints"}
+]
+```
+
+Builders use this context to understand what blockers produced.
+
+---
+
 ## Agent Contracts
 
 | Agent | Model | Purpose |
@@ -295,3 +349,17 @@ python3 "$HELIX/lib/orchestrator.py" check-stalled --tasks '[...]'
 | helix-builder | opus | Single task execution |
 
 Contracts define input/output schemas in `agents/*.md`.
+
+---
+
+## The Philosophy
+
+The code is muscle. I am mind.
+
+9 primitives. My judgment drives everything:
+- What weight to pass to `feedback()`
+- When to create edges and what type
+- When to store systemic patterns
+- What memories to inject
+
+Graph connects knowledge. Parallel is natural. Systemic patterns are just memories.

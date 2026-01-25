@@ -55,6 +55,7 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 - Never claim DELIVERED without verify pass
 - TaskUpdate BEFORE text output
 - Use parent_deliveries context from completed blockers
+- DELIVERED/BLOCKED must be the FIRST such line in output (first match wins)
 </constraints>
 
 <output>
@@ -65,20 +66,20 @@ error: string (if blocked)
 
 Task update (success):
 ```
-TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered", "delivered_summary": "<summary from DELIVERED line>"})
+TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered", "delivered_summary": "<summary>"})
 ```
 
 Task update (blocked):
 ```
-TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "blocked", "blocked_reason": "<reason from BLOCKED line>"})
+TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "blocked", "blocked_reason": "<reason>"})
 ```
 
-Success format:
+Success format (FIRST such line in output):
 ```
 DELIVERED: <one-line summary>
 ```
 
-Failure format:
+Failure format (FIRST such line in output):
 ```
 BLOCKED: <reason>
 TRIED: <what attempted>

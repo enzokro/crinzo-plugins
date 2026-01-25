@@ -6,7 +6,7 @@ argument-hint: <search text>
 
 # Memory Query
 
-Search the learning system for relevant memories.
+Search the learning system for relevant memories with graph expansion.
 
 ## Usage
 
@@ -19,13 +19,19 @@ Search the learning system for relevant memories.
 
 ```bash
 HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
-python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 10
+python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 10 --expand
 ```
+
+The `--expand` flag includes 1-hop graph neighbors, surfacing:
+- Solutions that solved similar failures (via `solves` edges)
+- Related patterns (via `similar` edges)
+- Co-occurring issues (via `co_occurs` edges)
 
 ## Output
 
 Display each memory with:
-- Name and type (failure/pattern)
+- Name and type (failure/pattern/systemic)
 - Trigger and resolution
 - Effectiveness score
 - Relevance to query
+- Whether discovered via edge (`_via_edge: true`)

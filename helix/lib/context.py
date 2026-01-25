@@ -24,11 +24,9 @@ from typing import List, Optional, Dict, Any
 
 try:
     from .memory import recall, recall_by_file_patterns
-    from .memory.meta import OrchestratorMeta
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from memory import recall, recall_by_file_patterns
-    from memory.meta import OrchestratorMeta
 
 
 def build_context(
@@ -61,9 +59,6 @@ def build_context(
     metadata = task_data.get("metadata", {})
     objective = task_data.get("description", "")
     relevant_files = metadata.get("relevant_files", [])
-    # Support legacy 'delta' field for backwards compatibility
-    if not relevant_files:
-        relevant_files = metadata.get("delta", [])
 
     # Query 1: Semantic search on objective (natural language works well)
     semantic_memories = _query_semantic(objective, limit=3)
@@ -223,25 +218,6 @@ def build_lineage_from_tasks(completed_tasks: List[dict]) -> List[dict]:
             })
 
     return lineage
-
-
-def get_metacognition_warning(objective: str) -> Optional[str]:
-    """Get warning from metacognition if systemic patterns detected.
-
-    This enables the orchestrator to inject warnings into builder context
-    when the same failure pattern has been seen 3+ times.
-
-    Args:
-        objective: The current objective
-
-    Returns:
-        Warning string if systemic issue detected, None otherwise
-    """
-    try:
-        meta = OrchestratorMeta.load(objective)
-        return meta.get_active_warnings()
-    except Exception:
-        return None
 
 
 # CLI for orchestrator usage

@@ -1,26 +1,26 @@
 {
   "name": "helix",
   "version": "2.0.0",
-  "description": "Structured orchestrator with integrated memory. Explore → Plan → Build → Observe with feedback-based learning.",
+  "description": "Self-learning orchestrator with semantic memory graph. Explore → Plan → Build with feedback-based learning.",
   "author": { "name": "crinzo" },
   "hooks": {
+    "Setup": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-context.py"
           }
         ]
       }

@@ -55,6 +55,13 @@ def get_db() -> sqlite3.Connection:
 
 def _apply_migrations(db: sqlite3.Connection) -> None:
     """Apply schema migrations for existing databases."""
+    # Check current schema version
+    try:
+        row = db.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        current_version = row[0] if row and row[0] else 0
+    except Exception:
+        current_version = 0
+
     # Get existing columns
     cursor = db.execute("PRAGMA table_info(memory)")
     columns = {row[1] for row in cursor.fetchall()}
@@ -65,11 +72,18 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
             db.execute("ALTER TABLE memory ADD COLUMN file_patterns TEXT")
             db.commit()
         except Exception:
-            pass  # Column might already exist
+            pass
 
-    # Migration: Change helped/failed from INTEGER to REAL
-    # (SQLite is flexible, so existing INTEGER values work with REAL)
-    # No action needed - SQLite handles this automatically
+    # Migration v2: Drop legacy tables, record version
+    if current_version < 2:
+        try:
+            db.execute("DROP TABLE IF EXISTS exploration")
+            db.execute("DROP TABLE IF EXISTS plan")
+            db.execute("DROP TABLE IF EXISTS workspace")
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (2, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
 
 
 def init_db(db: sqlite3.Connection = None) -> None:
@@ -78,11 +92,18 @@ def init_db(db: sqlite3.Connection = None) -> None:
         db = get_db()
 
     db.executescript("""
-        -- Memories: learned failures and patterns
+        -- Schema versioning
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );
+
+        -- Memories: learned failures, patterns, and systemic issues
+        -- Note: No CHECK constraint on type - I control the input
         CREATE TABLE IF NOT EXISTS memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            type TEXT NOT NULL CHECK (type IN ('failure', 'pattern')),
+            type TEXT NOT NULL,
             trigger TEXT NOT NULL,
             resolution TEXT NOT NULL,
             helped REAL DEFAULT 0,
@@ -110,14 +131,17 @@ def init_db(db: sqlite3.Connection = None) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_edge_from ON memory_edge(from_name);
         CREATE INDEX IF NOT EXISTS idx_edge_to ON memory_edge(to_name);
+        CREATE INDEX IF NOT EXISTS idx_edge_rel ON memory_edge(rel_type);
 
-        -- Explorations: gathered context
-        CREATE TABLE IF NOT EXISTS exploration (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            objective TEXT NOT NULL,
-            data TEXT NOT NULL,  -- JSON blob
-            created_at TEXT NOT NULL
+        -- Normalized file patterns for efficient lookup
+        CREATE TABLE IF NOT EXISTS memory_file_pattern (
+            memory_name TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            PRIMARY KEY (memory_name, pattern),
+            FOREIGN KEY (memory_name) REFERENCES memory(name) ON DELETE CASCADE
         );
+
+        CREATE INDEX IF NOT EXISTS idx_file_pattern ON memory_file_pattern(pattern);
     """)
     db.commit()
 
