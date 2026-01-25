@@ -15,7 +15,7 @@ tools:
 # Builder
 
 <role>
-Execute one task. Report DELIVERED or BLOCKED.
+Execute the given task. Report the final state of your work and efforts as detailed in the output section.
 </role>
 
 <state_machine>
@@ -51,7 +51,7 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 </execution>
 
 <constraints>
-- Single retry on failure
+- On failures, take a step back and think deeply about the principled next steps given your role.
 - Never claim DELIVERED without verify pass
 - TaskUpdate BEFORE text output
 - Use parent_deliveries context from completed blockers

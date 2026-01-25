@@ -1,183 +1,154 @@
-# Helix - Comprehensive Reference
+# Helix - Technical Reference
 
 A Claude Code orchestrator with integrated memory that learns from every session.
 
-> This document contains the complete technical reference for helix. For a quick overview, see the [README](../helix/README.md).
+## Architecture
 
-## Introduction
-
-Helix unifies orchestration and memory into a single system. Previous designs separated these concerns—arc for memory, helix for orchestration—but the integration points created friction: subprocess calls, discovery failures, silent degradation.
-
-The current design eliminates this friction. Memory operations are direct Python imports. The feedback loop closes within a single function call. No external dependencies, no subprocess overhead, no configuration discovery.
-
-## Philosophy
-
-| Principle | Meaning |
-|-----------|---------|
-| **Feedback closes the loop** | Every task completion updates memory effectiveness |
-| **Verify before claiming success** | No DELIVERED without passing verify command |
-| **Delta scope is hard** | Builders cannot modify files outside their delta |
-| **Blocking is success** | Clear blocking info creates learning data |
-| **UTILIZED must be honest** | False positives corrupt the feedback signal |
-| **Edit over create** | Modify what exists before creating something new |
-
-## Quick Start
-
-```bash
-# Add the crinzo-plugins marketplace
-claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
-
-# Install helix
-claude plugin install helix@crinzo-plugins
-```
-
-Or from inside Claude Code:
-```bash
-/plugin marketplace add https://github.com/enzokro/crinzo-plugins
-/plugin install helix@crinzo-plugins
-```
-
-Optional for semantic search:
-```bash
-pip install sentence-transformers
-```
-
-## Development Loop
+Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities provide the muscle.
 
 ```
-/helix <objective>
-    │
-    ▼
-┌─────────────────────────────────────┐
-│  EXPLORER (haiku, 6 tools)          │
-│  structure │ patterns │ memory │ targets
-└─────────────────────────────────────┘
-    │
-    ▼ exploration (database)
-┌─────────────────────────────────────┐
-│  PLANNER (opus)                     │
-│  Decompose → Dependencies → Budget  │
-└─────────────────────────────────────┘
-    │
-    ▼ task DAG + native Task system
-┌─────────────────────────────────────┐
-│  BUILDER (opus, per-task budget)    │
-│  Read → Implement → Verify → Report │
-└─────────────────────────────────────┘
-    │
-    ▼ DELIVERED/BLOCKED + UTILIZED
-┌─────────────────────────────────────┐
-│  OBSERVER (opus)                    │
-│  Extract failures │ Chunk patterns  │
-└─────────────────────────────────────┘
-    │
-    ▼ memory.feedback(utilized, injected)
+┌─────────────────────────────────────────────────────────────┐
+│                    SKILL.md (Orchestrator)                  │
+│  State: implicit in conversation flow                       │
+│  Source of truth: TaskList metadata (helix_outcome)         │
+└─────────────────────────────────────────────────────────────┘
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│  Explorer     │    │   Planner     │    │   Builder     │
+│  (haiku)      │    │   (opus)      │    │   (opus)      │
+│  agents/      │    │   agents/     │    │   agents/     │
+│  explorer.md  │    │   planner.md  │    │   builder.md  │
+└───────────────┘    └───────────────┘    └───────────────┘
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Python Utilities                          │
+│  lib/memory/core.py  - 9 primitives                         │
+│  lib/context.py      - Dual-query context building          │
+│  lib/tasks.py        - Output parsing, feedback helpers     │
+│  lib/orchestrator.py - Cycle detection, stall detection     │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    .helix/helix.db (SQLite)                 │
+│  memory, memory_edge, memory_file_pattern                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Explorer** gathers codebase context. **Planner** decomposes into a task DAG. **Builders** execute tasks with memory injection. **Observer** extracts learning. **Feedback** updates effectiveness scores.
+**Key principle**: Learning extraction is orchestrator judgment, not a separate agent. The orchestrator decides:
+- What delta to pass to `feedback()`
+- When to create edges and what type
+- When to store systemic patterns (3+ occurrences)
+- What to learn vs. skip
 
 ## Agents
 
-Four agents with distinct roles:
+Three agents with distinct roles:
 
-| Agent | Model | Role | Budget |
-|-------|-------|------|--------|
-| **Explorer** | Haiku | Codebase reconnaissance | 6 |
-| **Planner** | Opus | Decompose objectives into tasks | unlimited |
-| **Builder** | Opus | Execute tasks within constraints | 5-9 |
-| **Observer** | Opus | Extract patterns and failures | 10 |
+| Agent | Model | Purpose | Tools |
+|-------|-------|---------|-------|
+| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash |
+| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash, TaskCreate, TaskUpdate |
+| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate |
 
-### Explorer (haiku, budget: 6)
+### Explorer (`agents/explorer.md`)
 
-Gathers:
-- **Structure**: Directories, entry points, test patterns
-- **Patterns**: Framework detection, idioms
-- **Memory**: Relevant failures and patterns from history
-- **Targets**: Files and functions to modify
+Explores ONE scope as part of a parallel swarm. Returns JSON findings.
 
-Output: JSON with structure, patterns, memory, targets.
+Input:
+- `scope`: Directory path or "memory"
+- `focus`: What to find within scope
+- `objective`: User goal for context
 
-### Planner (opus, unlimited)
-
-Creates task DAG with:
-- `seq` — Execution order identifier (001, 002, ...)
-- `slug` — Human-readable name
-- `objective` — What to accomplish
-- `delta` — Files the builder may modify (hard constraint)
-- `verify` — Command to verify completion
-- `depends` — Task dependencies (none, or comma-separated seqs)
-- `budget` — Tool calls allocated (5-9)
-
-**Decision gates**:
-- `PROCEED` — Sufficient information to plan
-- `CLARIFY` — Need answers before proceeding
-
-Registers tasks in Claude Code's native Task system (visible via Ctrl+T).
-
-### Builder (opus, budget: 5-9)
-
-Execution flow:
-```
-READ → PLAN → IMPLEMENT → VERIFY → REPORT
+Output (JSON):
+```json
+{
+  "scope": "src/api/",
+  "focus": "route handlers",
+  "status": "success",
+  "findings": [{"file": "...", "what": "...", "relevance": "..."}],
+  "framework": {"detected": "...", "confidence": "HIGH|MEDIUM|LOW"},
+  "memories": [{"name": "...", "trigger": "...", "why": "..."}]
+}
 ```
 
-**Constraints enforced**:
-- Delta scope is hard — cannot modify files outside delta
-- Budget is hard — must complete or block when exhausted
-- Idiom enforcement — violations block even if tests pass
+### Planner (`agents/planner.md`)
 
-**Output**:
-- `DELIVERED: <summary>` + `UTILIZED: [memories that helped]`
-- `BLOCKED: <reason>` + `UTILIZED: [memories that helped despite block]`
+Decomposes objective into task DAG using Claude Code's native Task system.
 
-**Metacognition**: After 3 failed attempts with similar approach → BLOCK with analysis, don't retry.
+Input:
+- `objective`: What to build
+- `exploration`: Merged explorer findings
 
-### Observer (opus, budget: 10)
+Output:
+```
+TASK_MAPPING:
+001 -> task-abc123
+002 -> task-def456
 
-Extracts:
-- **Failures** from blocked workspaces (trigger + resolution)
-- **Patterns** from successful workspaces via SOAR chunking
-- **Relationships** between memories (co_occurs, causes, solves)
-
-Closes the feedback loop:
-```python
-feedback(utilized, injected)
-# utilized memories: helped++
-# injected-but-unused: failed++
+PLAN_COMPLETE: 2 tasks
 ```
 
-## Commands
+Or clarification request:
+```json
+{"decision": "CLARIFY", "questions": ["..."]}
+```
 
-| Command | Purpose |
-|---------|---------|
-| `/helix <objective>` | Full pipeline: explore → plan → build → observe |
-| `/helix-query <text>` | Search memory by meaning |
-| `/helix-stats` | Memory health metrics |
+### Builder (`agents/builder.md`)
 
-## Workspace Format
+Executes a single task. Reports DELIVERED or BLOCKED.
 
-Tasks produce workspace records in `.helix/helix.db`. Each workspace contains:
+Input:
+- `task_id`: Unique task identifier
+- `objective`: What to build
+- `verify`: Command to prove success
+- `relevant_files`: Files to read first
+- `failures_to_avoid`: Memory hints (with confidence: `[75%]` or `[unproven]`)
+- `patterns_to_apply`: Memory hints
+- `parent_deliveries`: Context from completed blockers
+- `warning`: Systemic issue to address first
 
-```yaml
-task_seq: "001"
-task_slug: "impl-auth"
-objective: "Implement JWT authentication"
-delta: ["src/auth.py", "tests/test_auth.py"]
-verify: "pytest tests/test_auth.py -v"
-budget: 7
-framework: "fastapi"
-idioms:
-  required: ["Use Depends() for auth"]
-  forbidden: ["Store passwords in plain text"]
-failures: [...]  # Injected memories to avoid
-patterns: [...]  # Injected memories to apply
-lineage:
-  parents: [{seq, slug, delivered}]  # What parent tasks delivered
+Output:
+```
+DELIVERED: <one-line summary>
+```
+Or:
+```
+BLOCKED: <reason>
+TRIED: <what attempted>
+ERROR: <message>
+```
+
+Task update before text output:
+```
+TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", ...})
 ```
 
 ## Memory System
 
-Unified semantic memory with effectiveness tracking.
+### Types
+
+| Type | Purpose | When stored |
+|------|---------|-------------|
+| **failure** | Something that went wrong | Builder blocks with generalizable cause |
+| **pattern** | Successful approach | Success required non-obvious discovery |
+| **systemic** | Recurring issue | Same failure pattern 3+ times |
+
+### 9 Primitives (`lib/memory/core.py`)
+
+```python
+store(trigger, resolution, type, source)  # → {"status": "added"|"merged", "name": "..."}
+recall(query, type, limit, expand)        # → [memories with _score, _relevance, _recency]
+get(name)                                  # → single memory dict
+edge(from_name, to_name, rel_type, weight) # → create/strengthen relationship
+edges(name, rel_type)                      # → query relationships
+feedback(names, delta)                     # → update scores
+decay(unused_days, min_uses)              # → halve scores on dormant memories
+prune(min_effectiveness, min_uses)        # → remove low performers
+health()                                   # → system status
+```
 
 ### Scoring Formula
 
@@ -189,167 +160,217 @@ effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
 recency = 2^(-days_since_use / 7)           # ACT-R decay, 7-day half-life
 ```
 
-Memories that help rise in ranking. Memories that don't help sink.
+### Graph System
 
-### Memory Types
+Edge types:
+- **solves**: Pattern's resolution solved a failure
+- **co_occurs**: Both memories helped same task
+- **causes**: Failure A led to discovering failure B
+- **similar**: Conceptual overlap worth preserving
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| **failure** | Error to avoid | "ImportError when using circular imports" → "Move shared types to separate module" |
-| **pattern** | Technique to apply | "FastAPI auth" → "Use Depends() with JWT validation" |
+Graph expansion (`--expand` flag) surfaces solutions connected to relevant failures.
 
-### Operations
+### Dual-Query Strategy (`lib/context.py`)
 
-```python
-# Store
-store(trigger, resolution, type="failure", source="")
-# → {"status": "added", "name": "import-error-circular", "reason": ""}
+Context builder uses two query paths:
+1. **Semantic search** on objective (natural language)
+2. **File pattern matching** on relevant files
 
-# Recall (semantic search)
-recall(query, type=None, limit=5, min_effectiveness=0.0)
-# → [{"name": "...", "trigger": "...", "_score": 0.73, ...}]
+Results are merged, deduped, and ranked by effectiveness.
 
-# Feedback (THE critical function)
-feedback(utilized=["mem-1"], injected=["mem-1", "mem-2"])
-# → {"helped": 1, "unhelpful": 1, "missing": []}
+Memory hints include confidence indicators:
+- `[75%]` = Memory helped 75% of the time
+- `[unproven]` = Not enough usage data yet
 
-# SOAR chunking
-chunk(task_objective, outcome="success", approach="...")
-# → {"status": "added", "name": "task-auth-impl", "reason": ""}
+## Context Flow
 
-# Graph relationships
-relate(from_name, to_name, rel_type, weight=1.0)
-connected(name, max_hops=2)
+### Lineage Protocol
+
+Parent deliveries passed to builders:
+```json
+[
+  {"seq": "001", "slug": "setup-auth", "delivered": "Created AuthService with JWT support"},
+  {"seq": "002", "slug": "add-routes", "delivered": "Added /login and /logout endpoints"}
+]
 ```
 
-### CLI Interface
+Builders use this context to understand what blockers produced.
 
-```bash
-# Store
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py store \
-    --trigger "situation" --resolution "action" --type failure
+### Warning Injection
 
-# Recall
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py recall "query" --limit 5
-
-# Feedback
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py feedback \
-    --utilized '["mem-1"]' --injected '["mem-1", "mem-2"]'
-
-# Health
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py health
-
-# Maintenance
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py consolidate  # merge similar
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py prune        # remove ineffective
-python3 $HELIX_PLUGIN_ROOT/lib/memory/core.py decay        # find dormant
+Systemic issues placed at prompt start (priority):
 ```
-
-### Semantic Deduplication
-
-85% cosine similarity threshold prevents near-duplicates:
-- Below 0.85: Stored as separate entry
-- At or above 0.85: Merged with existing entry
-
-### Embedding Model
-
-Uses `sentence-transformers all-MiniLM-L6-v2` for 384-dimensional embeddings. Falls back to effectiveness-based ranking when unavailable.
-
-### Metacognition
-
-The `meta.py` module provides approach assessment:
-
-```python
-assess_approach(task_objective, current_approach, memories)
-# → {"recommendation": "continue" | "pivot" | "escalate",
-#    "reason": "...", "attempts": 3, "suggested_pivot": "..."}
+WARNING: Repeated circular import failures in this codebase. Check imports before adding new dependencies.
 ```
-
-Detects stuck loops (same approach failing repeatedly) and suggests pivots based on memory patterns.
 
 ## Database Schema
 
-Single SQLite database at `.helix/helix.db`:
+SQLite database at `.helix/helix.db` (WAL mode, write lock for safe writes):
 
 ```sql
--- Memory layer
+-- Schema versioning
+CREATE TABLE schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
+
+-- Memories: learned failures, patterns, and systemic issues
 CREATE TABLE memory (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('failure', 'pattern')),
+    type TEXT NOT NULL,                -- failure, pattern, systemic
     trigger TEXT NOT NULL,
     resolution TEXT NOT NULL,
+    helped REAL DEFAULT 0,
+    failed REAL DEFAULT 0,
     embedding BLOB,
-    helped INTEGER DEFAULT 0,
-    failed INTEGER DEFAULT 0,
+    source TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     last_used TEXT,
-    source TEXT DEFAULT ''
+    file_patterns TEXT                 -- JSON array of extracted patterns
 );
 
+-- Memory relationships (graph edges)
 CREATE TABLE memory_edge (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_name TEXT NOT NULL,
     to_name TEXT NOT NULL,
-    rel_type TEXT NOT NULL,
+    rel_type TEXT NOT NULL,            -- solves, co_occurs, similar, causes
     weight REAL DEFAULT 1.0,
     created_at TEXT NOT NULL,
     UNIQUE(from_name, to_name, rel_type)
 );
 
--- Orchestration layer
-CREATE TABLE exploration (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    objective TEXT NOT NULL,
-    data TEXT NOT NULL,  -- JSON
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE plan (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    objective TEXT NOT NULL,
-    framework TEXT,
-    idioms TEXT,  -- JSON
-    tasks TEXT NOT NULL,  -- JSON array
-    status TEXT DEFAULT 'active',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE workspace (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plan_id INTEGER,
-    task_seq TEXT NOT NULL,
-    task_slug TEXT NOT NULL,
-    objective TEXT NOT NULL,
-    data TEXT NOT NULL,  -- JSON
-    status TEXT DEFAULT 'active',
-    delivered TEXT DEFAULT '',
-    utilized TEXT DEFAULT '[]',  -- JSON array
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (plan_id) REFERENCES plan(id)
+-- Normalized file patterns for efficient lookup
+CREATE TABLE memory_file_pattern (
+    memory_name TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    PRIMARY KEY (memory_name, pattern),
+    FOREIGN KEY (memory_name) REFERENCES memory(name) ON DELETE CASCADE
 );
 ```
 
-WAL mode enabled for concurrent reads. Write lock for safe writes.
+**Note**: Plan, workspace, and exploration tables were removed in schema v2 migration. Task management is handled by Claude Code's native Task system with metadata.
 
-## Configuration Constants
+## Orchestrator Utilities (`lib/orchestrator.py`)
 
-| Constant | Value | Location | Purpose |
-|----------|-------|----------|---------|
-| `DUPLICATE_THRESHOLD` | 0.85 | core.py | Semantic deduplication |
-| `DECAY_HALF_LIFE_DAYS` | 7 | core.py | Recency scoring |
-| `SCORE_WEIGHTS['relevance']` | 0.5 | core.py | Scoring formula |
-| `SCORE_WEIGHTS['effectiveness']` | 0.3 | core.py | Scoring formula |
-| `SCORE_WEIGHTS['recency']` | 0.2 | core.py | Scoring formula |
+```python
+detect_cycles(dependencies)     # → List of cycles found
+get_completed_task_ids(tasks)   # → IDs with helix_outcome="delivered"
+get_blocked_task_ids(tasks)     # → IDs with helix_outcome="blocked"
+get_ready_tasks(tasks)          # → IDs ready for execution
+check_stalled(tasks)            # → (is_stalled, stall_info)
+clear_checkpoints()             # → Clear all checkpoints
+```
 
-## Hooks
+## Task Utilities (`lib/tasks.py`)
 
-| Hook | Trigger | Script | Purpose |
-|------|---------|--------|---------|
-| SessionStart | Session begins | `setup-env.sh` | Initialize database, set env vars |
-| PreToolUse | Edit/Write | `inject-context.py` | Inject relevant memories |
+```python
+parse_builder_output(output)              # → {"status": "delivered"|"blocked", ...}
+close_feedback_loop_verified(task_id, verify_passed, injected)  # → feedback result
+```
 
-**inject-context.py**: Queries memory for relevant failures/patterns before file modifications. Injects via `additionalContext`. Requests UTILIZED reporting.
+**Verification-based feedback** is incorruptible: builders can't game the system by self-reporting.
+
+## CLI Reference
+
+### Memory Operations
+
+```bash
+HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+
+# Store
+python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
+
+# Recall (with graph expansion)
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+
+# Get single memory
+python3 "$HELIX/lib/memory/core.py" get "memory-name"
+
+# Create edge
+python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves --weight 1.0
+
+# Query edges
+python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
+python3 "$HELIX/lib/memory/core.py" edges --rel solves
+
+# Feedback
+python3 "$HELIX/lib/memory/core.py" feedback --names '["mem1", "mem2"]' --delta 0.5
+
+# Decay
+python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
+python3 "$HELIX/lib/memory/core.py" decay-edges --days 60
+
+# Prune
+python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
+
+# Consolidate
+python3 "$HELIX/lib/memory/core.py" consolidate
+
+# Health
+python3 "$HELIX/lib/memory/core.py" health
+
+# SOAR chunking
+python3 "$HELIX/lib/memory/core.py" chunk --task "..." --outcome "success..." --approach "..."
+```
+
+### Task Operations
+
+```bash
+# Parse builder output
+python3 "$HELIX/lib/tasks.py" parse-output "$output"
+
+# Close feedback loop via verification
+python3 "$HELIX/lib/tasks.py" feedback-verify --task-id "..." --verify-passed true --injected '[...]'
+```
+
+### Context Operations
+
+```bash
+# Build context from task data
+python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
+
+# Build lineage from completed tasks
+python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
+```
+
+### Orchestrator Operations
+
+```bash
+# Clear checkpoints
+python3 "$HELIX/lib/orchestrator.py" clear
+
+# Detect cycles
+python3 "$HELIX/lib/orchestrator.py" detect-cycles --dependencies '{...}'
+
+# Check stalled
+python3 "$HELIX/lib/orchestrator.py" check-stalled --tasks '[...]'
+```
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/helix <objective>` | Full pipeline: explore → plan → build |
+| `/helix-query <text>` | Search memory by meaning (with graph expansion) |
+| `/helix-stats` | Memory health metrics |
+
+## Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `HELIX_DB_PATH` | Custom database location | `.helix/helix.db` |
+| `HELIX_PLUGIN_ROOT` | Plugin root path | Read from `.helix/plugin_root` |
+
+## Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `DECAY_HALF_LIFE_DAYS` | 7 | Recency score half-life |
+| `DUPLICATE_THRESHOLD` | 0.85 | Semantic deduplication threshold |
+| `SCORE_WEIGHTS` | 0.5/0.3/0.2 | Relevance/effectiveness/recency |
+| `VALID_TYPES` | failure, pattern, systemic | Allowed memory types |
 
 ## File Structure
 
@@ -358,24 +379,25 @@ helix/
 ├── .claude-plugin/
 │   └── plugin.json           # Plugin manifest
 ├── agents/
-│   ├── explorer.md           # Context gathering (haiku)
+│   ├── explorer.md           # Parallel reconnaissance (haiku)
 │   ├── planner.md            # Task decomposition (opus)
-│   ├── builder.md            # Task execution (opus)
-│   └── observer.md           # Learning extraction (opus)
+│   └── builder.md            # Task execution (opus)
 ├── lib/
+│   ├── __init__.py           # Version: 2.0.0
 │   ├── memory/
 │   │   ├── __init__.py       # Clean exports
-│   │   ├── core.py           # store, recall, feedback, chunk, etc.
-│   │   ├── embeddings.py     # Semantic search
-│   │   └── meta.py           # Metacognition
+│   │   ├── core.py           # 9 primitives + utilities
+│   │   └── embeddings.py     # all-MiniLM-L6-v2
 │   ├── db/
-│   │   └── connection.py     # SQLite with unified schema
-│   ├── exploration.py        # Exploration storage
-│   ├── plan.py               # Plan management
-│   └── workspace.py          # Task execution context
+│   │   ├── __init__.py
+│   │   ├── connection.py     # SQLite singleton, WAL, write_lock
+│   │   └── schema.py         # Memory, MemoryEdge dataclasses
+│   ├── context.py            # Dual-query context building
+│   ├── tasks.py              # Output parsing, feedback helpers
+│   └── orchestrator.py       # Cycle detection, stall detection
 ├── scripts/
 │   ├── setup-env.sh          # SessionStart hook
-│   └── inject-context.py     # PreToolUse hook
+│   └── init.sh               # Database initialization
 ├── skills/
 │   ├── helix/
 │   │   └── SKILL.md          # Main orchestrator
@@ -383,40 +405,18 @@ helix/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
 │       └── SKILL.md          # Health check
-└── README.md
+└── .helix/                   # Runtime (created on first use)
+    ├── helix.db              # SQLite database
+    └── plugin_root           # Plugin path for sub-agents
 ```
-
-## What's Automated vs. What's Documented
-
-| Layer | How It Works | Reliability |
-|-------|--------------|-------------|
-| **Python Infrastructure** | Deterministic code | Guaranteed |
-| **Agent Instructions** | Claude following markdown specs | Probabilistic |
-
-**Automated (100% reliable):**
-- Semantic memory retrieval and scoring
-- Feedback loop closure (workspace.complete → memory.feedback)
-- Embedding generation and cosine similarity
-- Database transactions (ACID compliance)
-- Memory deduplication (85% threshold)
-- Recency decay calculation
-- PreToolUse memory injection
-
-**Documented (agent judgment):**
-- Pattern extraction decision (scores are guidance)
-- Error match determination (similarity + applicability)
-- Idiom compliance checking
-- UTILIZED reporting (depends on honest agent)
-- CLARIFY decision gate in Planner
-- Retry vs. block decision
 
 ## When to Use
 
 **Use helix when:**
-- Complex multi-step work requiring exploration first
+- Multi-step work requiring exploration first
 - Similar work has been done before (leverage learned context)
 - Verification needed at each phase
-- Framework-specific development with idiom enforcement
+- Past failures should inform future work
 
 **Skip helix when:**
 - Simple single-file changes
