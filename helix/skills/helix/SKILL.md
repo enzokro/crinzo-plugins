@@ -9,7 +9,7 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 When: Multi-step implementation requiring exploration.
 Not when: Simple edits, questions, single-file changes.
 
-**Core Principle:** 9 primitives, my judgment, graph connects knowledge.
+**Core Principle:** 11 primitives, my judgment, graph connects knowledge.
 
 ## Environment
 
@@ -259,11 +259,14 @@ python3 "$HELIX/lib/memory/core.py" feedback \
 | Memories have similar triggers (I note this) | `similar` | bidirectional | 0.5 each |
 | Pattern supersedes older, less effective pattern | `similar` | new → old | 1.0 |
 
-When to create edges:
-- **solves**: Builder explicitly avoided a known failure using injected pattern
-- **co_occurs**: Multiple injected memories all contributed to success
-- **causes**: Debugging one failure revealed another deeper failure
-- **similar**: I notice conceptual overlap worth preserving
+**Code-assisted edge discovery:** After storing a memory, query for suggestions:
+
+```bash
+# Get edge suggestions for a newly stored memory
+python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
+```
+
+Returns `[{from, to, rel_type, reason, confidence}]`. I review each suggestion and create edges with judgment:
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" edge \
@@ -273,20 +276,40 @@ python3 "$HELIX/lib/memory/core.py" edge \
     --weight 1.0
 ```
 
+When to create edges:
+- **solves**: Builder explicitly avoided a known failure using injected pattern
+- **co_occurs**: Multiple injected memories all contributed to success
+- **causes**: Debugging one failure revealed another deeper failure
+- **similar**: Code suggests high similarity OR I notice conceptual overlap
+
 Graph expansion surfaces solutions via edges on next recall.
 
-**Step G: Systemic detection (3x same failure)**
+**Step G: Systemic detection (code-assisted)**
 
-When the same failure pattern occurs 3+ times in a session:
+Before storing a failure, check if similar failures exist recently:
+
+```bash
+# Query for similar recent failures
+python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7 --type failure
+```
+
+**Decision table:**
+
+| `similar-recent` count | Action |
+|------------------------|--------|
+| 0-1 | Store as normal failure |
+| 2+ | Escalate to systemic type |
+
+If escalating to systemic:
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" store \
     --type systemic \
     --trigger "Repeated: {pattern_description}" \
-    --resolution "UNRESOLVED"
+    --resolution "UNRESOLVED - requires investigation"
 ```
 
-Mark as systemic. Recall will surface these as warnings.
+Systemic memories surface as warnings in context injection.
 
 **Step H: Learning extraction (judgment)**
 
@@ -349,7 +372,7 @@ Recovery command flow:
 
 ## CLI Reference
 
-### Memory (9 Primitives)
+### Memory (11 Primitives)
 
 ```bash
 # Store
@@ -378,6 +401,12 @@ python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 
 # Health check
 python3 "$HELIX/lib/memory/core.py" health
+
+# Code-assisted systemic detection (check before storing failures)
+python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7
+
+# Code-assisted edge discovery (check after storing memories)
+python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 ```
 
 ### Tasks
@@ -433,12 +462,12 @@ Contracts define input/output schemas in `agents/*.md`.
 
 ## The Philosophy
 
-The code is muscle. I am mind.
+The code guides active, orchestrated judgement.
 
-9 primitives. My judgment drives everything:
-- What weight to pass to `feedback()`
-- When to create edges and what type
-- When to store systemic patterns
-- What memories to inject
+11 primitives. Code surfaces candidates, my judgment decides:
+- `similar-recent` surfaces patterns → I decide escalation to systemic
+- `suggest-edges` surfaces connections → I decide which edges to create
+- `feedback` accepts my delta → I decide the weight based on relevance
+- `recall` returns candidates → I decide what to inject
 
-Graph connects knowledge. Parallel is natural. Systemic patterns are just memories.
+The graph connects knowledge, and code amplifies judgment.

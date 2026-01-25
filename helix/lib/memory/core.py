@@ -284,6 +284,61 @@ def get(name: str) -> Optional[dict]:
     return _to_dict(row) if row else None
 
 
+def similar_recent(
+    trigger: str,
+    threshold: float = 0.7,
+    days: int = 7,
+    type: Optional[str] = None
+) -> List[dict]:
+    """Find memories with similar triggers created in the last N days.
+
+    Used for systemic detection: if len(result) >= 2 before storing a failure,
+    the orchestrator should escalate to systemic type.
+
+    Args:
+        trigger: The trigger text to compare against
+        threshold: Cosine similarity threshold (default 0.7)
+        days: Look back window in days (default 7)
+        type: Optional filter by memory type
+
+    Returns:
+        List of similar memories with _similarity score, sorted by similarity desc.
+    """
+    db = get_db()
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    # Build query
+    sql = "SELECT * FROM memory WHERE embedding IS NOT NULL AND created_at >= ?"
+    params = [cutoff]
+    if type:
+        sql += " AND type=?"
+        params.append(type)
+
+    rows = db.execute(sql, params).fetchall()
+    if not rows:
+        return []
+
+    # Get embedding for trigger
+    trigger_emb = embed(trigger)
+    if trigger_emb is None:
+        # Fallback: return recent memories without similarity scoring
+        return [_to_dict(r) for r in rows[:10]]
+
+    # Score by similarity
+    results = []
+    for r in rows:
+        if not r["embedding"]:
+            continue
+        sim = cosine(trigger_emb, from_blob(r["embedding"]))
+        if sim >= threshold:
+            m = _to_dict(r)
+            m["_similarity"] = round(sim, 3)
+            results.append((sim, m))
+
+    results.sort(key=lambda x: -x[0])
+    return [m for _, m in results]
+
+
 def edge(from_name: str, to_name: str, rel_type: str, weight: float = 1.0) -> dict:
     """Create or strengthen edge between memories.
 
@@ -335,6 +390,86 @@ def edges(name: Optional[str] = None, rel_type: Optional[str] = None) -> List[di
 
     rows = db.execute(query, params).fetchall()
     return [dict(row) for row in rows]
+
+
+def suggest_edges(memory_name: str, limit: int = 5) -> List[dict]:
+    """Suggest edge connections for a memory based on semantic similarity.
+
+    After storing a new memory, call this to surface potential edges.
+    The orchestrator reviews suggestions and creates edges with judgment.
+
+    Args:
+        memory_name: Name of the memory to find edge candidates for
+        limit: Maximum suggestions to return
+
+    Returns:
+        List of suggestions: [{from, to, rel_type, reason, confidence}]
+        - 'solves': pattern that might solve a failure
+        - 'co_occurs': memories with similar context (same files/framework)
+        - 'similar': semantically similar memories
+    """
+    db = get_db()
+
+    # Get the source memory
+    source = db.execute("SELECT * FROM memory WHERE name=?", (memory_name,)).fetchone()
+    if not source:
+        return []
+
+    source_emb = from_blob(source["embedding"]) if source["embedding"] else None
+    source_type = source["type"]
+    source_trigger = source["trigger"]
+
+    suggestions = []
+    seen_pairs = set()
+
+    # Get existing edges to avoid suggesting duplicates
+    existing = {(e["from_name"], e["to_name"], e["rel_type"]) for e in edges(name=memory_name)}
+
+    # 1. Find semantically similar memories
+    if source_emb:
+        for row in db.execute("SELECT * FROM memory WHERE name != ? AND embedding IS NOT NULL", (memory_name,)):
+            other_emb = from_blob(row["embedding"])
+            sim = cosine(source_emb, other_emb)
+
+            if sim >= 0.6:  # Lower threshold for suggestions
+                pair_key = tuple(sorted([memory_name, row["name"]]))
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                # Determine rel_type based on memory types
+                if source_type == "pattern" and row["type"] == "failure":
+                    rel_type = "solves"
+                    direction = (memory_name, row["name"])
+                    reason = f"Pattern may solve failure (similarity: {sim:.2f})"
+                elif source_type == "failure" and row["type"] == "pattern":
+                    rel_type = "solves"
+                    direction = (row["name"], memory_name)
+                    reason = f"Pattern may solve this failure (similarity: {sim:.2f})"
+                elif source_type == row["type"]:
+                    rel_type = "similar"
+                    direction = (memory_name, row["name"])
+                    reason = f"Similar {source_type}s (similarity: {sim:.2f})"
+                else:
+                    rel_type = "co_occurs"
+                    direction = (memory_name, row["name"])
+                    reason = f"Related memories (similarity: {sim:.2f})"
+
+                # Skip if edge already exists
+                if (*direction, rel_type) in existing:
+                    continue
+
+                suggestions.append({
+                    "from": direction[0],
+                    "to": direction[1],
+                    "rel_type": rel_type,
+                    "reason": reason,
+                    "confidence": round(sim, 3)
+                })
+
+    # Sort by confidence and limit
+    suggestions.sort(key=lambda x: -x["confidence"])
+    return suggestions[:limit]
 
 
 def _expand_via_edges(names: List[str], depth: int = 1) -> Set[str]:
@@ -628,7 +763,27 @@ def recall_by_file_patterns(delta_files: List[str], limit: int = 3) -> List[dict
 
 
 def feedback_from_verification(task_id: str, verify_passed: bool, injected: List[str], task_objective: str = "") -> dict:
-    """Legacy wrapper - close feedback loop based on verification outcome."""
+    """DEPRECATED: Use feedback() with explicit delta instead.
+
+    This function uses fixed ±0.5 delta which undermines the orchestrator's
+    judgment-based feedback mechanism. The orchestrator should decide delta
+    based on memory relevance to the outcome:
+
+        | Situation                        | Delta |
+        |----------------------------------|-------|
+        | Success, memory was relevant     | +0.7  |
+        | Success, memory was tangential   | +0.3  |
+        | Failure, memory may have misled  | -0.5  |
+        | Failure, memory was irrelevant   | -0.2  |
+
+    Prefer: feedback(names=['mem1', 'mem2'], delta=0.7)
+    """
+    import warnings
+    warnings.warn(
+        "feedback_from_verification() is deprecated. Use feedback(names, delta) with explicit delta.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     delta = 0.5 if verify_passed else -0.5
     result = feedback(injected, delta)
     # Map to legacy response format
@@ -667,9 +822,23 @@ def chunk(task_objective: str, outcome: str, approach: str, source: str = "chunk
 # CLI
 # =============================================================================
 
+def _log_verbose(cmd: str, args: dict, result: dict) -> None:
+    """Print structured log to stderr when --verbose is enabled."""
+    import sys
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "command": cmd,
+        "args": args,
+        "result_type": type(result).__name__,
+        "result_size": len(result) if isinstance(result, (list, dict)) else 1
+    }
+    print(json.dumps(log_entry), file=sys.stderr)
+
+
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser(description="Helix memory operations")
+    p.add_argument("--verbose", "-v", action="store_true", help="Print structured log to stderr")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("store")
@@ -684,6 +853,12 @@ if __name__ == "__main__":
     s.add_argument("--limit", type=int, default=5)
     s.add_argument("--expand", action="store_true", help="Include 1-hop graph neighbors")
 
+    s = sub.add_parser("similar-recent", help="Find similar memories for systemic detection")
+    s.add_argument("trigger", help="Trigger text to compare against")
+    s.add_argument("--threshold", type=float, default=0.7, help="Cosine similarity threshold")
+    s.add_argument("--days", type=int, default=7, help="Look back window in days")
+    s.add_argument("--type", default=None, help="Filter by memory type")
+
     s = sub.add_parser("get")
     s.add_argument("name")
 
@@ -696,6 +871,10 @@ if __name__ == "__main__":
     s = sub.add_parser("edges")
     s.add_argument("--name", default=None)
     s.add_argument("--rel", default=None)
+
+    s = sub.add_parser("suggest-edges", help="Suggest edge connections for a memory")
+    s.add_argument("memory_name", help="Name of the memory to find edge candidates for")
+    s.add_argument("--limit", type=int, default=5, help="Maximum suggestions to return")
 
     s = sub.add_parser("feedback")
     s.add_argument("--names", required=True, help="JSON list of memory names")
@@ -728,11 +907,14 @@ if __name__ == "__main__":
     s.add_argument("--source", default="chunked")
 
     args = p.parse_args()
+    r = None
 
     if args.cmd == "store":
         r = store(args.trigger, args.resolution, args.type, args.source)
     elif args.cmd == "recall":
         r = recall(args.query, args.type, args.limit, expand=args.expand)
+    elif args.cmd == "similar-recent":
+        r = similar_recent(args.trigger, args.threshold, args.days, args.type)
     elif args.cmd == "get":
         r = get(args.name)
         if r is None:
@@ -741,6 +923,8 @@ if __name__ == "__main__":
         r = edge(args.from_name, args.to_name, args.rel, args.weight)
     elif args.cmd == "edges":
         r = edges(args.name, args.rel)
+    elif args.cmd == "suggest-edges":
+        r = suggest_edges(args.memory_name, args.limit)
     elif args.cmd == "feedback":
         r = feedback(json.loads(args.names), args.delta)
     elif args.cmd == "feedback-verify":
@@ -761,5 +945,10 @@ if __name__ == "__main__":
         r = consolidate()
     elif args.cmd == "chunk":
         r = chunk(args.task, args.outcome, args.approach, args.source)
+
+    # Verbose logging
+    if args.verbose and r is not None:
+        cmd_args = {k: v for k, v in vars(args).items() if k not in ('cmd', 'verbose')}
+        _log_verbose(args.cmd, cmd_args, r)
 
     print(json.dumps(r, indent=2))

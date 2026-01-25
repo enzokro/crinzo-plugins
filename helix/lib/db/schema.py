@@ -24,6 +24,9 @@ class Memory:
 
     Memories earn their place through demonstrated usefulness.
     The feedback loop tracks helped/failed to rank by effectiveness.
+
+    NOTE: This dataclass documents the schema but is not instantiated.
+    Storage uses raw SQL; retrieval uses _to_dict() in core.py.
     """
     name: str
     type: str  # "failure", "pattern", or "systemic"
@@ -34,13 +37,14 @@ class Memory:
     helped: float = 0
     failed: float = 0
 
-    # Semantic search
+    # Semantic search (384-dim all-MiniLM-L6-v2)
     embedding: Optional[bytes] = None
 
     # Metadata
     source: str = ""  # Where this came from
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_used: Optional[str] = None
+    file_patterns: Optional[str] = None  # JSON list of extracted file paths
 
     # Auto-generated
     id: Optional[int] = None

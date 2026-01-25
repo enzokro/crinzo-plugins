@@ -55,4 +55,29 @@ python3 "$HELIX/lib/memory/core.py" edges --rel solves
 
 # Create an edge (pattern solves failure)
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern-name" --to "failure-name" --rel solves
+
+# Get edge suggestions for a memory (code-assisted)
+python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
+```
+
+## Systemic Detection
+
+Find similar recent failures (for escalation decisions):
+
+```bash
+# Check for recurring failure patterns
+python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7
+
+# Filter by type
+python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --type failure --days 14
+```
+
+If count >= 2, consider escalating to systemic type.
+
+## Verbose Mode
+
+All commands support `--verbose` for structured stderr logging:
+
+```bash
+python3 "$HELIX/lib/memory/core.py" --verbose health
 ```
