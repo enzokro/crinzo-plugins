@@ -2,7 +2,7 @@
 """Task operations helper for helix orchestrator.
 
 This module provides CLI utilities for the orchestrator (SKILL.md) to:
-- Parse builder output (DELIVERED/BLOCKED, UTILIZED)
+- Parse builder output (DELIVERED/BLOCKED)
 - Close feedback loop after task completion
 - Build lineage from completed tasks
 
@@ -10,45 +10,44 @@ Note: The actual TaskCreate/TaskList/TaskGet/TaskUpdate calls are made
 directly by the orchestrator using Claude Code's native Task tools.
 This module handles the helix-specific logic around those calls.
 
+ARCHITECTURAL PRINCIPLE: Single Source of Truth
+-----------------------------------------------
+Task state is tracked in TaskList metadata via 'helix_outcome' field.
+Cycle detection is handled by orchestrator.py (canonical implementation).
+
 Usage from SKILL.md:
     # Parse builder output
     python3 $HELIX/lib/tasks.py parse-output "$builder_output"
 
     # Close feedback loop after completion
-    python3 $HELIX/lib/tasks.py feedback \
-        --utilized '["mem1"]' \
+    python3 $HELIX/lib/tasks.py feedback-verify \
+        --task-id "task-123" \
+        --verify-passed true \
         --injected '["mem1", "mem2"]'
 """
 
 import json
-import re
 import sys
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
 try:
-    from .memory import feedback as memory_feedback
     from .memory import feedback_from_verification as memory_feedback_verify
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
-    from memory import feedback as memory_feedback
     from memory import feedback_from_verification as memory_feedback_verify
 
 
 def parse_builder_output(output: str) -> dict:
-    """Parse helix-builder output to extract status and utilized memories.
+    """Parse helix-builder output to extract status.
 
     Builder outputs in format:
         DELIVERED: <summary>
-        UTILIZED:
-        - memory-name: how it helped
 
     Or:
         BLOCKED: <reason>
         TRIED: <what was attempted>
         ERROR: <error message>
-        UTILIZED:
-        - memory-name: how it helped
 
     Args:
         output: Raw builder output string
@@ -58,16 +57,14 @@ def parse_builder_output(output: str) -> dict:
             "status": "delivered" | "blocked",
             "summary": "<delivered summary or blocked reason>",
             "tried": "<what was tried if blocked>",
-            "error": "<error if any>",
-            "utilized": ["memory-name-1", "memory-name-2"]
+            "error": "<error if any>"
         }
     """
     result = {
         "status": "unknown",
         "summary": "",
         "tried": "",
-        "error": "",
-        "utilized": []
+        "error": ""
     }
 
     lines = output.strip().split("\n")
@@ -85,52 +82,7 @@ def parse_builder_output(output: str) -> dict:
         elif line.startswith("ERROR:"):
             result["error"] = line.replace("ERROR:", "").strip()
 
-    # Extract UTILIZED memories
-    # Format: "- memory-name: explanation" or just "- memory-name"
-    in_utilized = False
-    for line in lines:
-        if line.strip() == "UTILIZED:" or line.strip().startswith("UTILIZED:"):
-            in_utilized = True
-            # Check for "UTILIZED: none" case
-            if "none" in line.lower():
-                in_utilized = False
-            continue
-
-        if in_utilized:
-            if line.strip().startswith("-"):
-                # Extract memory name (before colon if present)
-                mem_part = line.strip()[1:].strip()
-                mem_name = mem_part.split(":")[0].strip()
-                if mem_name and mem_name.lower() != "none":
-                    result["utilized"].append(mem_name)
-            elif line.strip() and not line.startswith(" "):
-                # End of UTILIZED section
-                in_utilized = False
-
     return result
-
-
-def close_feedback_loop(utilized: List[str], injected: List[str]) -> dict:
-    """Close the feedback loop after task completion (DEPRECATED).
-
-    DEPRECATED: Prefer close_feedback_loop_verified() which uses objective
-    verification outcomes instead of self-reported utilization.
-
-    This is THE critical learning mechanism. Memories that helped get
-    their 'helped' count incremented. Memories that were injected but
-    not utilized get their 'failed' count incremented.
-
-    Args:
-        utilized: Memory names the builder reported as actually helpful
-        injected: Memory names that were injected into the builder context
-
-    Returns:
-        Result from memory.feedback()
-    """
-    try:
-        return memory_feedback(utilized, injected)
-    except Exception as e:
-        return {"status": "error", "reason": str(e)}
 
 
 def close_feedback_loop_verified(
@@ -209,57 +161,6 @@ def extract_task_id_mapping(planner_output: str) -> dict:
     return mapping
 
 
-def detect_cycles(dependencies: dict) -> List[List[str]]:
-    """Detect cycles in task dependency graph.
-
-    Uses DFS with recursion stack to find back edges.
-
-    Args:
-        dependencies: Dict mapping task_id to list of blocker task_ids
-                      e.g., {"task-1": ["task-2", "task-3"], "task-2": ["task-3"]}
-
-    Returns:
-        List of cycles found. Each cycle is a list of task IDs.
-        Empty list if no cycles.
-
-    Example:
-        >>> detect_cycles({"a": ["b"], "b": ["a"]})
-        [["a", "b", "a"]]
-    """
-    cycles = []
-    visited = set()
-    rec_stack = set()
-
-    def dfs(node: str, path: List[str]) -> None:
-        if node in rec_stack:
-            # Found cycle - extract the cycle portion
-            try:
-                cycle_start = path.index(node)
-                cycle = path[cycle_start:] + [node]
-                cycles.append(cycle)
-            except ValueError:
-                pass
-            return
-
-        if node in visited:
-            return
-
-        visited.add(node)
-        rec_stack.add(node)
-
-        for neighbor in dependencies.get(node, []):
-            dfs(neighbor, path + [node])
-
-        rec_stack.discard(node)
-
-    # Run DFS from each node
-    for node in dependencies:
-        if node not in visited:
-            dfs(node, [])
-
-    return cycles
-
-
 # CLI
 def _cli():
     import argparse
@@ -271,12 +172,7 @@ def _cli():
     p = subparsers.add_parser("parse-output", help="Parse builder output")
     p.add_argument("output", help="Builder output string")
 
-    # feedback (deprecated)
-    p = subparsers.add_parser("feedback", help="Close feedback loop (deprecated)")
-    p.add_argument("--utilized", required=True, help="JSON list of utilized memory names")
-    p.add_argument("--injected", required=True, help="JSON list of injected memory names")
-
-    # feedback-verify (preferred)
+    # feedback-verify
     p = subparsers.add_parser("feedback-verify", help="Close feedback loop via verification")
     p.add_argument("--task-id", required=True, help="Task ID that completed")
     p.add_argument("--verify-passed", required=True, help="true/false - did verify command pass?")
@@ -286,20 +182,10 @@ def _cli():
     p = subparsers.add_parser("extract-mapping", help="Extract task ID mapping from planner output")
     p.add_argument("output", help="Planner output string")
 
-    # detect-cycles
-    p = subparsers.add_parser("detect-cycles", help="Detect circular dependencies")
-    p.add_argument("dependencies", help="JSON dict of {task_id: [blocker_ids]}")
-
     args = parser.parse_args()
 
     if args.command == "parse-output":
         result = parse_builder_output(args.output)
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "feedback":
-        utilized = json.loads(args.utilized)
-        injected = json.loads(args.injected)
-        result = close_feedback_loop(utilized, injected)
         print(json.dumps(result, indent=2))
 
     elif args.command == "feedback-verify":
@@ -315,11 +201,6 @@ def _cli():
     elif args.command == "extract-mapping":
         result = extract_task_id_mapping(args.output)
         print(json.dumps(result, indent=2))
-
-    elif args.command == "detect-cycles":
-        deps = json.loads(args.dependencies)
-        cycles = detect_cycles(deps)
-        print(json.dumps({"cycles": cycles, "has_cycles": len(cycles) > 0}))
 
 
 if __name__ == "__main__":

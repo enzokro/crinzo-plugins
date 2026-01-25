@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 """PreToolUse hook for logging Edit/Write operations.
 
-Context injection is now handled by build_context() at task start.
+Context injection is handled by build_context() at task start.
 This hook only logs file operations for debugging and audit purposes.
 
-The dual-path injection (build_prompt + hook) has been unified:
-- OLD: Hook queries memory, injects context, tracks in separate file
-- NEW: build_context() does all injection at task start, single tracking location
-
-This hook is kept for:
-1. Logging file operations for debugging
-2. Potential future delta enforcement (checking files are in delta)
+Keep this hook for:
+1. Debugging file operations during development
+2. Audit trail of modifications during builds
 """
 import json
 import sys
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -55,7 +50,6 @@ def main():
     log("OK", file_path, f"Tool: {tool_name}")
 
     # No output = no modification to tool behavior
-    # Context injection is handled by build_context() at task start
     sys.exit(0)
 
 

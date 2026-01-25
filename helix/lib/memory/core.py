@@ -4,10 +4,10 @@
 Core API:
 - store(trigger, resolution, type) -> name
 - recall(query, limit) -> memories ranked by relevance x effectiveness x recency
+- recall_by_file_patterns(patterns, limit) -> memories matching file patterns
 - feedback(utilized, injected) -> closes the loop (THE critical function)
+- feedback_from_verification(task_id, verify_passed, injected) -> verification-based feedback
 - chunk(task, outcome, approach) -> extract reusable rule from success (SOAR)
-- relate(a, b, type) -> creates connection
-- connected(name) -> related memories via graph traversal
 - health() -> system status
 - prune() -> removes ineffective memories
 - decay() -> find dormant memories
@@ -465,65 +465,6 @@ def chunk(
     )
 
 
-def relate(from_name: str, to_name: str, rel_type: str, weight: float = 1.0) -> dict:
-    """Create relationship between memories."""
-    db = get_db()
-
-    for n in [from_name, to_name]:
-        if not db.execute("SELECT 1 FROM memory WHERE name=?", (n,)).fetchone():
-            return {"status": "rejected", "reason": f"memory not found: {n}"}
-
-    now = datetime.now().isoformat()
-    with write_lock():
-        try:
-            db.execute(
-                "INSERT INTO memory_edge (from_name, to_name, rel_type, weight, created_at) VALUES (?,?,?,?,?)",
-                (from_name, to_name, rel_type, weight, now)
-            )
-            db.commit()
-            return {"status": "added"}
-        except:
-            return {"status": "exists"}
-
-
-def connected(name: str, max_hops: int = 2) -> List[dict]:
-    """Find connected memories via graph traversal."""
-    db = get_db()
-    if not db.execute("SELECT 1 FROM memory WHERE name=?", (name,)).fetchone():
-        return []
-
-    visited = {name}
-    results = []
-    frontier = [name]
-
-    for hop in range(1, max_hops + 1):
-        next_frontier = []
-        for current in frontier:
-            edges = db.execute(
-                "SELECT to_name, rel_type, weight FROM memory_edge WHERE from_name=? "
-                "UNION SELECT from_name, rel_type, weight FROM memory_edge WHERE to_name=?",
-                (current, current)
-            ).fetchall()
-
-            for e in edges:
-                neighbor = e["to_name"] if e["to_name"] != current else e["from_name"]
-                if neighbor in visited or e["weight"] < 0.5:
-                    continue
-                visited.add(neighbor)
-                next_frontier.append(neighbor)
-
-                row = db.execute("SELECT * FROM memory WHERE name=?", (neighbor,)).fetchone()
-                if row:
-                    m = _to_dict(row)
-                    m["_hop"] = hop
-                    m["_via"] = e["rel_type"]
-                    results.append(m)
-
-        frontier = next_frontier
-
-    return results
-
-
 def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     """Remove memories that have proven unhelpful."""
     db = get_db()
@@ -698,14 +639,6 @@ if __name__ == "__main__":
     s.add_argument("--verify-passed", type=lambda x: x.lower() == "true", required=True)
     s.add_argument("--injected", required=True)
 
-    s = sub.add_parser("relate")
-    s.add_argument("--from", dest="from_name", required=True)
-    s.add_argument("--to", dest="to_name", required=True)
-    s.add_argument("--type", dest="rel_type", required=True)
-
-    s = sub.add_parser("connected")
-    s.add_argument("name")
-
     sub.add_parser("prune")
     sub.add_parser("health")
 
@@ -738,10 +671,6 @@ if __name__ == "__main__":
             verify_passed=args.verify_passed,
             injected=json.loads(args.injected)
         )
-    elif args.cmd == "relate":
-        r = relate(args.from_name, args.to_name, args.rel_type)
-    elif args.cmd == "connected":
-        r = connected(args.name)
     elif args.cmd == "prune":
         r = prune()
     elif args.cmd == "health":

@@ -2,7 +2,6 @@
 """Agent contract loader and validator.
 
 Provides structured validation of agent inputs/outputs against YAML schemas.
-Replaces prose-based agent definitions with enforceable contracts.
 
 Usage:
     from lib.agents import AgentContract
@@ -122,31 +121,62 @@ class AgentContract:
         self.config = self._load_config()
         self.input_schema = self.config.get("input_schema", {})
         self.output_schema = self.config.get("output_schema", {})
-        self.constraints = self.config.get("constraints", [])
         self.tools = self.config.get("tools", [])
         self.model = self.config.get("model", "opus")
-        self.budget = self.config.get("budget")
 
     def _load_config(self) -> dict:
-        """Load agent config from YAML file."""
-        # Find plugin root
+        """Load agent config from MD frontmatter or YAML file.
+
+        Tries MD file first (with YAML frontmatter), falls back to .yaml file.
+        """
         plugin_root = Path(__file__).parent.parent
-        config_path = plugin_root / "agents" / f"{self.name}.yaml"
+        clean_name = self.name.replace("helix-", "")
 
-        if not config_path.exists():
-            # Try with helix- prefix stripped
-            clean_name = self.name.replace("helix-", "")
-            config_path = plugin_root / "agents" / f"{clean_name}.yaml"
+        # Try MD file first (preferred)
+        md_path = plugin_root / "agents" / f"{clean_name}.md"
+        if md_path.exists():
+            content = md_path.read_text()
+            frontmatter = self._extract_frontmatter(content)
+            if frontmatter:
+                return frontmatter
 
-        if not config_path.exists():
-            raise FileNotFoundError(f"Agent config not found: {config_path}")
+        # Fall back to YAML file
+        yaml_path = plugin_root / "agents" / f"{clean_name}.yaml"
+        if not yaml_path.exists():
+            yaml_path = plugin_root / "agents" / f"{self.name}.yaml"
 
-        content = config_path.read_text()
+        if yaml_path.exists():
+            content = yaml_path.read_text()
+            if HAS_YAML:
+                return yaml.safe_load(content)
+            else:
+                return _parse_yaml_basic(content)
+
+        raise FileNotFoundError(f"Agent config not found for: {self.name}")
+
+    def _extract_frontmatter(self, content: str) -> Optional[dict]:
+        """Extract YAML frontmatter from markdown file.
+
+        Expects format:
+        ---
+        key: value
+        ---
+        # Markdown content
+        """
+        if not content.startswith("---"):
+            return None
+
+        # Find closing ---
+        end_idx = content.find("\n---", 3)
+        if end_idx == -1:
+            return None
+
+        frontmatter_text = content[4:end_idx].strip()
 
         if HAS_YAML:
-            return yaml.safe_load(content)
+            return yaml.safe_load(frontmatter_text)
         else:
-            return _parse_yaml_basic(content)
+            return _parse_yaml_basic(frontmatter_text)
 
     def validate_input(self, input_data: dict) -> Tuple[bool, Optional[str]]:
         """Validate input against schema.
@@ -193,84 +223,6 @@ class AgentContract:
             return True, None
         except ValidationError as e:
             return False, str(e.message)
-
-    def check_constraint(
-        self,
-        constraint_id: str,
-        context: dict
-    ) -> Tuple[bool, Optional[str]]:
-        """Check a specific constraint.
-
-        Args:
-            constraint_id: The constraint ID to check
-            context: Dict with tool_input, task_input, etc.
-
-        Returns:
-            (is_valid, error_message or None)
-        """
-        for c in self.constraints:
-            if c.get("id") == constraint_id:
-                if "validation" in c:
-                    return self._eval_constraint(c["validation"], context)
-        return True, None
-
-    def check_delta_constraint(
-        self,
-        file_path: str,
-        delta: List[str]
-    ) -> Tuple[bool, Optional[str]]:
-        """Check if a file path is allowed by delta constraint.
-
-        Args:
-            file_path: The file being modified
-            delta: List of allowed file paths
-
-        Returns:
-            (is_valid, error_message or None)
-        """
-        if not delta:
-            return True, None
-
-        # Normalize paths for comparison
-        file_path_normalized = Path(file_path).resolve()
-
-        for d in delta:
-            d_normalized = Path(d).resolve()
-            # Exact match
-            if file_path_normalized == d_normalized:
-                return True, None
-            # Suffix match (for relative paths)
-            if str(file_path_normalized).endswith(d) or str(d_normalized).endswith(str(file_path)):
-                return True, None
-            # Name match (for same filename)
-            if file_path_normalized.name == Path(d).name:
-                return True, None
-
-        return False, f"File {file_path} not in delta: {delta}"
-
-    def _eval_constraint(
-        self,
-        expr: str,
-        context: dict
-    ) -> Tuple[bool, Optional[str]]:
-        """Safely evaluate a constraint expression.
-
-        Supports limited expressions like:
-        - tool_input.file_path in task_input.delta
-        """
-        try:
-            tool_input = context.get("tool_input", {})
-            task_input = context.get("task_input", {})
-
-            # Handle delta enforcement
-            if "file_path" in expr and "delta" in expr:
-                file_path = tool_input.get("file_path", "")
-                delta = task_input.get("delta", [])
-                return self.check_delta_constraint(file_path, delta)
-
-            return True, None
-        except Exception as e:
-            return False, f"Constraint evaluation error: {e}"
 
     def get_tools_list(self) -> List[str]:
         """Get list of tools this agent can use."""
@@ -343,8 +295,7 @@ class AgentContract:
             "status": "unknown",
             "summary": "",
             "tried": "",
-            "error": "",
-            "utilized": []
+            "error": ""
         }
 
         for line in output.strip().split("\n"):
@@ -359,22 +310,6 @@ class AgentContract:
             elif line.startswith("ERROR:"):
                 result["error"] = line.replace("ERROR:", "").strip()
 
-        # Parse UTILIZED section
-        in_utilized = False
-        for line in output.strip().split("\n"):
-            if "UTILIZED:" in line:
-                in_utilized = True
-                if "none" in line.lower():
-                    in_utilized = False
-                continue
-            if in_utilized and line.strip().startswith("-"):
-                mem_part = line.strip()[1:].strip()
-                mem_name = mem_part.split(":")[0].strip()
-                if mem_name and mem_name.lower() != "none":
-                    result["utilized"].append(mem_name)
-            elif in_utilized and line.strip() and not line.startswith(" "):
-                in_utilized = False
-
         return result
 
 
@@ -388,8 +323,14 @@ def get_all_contracts() -> Dict[str, AgentContract]:
     plugin_root = Path(__file__).parent.parent
     agents_dir = plugin_root / "agents"
 
+    # Collect unique agent names from both .md and .yaml files
+    agent_names = set()
+    for md_file in agents_dir.glob("*.md"):
+        agent_names.add(md_file.stem)
     for yaml_file in agents_dir.glob("*.yaml"):
-        name = yaml_file.stem
+        agent_names.add(yaml_file.stem)
+
+    for name in agent_names:
         try:
             contracts[name] = AgentContract(name)
         except Exception as e:

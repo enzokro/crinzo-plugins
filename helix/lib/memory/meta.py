@@ -242,6 +242,35 @@ class OrchestratorMeta:
                 blocked.append(task_id)
         return blocked
 
+    def get_active_warnings(self) -> Optional[str]:
+        """Get warning message for systemic patterns detected 3+ times.
+
+        Returns a warning string if a pattern has been seen 3+ times,
+        suitable for injection into builder context. Returns None if
+        no concerning patterns detected.
+
+        This enables direct pattern injection - the warning is surfaced
+        to builders so they can address systemic issues proactively.
+        """
+        if not self.systemic_patterns:
+            return None
+
+        # Count pattern occurrences
+        pattern_counts = {}
+        for p in self.systemic_patterns:
+            pattern_counts[p] = pattern_counts.get(p, 0) + 1
+
+        # Find patterns with 3+ occurrences
+        concerning = [(p, c) for p, c in pattern_counts.items() if c >= 3]
+        if not concerning:
+            return None
+
+        # Return most frequent pattern as warning
+        most_frequent = max(concerning, key=lambda x: x[1])
+        pattern, count = most_frequent
+
+        return f"Systemic issue detected: {pattern} (seen {count}x). Address this first before proceeding."
+
     def _persist(self):
         """Save state to disk for session recovery."""
         path = Path.cwd() / ".helix" / "meta_state.json"
@@ -303,133 +332,6 @@ class OrchestratorMeta:
         return False
 
 
-# Legacy functions for backwards compatibility
-# The old approach was builder-level and advisory only.
-
-# Session-level tracking (not persisted) - kept for legacy
-_attempt_history: Dict[str, List[dict]] = {}
-
-
-def assess_approach(
-    task_objective: str,
-    current_approach: str,
-    memories: Optional[List[dict]] = None
-) -> dict:
-    """Assess whether to continue with current approach or pivot.
-
-    LEGACY: This function provides builder-level metacognition.
-    For orchestrator-level awareness, use OrchestratorMeta.
-
-    Args:
-        task_objective: What we're trying to accomplish
-        current_approach: How we're trying to do it
-        memories: Relevant memories from recall()
-
-    Returns:
-        {
-            "recommendation": "continue" | "pivot" | "escalate",
-            "reason": str,
-            "attempts": int,
-            "suggested_pivot": str | None
-        }
-    """
-    # Track this attempt
-    key = task_objective[:100]
-    if key not in _attempt_history:
-        _attempt_history[key] = []
-
-    _attempt_history[key].append({
-        "approach": current_approach,
-        "timestamp": datetime.now().isoformat()
-    })
-
-    attempts = _attempt_history[key]
-    attempt_count = len(attempts)
-
-    # Check for repeated same approach
-    if attempt_count >= 3:
-        recent_approaches = [a["approach"][:50] for a in attempts[-3:]]
-        if len(set(recent_approaches)) == 1:
-            pivot_suggestion = _suggest_pivot(task_objective, current_approach, memories or [])
-            return {
-                "recommendation": "pivot",
-                "reason": f"Same approach attempted {attempt_count} times without success",
-                "attempts": attempt_count,
-                "suggested_pivot": pivot_suggestion
-            }
-
-    # Check if approaching escalation threshold
-    if attempt_count >= 5:
-        return {
-            "recommendation": "escalate",
-            "reason": f"{attempt_count} attempts - consider escalating to user",
-            "attempts": attempt_count,
-            "suggested_pivot": None
-        }
-
-    return {
-        "recommendation": "continue",
-        "reason": "No concerning patterns detected",
-        "attempts": attempt_count,
-        "suggested_pivot": None
-    }
-
-
-def _suggest_pivot(
-    task_objective: str,
-    current_approach: str,
-    memories: List[dict]
-) -> Optional[str]:
-    """Suggest an alternative approach based on patterns."""
-    patterns = [m for m in memories if m.get("type") == "pattern"]
-    if patterns:
-        best = max(patterns, key=lambda x: x.get("effectiveness", 0))
-        return best.get("resolution", "")[:200]
-
-    failures = [m for m in memories if m.get("type") == "failure"]
-    for f in failures:
-        resolution = f.get("resolution", "")
-        if "instead" in resolution.lower() or "try" in resolution.lower():
-            return resolution[:200]
-
-    return "Try a fundamentally different approach"
-
-
-def clear_history(task_objective: Optional[str] = None) -> dict:
-    """Clear attempt history.
-
-    Args:
-        task_objective: Clear specific task, or all if None
-    """
-    global _attempt_history
-
-    if task_objective:
-        key = task_objective[:100]
-        if key in _attempt_history:
-            del _attempt_history[key]
-            return {"cleared": key}
-        return {"cleared": None}
-
-    count = len(_attempt_history)
-    _attempt_history = {}
-    return {"cleared_all": count}
-
-
-def get_history(task_objective: Optional[str] = None) -> dict:
-    """Get attempt history for debugging."""
-    if task_objective:
-        key = task_objective[:100]
-        return {
-            "task": key,
-            "attempts": _attempt_history.get(key, [])
-        }
-
-    return {
-        "tasks": list(_attempt_history.keys()),
-        "total_attempts": sum(len(v) for v in _attempt_history.values())
-    }
-
-
 def _cli():
     """CLI interface for metacognition operations."""
     import argparse
@@ -443,6 +345,10 @@ def _cli():
     p = subparsers.add_parser("health", help="Show orchestrator health report")
     p.add_argument("--objective", required=True, help="The objective")
 
+    # warnings - get active systemic warnings
+    p = subparsers.add_parser("warnings", help="Get active systemic warnings for builder injection")
+    p.add_argument("--objective", required=True, help="The objective")
+
     # complete - record task completion
     p = subparsers.add_parser("complete", help="Record task completion")
     p.add_argument("--objective", required=True)
@@ -454,20 +360,16 @@ def _cli():
     # clear - clear meta state
     subparsers.add_parser("clear", help="Clear meta state")
 
-    # assess - legacy builder-level assessment
-    p = subparsers.add_parser("assess", help="Assess current approach (legacy)")
-    p.add_argument("--objective", required=True)
-    p.add_argument("--approach", required=True)
-
-    # history - legacy attempt history
-    p = subparsers.add_parser("history", help="View attempt history (legacy)")
-    p.add_argument("--objective", default=None)
-
     args = parser.parse_args()
 
     if args.command == "health":
         meta = OrchestratorMeta.load(args.objective)
         print(json.dumps(meta.get_health_report(), indent=2))
+
+    elif args.command == "warnings":
+        meta = OrchestratorMeta.load(args.objective)
+        warning = meta.get_active_warnings()
+        print(json.dumps({"warning": warning}))
 
     elif args.command == "complete":
         meta = OrchestratorMeta.load(args.objective)
@@ -485,23 +387,8 @@ def _cli():
 
     elif args.command == "clear":
         cleared = OrchestratorMeta.clear()
-        cleared_legacy = clear_history()
-        print(json.dumps({
-            "meta_cleared": cleared,
-            "legacy_cleared": cleared_legacy
-        }))
+        print(json.dumps({"cleared": cleared}))
 
-    elif args.command == "assess":
-        result = assess_approach(
-            task_objective=args.objective,
-            current_approach=args.approach,
-            memories=None
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "history":
-        result = get_history(args.objective)
-        print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
