@@ -29,6 +29,26 @@ except ImportError:
     from memory import recall, recall_by_file_patterns
 
 
+def _format_hint(memory: dict) -> str:
+    """Format memory hint with confidence indicator.
+
+    Includes effectiveness score so builders can weight advice:
+    - [75%] = Memory helped 75% of the time
+    - [unproven] = Not enough usage data yet
+    """
+    eff = memory.get("effectiveness", 0.5)
+    helped = memory.get("helped", 0)
+    failed = memory.get("failed", 0)
+
+    # Show confidence only if we have actual usage data
+    if helped + failed > 0:
+        confidence = f"[{eff:.0%}]"
+    else:
+        confidence = "[unproven]"
+
+    return f"{confidence} {memory['trigger']} -> {memory['resolution']}"
+
+
 def build_context(
     task_data: dict,
     lineage: Optional[List[dict]] = None,
@@ -74,15 +94,9 @@ def build_context(
     patterns = [m for m in all_memories if m.get("type") == "pattern"]
     injected = [m["name"] for m in all_memories]
 
-    # Format for builder
-    failure_hints = [
-        f"{f['trigger']} -> {f['resolution']}"
-        for f in failures
-    ]
-    pattern_hints = [
-        f"{p['trigger']} -> {p['resolution']}"
-        for p in patterns
-    ]
+    # Format for builder with confidence indicator
+    failure_hints = [_format_hint(f) for f in failures]
+    pattern_hints = [_format_hint(p) for p in patterns]
 
     # Build prompt with enrichment model
     prompt_lines = [
@@ -121,13 +135,14 @@ def build_context(
     }
 
 
-def _query_semantic(objective: str, limit: int = 3) -> List[dict]:
-    """Query memory using semantic search on objective.
+def _query_semantic(objective: str, limit: int = 3, expand: bool = True) -> List[dict]:
+    """Query memory using semantic search on objective with graph expansion.
 
     Works well because objectives are natural language.
+    Graph expansion (expand=True) surfaces solutions connected to relevant failures.
     """
     try:
-        return recall(objective, limit=limit)
+        return recall(objective, limit=limit, expand=expand)
     except Exception:
         return []
 

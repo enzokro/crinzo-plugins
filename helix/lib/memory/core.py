@@ -261,8 +261,15 @@ def recall(
                         rel = 0.3  # Default for graph-discovered memories
                     mem["_relevance"] = round(rel, 3)
                     mem["_recency"] = round(_recency_score(mem.get("last_used"), mem.get("created_at")), 3)
-                    mem["_score"] = round(rel * 0.5 + mem["effectiveness"] * 0.3 + mem["_recency"] * 0.2, 3)
+
+                    # Edge weight bonus: stronger edges boost score
+                    edge_weight = _get_edge_weight_to_seeds(name, seed_names)
+                    weight_bonus = min(edge_weight * 0.1, 0.2)  # Cap at 0.2 bonus
+
+                    base_score = rel * 0.5 + mem["effectiveness"] * 0.3 + mem["_recency"] * 0.2
+                    mem["_score"] = round(base_score + weight_bonus, 3)
                     mem["_via_edge"] = True
+                    mem["_edge_weight"] = round(edge_weight, 2)
                     scored.append((mem["_score"], rel, mem))
 
         scored.sort(key=lambda x: -x[0])
@@ -343,6 +350,23 @@ def _expand_via_edges(names: List[str], depth: int = 1) -> Set[str]:
     return current
 
 
+def _get_edge_weight_to_seeds(name: str, seed_names: List[str]) -> float:
+    """Get total edge weight connecting a memory to seed memories.
+
+    Used to boost scores of graph-expanded memories based on edge strength.
+    """
+    db = get_db()
+    total = 0.0
+    for seed in seed_names:
+        row = db.execute(
+            "SELECT weight FROM memory_edge WHERE (from_name=? AND to_name=?) OR (from_name=? AND to_name=?)",
+            (name, seed, seed, name)
+        ).fetchone()
+        if row:
+            total += row["weight"]
+    return total
+
+
 def feedback(names: List[str], delta: float) -> dict:
     """Update scores. I decide the delta.
 
@@ -401,6 +425,40 @@ def decay(unused_days: int = 30, min_uses: int = 2) -> dict:
         affected = cursor.rowcount
 
     return {"decayed": affected, "threshold_days": unused_days, "min_uses": min_uses}
+
+
+def decay_edges(unused_days: int = 60) -> dict:
+    """Decay edge weights for unused relationships.
+
+    Edges whose connected memories haven't been used recently
+    have their weights halved. This prevents stale relationships
+    from dominating graph expansion.
+
+    Args:
+        unused_days: Days of inactivity before decay
+
+    Returns:
+        Count of affected edges
+    """
+    db = get_db()
+    cutoff = (datetime.now() - timedelta(days=unused_days)).isoformat()
+
+    with write_lock():
+        # Find edges where BOTH connected memories are dormant
+        cursor = db.execute("""
+            UPDATE memory_edge
+            SET weight = weight * 0.5
+            WHERE from_name IN (
+                SELECT name FROM memory WHERE last_used IS NULL OR last_used < ?
+            )
+            AND to_name IN (
+                SELECT name FROM memory WHERE last_used IS NULL OR last_used < ?
+            )
+        """, (cutoff, cutoff))
+        db.commit()
+        affected = cursor.rowcount
+
+    return {"edges_decayed": affected, "threshold_days": unused_days}
 
 
 def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
@@ -653,6 +711,9 @@ if __name__ == "__main__":
     s.add_argument("--days", type=int, default=30)
     s.add_argument("--min-uses", type=int, default=2)
 
+    s = sub.add_parser("decay-edges")
+    s.add_argument("--days", type=int, default=60, help="Decay edges for memories unused this many days")
+
     s = sub.add_parser("prune")
     s.add_argument("--threshold", type=float, default=0.25, dest="min_effectiveness")
     s.add_argument("--min-uses", type=int, default=3)
@@ -690,6 +751,8 @@ if __name__ == "__main__":
         )
     elif args.cmd == "decay":
         r = decay(args.days, args.min_uses)
+    elif args.cmd == "decay-edges":
+        r = decay_edges(args.days)
     elif args.cmd == "prune":
         r = prune(min_effectiveness=args.min_effectiveness, min_uses=args.min_uses)
     elif args.cmd == "health":

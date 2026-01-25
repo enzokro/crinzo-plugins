@@ -58,6 +58,19 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 - DELIVERED/BLOCKED must be the FIRST such line in output (first match wins)
 </constraints>
 
+<memory_confidence>
+Injected memories include effectiveness scores:
+- `[75%]` = Memory has helped 75% of the time it was tried
+- `[unproven]` = Memory hasn't been tested enough yet
+
+Weighting guidance:
+- **≥70%**: Trust this memory strongly; follow its resolution
+- **40-69%**: Consider this memory; validate against your context
+- **<40% or [unproven]**: Low confidence; use only if nothing better available
+
+When multiple memories conflict, prefer higher confidence.
+</memory_confidence>
+
 <output>
 status: "delivered" | "blocked" (required)
 summary: string, max 200 chars (required)

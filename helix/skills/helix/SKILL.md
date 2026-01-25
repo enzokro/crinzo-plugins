@@ -40,7 +40,24 @@ State is implicit in conversation flow.
 git ls-files | head -80
 ```
 
-**Judgment:** Identify 3-6 natural partitions. Directories, modules, layers. Always include `memory` scope.
+**Judgment:** Identify 3-6 natural partitions using these heuristics:
+
+| Codebase Signal | Partition Strategy |
+|-----------------|-------------------|
+| Clear directory structure (src/, lib/, tests/) | One partition per top-level directory |
+| Microservices/modules | One partition per service/module |
+| Frontend/backend split | Separate partitions for each |
+| Monolith with layers | Partition by layer (data, business, presentation) |
+| Framework-organized (Rails, Django) | Follow framework conventions |
+
+**Always include**: A `memory` scope to recall relevant failures/patterns.
+
+Partition count guidance:
+- **3 partitions**: Small, focused objective touching 1-2 areas
+- **4-5 partitions**: Medium objective, typical feature work
+- **6 partitions**: Large objective spanning the system
+
+Avoid: More than 6 partitions (diminishing returns, token cost).
 
 ### Step 2: Spawn explorer swarm
 
@@ -76,6 +93,26 @@ If `targets.files` empty: **EMPTY_EXPLORATION**.
 
 **Input:** Objective + merged exploration.
 **Output:** Task DAG via native TaskCreate.
+
+### Task Granularity Heuristics
+
+| Signal | Task Size |
+|--------|-----------|
+| Single file modification | One task |
+| Multiple files, same concern (e.g., "add field to model + migration + tests") | One task |
+| Separate concerns (e.g., "add API endpoint" vs "add UI component") | Separate tasks |
+| Verify command tests one behavior | One task |
+| Implementation requires >150 lines | Consider splitting |
+
+Bad granularity signs:
+- Task verify tests multiple unrelated behaviors → split
+- Task touches >5 files → likely doing too much
+- Task description uses "and" to connect unrelated work → split
+
+Good granularity signs:
+- Each task has a single, clear verify command
+- Tasks can run in parallel when dependencies allow
+- A task failure doesn't block unrelated work
 
 ### Step 1: Spawn planner
 
@@ -194,24 +231,49 @@ I decide the delta based on context:
 | Failure, memory may have misled | -0.5 | Moderate penalty |
 | Failure, memory was irrelevant | -0.2 | Light penalty |
 
+### Memory Relevance Classification (for feedback weighting)
+
+| Condition | Classification | Delta Multiplier |
+|-----------|---------------|------------------|
+| Memory trigger matches task objective (cosine > 0.7) | **Relevant** | 1.0× |
+| Memory's failure type matches task's error | **Relevant** | 1.0× |
+| Memory mentions same files as task | **Tangential** | 0.5× |
+| Memory mentions same framework | **Tangential** | 0.5× |
+| Memory was injected but unrelated to outcome | **Irrelevant** | 0.3× |
+
+Apply multiplier to base delta: `final_delta = base_delta × multiplier`
+
 ```bash
 python3 "$HELIX/lib/memory/core.py" feedback \
     --names '["memory-name-1", "memory-name-2"]' \
     --delta 0.5
 ```
 
-**Step F: Edge creation (when pattern solves failure)**
+**Step F: Edge creation (connect knowledge)**
 
-When a pattern helped avoid a previously-encountered failure:
+| Situation | Edge Type | Direction | Weight |
+|-----------|-----------|-----------|--------|
+| Pattern's resolution explicitly solved a failure | `solves` | pattern → failure | 1.0 |
+| Two memories both helped same task | `co_occurs` | bidirectional | 0.5 each |
+| Failure A led to discovering failure B | `causes` | A → B | 1.0 |
+| Memories have similar triggers (I note this) | `similar` | bidirectional | 0.5 each |
+| Pattern supersedes older, less effective pattern | `similar` | new → old | 1.0 |
+
+When to create edges:
+- **solves**: Builder explicitly avoided a known failure using injected pattern
+- **co_occurs**: Multiple injected memories all contributed to success
+- **causes**: Debugging one failure revealed another deeper failure
+- **similar**: I notice conceptual overlap worth preserving
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" edge \
-    --from "pattern-that-helped" \
-    --to "failure-it-solved" \
-    --rel solves
+    --from "pattern-name" \
+    --to "failure-name" \
+    --rel solves \
+    --weight 1.0
 ```
 
-This connects knowledge. Next recall with `--expand` will surface solutions via edges.
+Graph expansion surfaces solutions via edges on next recall.
 
 **Step G: Systemic detection (3x same failure)**
 
@@ -263,8 +325,25 @@ All tasks done. Session ends.
 | EMPTY_EXPLORATION | `targets.files` empty | Broaden scope, clarify with user |
 | NO_TASKS | Planner created 0 tasks | Add exploration context |
 | CYCLES_DETECTED | Dependency graph has cycles | Re-plan |
-| STALLED | Pending tasks, none ready | Replan / Skip blocked / Abort |
+| STALLED | Pending tasks, none ready | See STALLED Recovery below |
 | SYSTEMIC_FAILURE | Same pattern 3+ times | Store systemic memory, inject as warning |
+
+### STALLED Recovery (my judgment)
+
+When build stalls (pending tasks but none ready), I analyze the situation:
+
+| Condition | Action | Rationale |
+|-----------|--------|-----------|
+| Single blocked task, workaround exists | **SKIP** + store failure | Learn and continue; don't let peripheral work stop progress |
+| Multiple tasks blocked by same root cause | **ABORT** + store systemic | Fundamental problem requires human insight |
+| Blocked task is on critical path | **REPLAN** with narrower scope | Must solve it; try different decomposition |
+| Blocking task has unclear verify | **REPLAN** with better verify | Specification was wrong, not implementation |
+| 3+ attempts on same blocker | **ABORT** + escalate | I've tried; human needed |
+
+Recovery command flow:
+- **SKIP**: `TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped", skip_reason: "..."})` → continue build loop
+- **REPLAN**: Start new PLAN phase with modified constraints
+- **ABORT**: Summarize state, store learnings, end session
 
 ---
 
