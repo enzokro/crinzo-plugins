@@ -4,9 +4,9 @@ Core entities:
 - Memory: Learned failures and patterns with embeddings
 - MemoryEdge: Relationships between memories (graph structure)
 - Exploration: Gathered context for planning
-- Plan: Task decomposition with dependencies
-- Task: Individual executable unit
-- Workspace: Execution context for a task
+
+Note: Plan, Task, and Workspace are now handled by Claude Code's native
+Task system with metadata. See SKILL.md for the new architecture.
 """
 
 from dataclasses import dataclass, field
@@ -97,108 +97,5 @@ class Exploration:
     target_functions: List[dict] = field(default_factory=list)
 
     # Metadata
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: Optional[int] = None
-
-
-@dataclass
-class Task:
-    """A single executable unit within a plan.
-
-    Tasks form a DAG via the 'depends' field.
-    """
-    seq: str  # "001", "002", etc.
-    slug: str  # Human-readable identifier
-    objective: str  # What this task accomplishes
-
-    # Scope
-    delta: List[str] = field(default_factory=list)  # Files to modify
-    verify: str = ""  # Command to verify completion
-
-    # Dependencies (DAG)
-    depends: str = "none"  # "none", "001", or "001,002"
-
-    # Constraints
-    budget: int = 7  # Tool call budget
-
-    # Status
-    status: str = "pending"  # pending, active, complete, blocked
-
-    # Results
-    delivered: str = ""
-    blocked_reason: str = ""
-    utilized_memories: List[str] = field(default_factory=list)
-
-
-@dataclass
-class Plan:
-    """Task decomposition for an objective.
-
-    The planner produces this, the orchestrator consumes it.
-    """
-    objective: str
-    framework: Optional[str] = None
-    idioms: dict = field(default_factory=dict)
-
-    tasks: List[Task] = field(default_factory=list)
-
-    status: str = "active"  # active, executing, complete, failed
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: Optional[int] = None
-
-    @property
-    def task_count(self) -> int:
-        return len(self.tasks)
-
-    def get_task(self, seq: str) -> Optional[Task]:
-        for t in self.tasks:
-            if t.seq == seq:
-                return t
-        return None
-
-    def ready_tasks(self) -> List[Task]:
-        """Tasks whose dependencies are all complete."""
-        complete_seqs = {t.seq for t in self.tasks if t.status == "complete"}
-        ready = []
-        for t in self.tasks:
-            if t.status != "pending":
-                continue
-            deps = [d.strip() for d in t.depends.split(",") if d.strip() and d.strip() != "none"]
-            if all(d in complete_seqs for d in deps):
-                ready.append(t)
-        return ready
-
-
-@dataclass
-class Workspace:
-    """Execution context for a single task.
-
-    Contains everything the builder needs.
-    """
-    task_seq: str
-    task_slug: str
-    objective: str
-
-    # Scope
-    delta: List[str] = field(default_factory=list)
-    verify: str = ""
-    budget: int = 7
-
-    # Context
-    framework: Optional[str] = None
-    idioms: dict = field(default_factory=dict)
-
-    # Memory injection
-    failures: List[dict] = field(default_factory=list)
-    patterns: List[dict] = field(default_factory=list)
-
-    # Lineage (what previous tasks delivered)
-    lineage: dict = field(default_factory=dict)
-
-    # Status
-    status: str = "active"  # active, complete, blocked
-    delivered: str = ""
-    utilized_memories: List[str] = field(default_factory=list)
-
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     id: Optional[int] = None

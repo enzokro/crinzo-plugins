@@ -1,6 +1,9 @@
 """SQLite database connection with write locking.
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
+
+Note: Plan and workspace tables have been removed. Task management is now
+handled by Claude Code's native Task system with metadata.
 """
 
 import os
@@ -95,36 +98,6 @@ def init_db(db: sqlite3.Connection = None) -> None:
             data TEXT NOT NULL,  -- JSON blob
             created_at TEXT NOT NULL
         );
-
-        -- Plans: task decompositions
-        CREATE TABLE IF NOT EXISTS plan (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            objective TEXT NOT NULL,
-            framework TEXT,
-            idioms TEXT,  -- JSON
-            tasks TEXT NOT NULL,  -- JSON array
-            status TEXT DEFAULT 'active',
-            created_at TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_plan_status ON plan(status);
-
-        -- Workspaces: task execution contexts
-        CREATE TABLE IF NOT EXISTS workspace (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plan_id INTEGER,
-            task_seq TEXT NOT NULL,
-            task_slug TEXT NOT NULL,
-            objective TEXT NOT NULL,
-            data TEXT NOT NULL,  -- JSON blob
-            status TEXT DEFAULT 'active',
-            delivered TEXT DEFAULT '',
-            utilized TEXT DEFAULT '[]',  -- JSON array
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (plan_id) REFERENCES plan(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_workspace_status ON workspace(status);
     """)
     db.commit()
 
