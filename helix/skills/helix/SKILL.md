@@ -45,7 +45,7 @@ git ls-files | head -80
 ### Step 2: Spawn explorer swarm
 
 ```python
-# Launch in parallel (single message, multiple Task calls)
+# Launch in parallel for each identified partition (single message, multiple Task calls)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/models/\nFOCUS: data schemas\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
@@ -144,16 +144,13 @@ If `warning` is non-null, include in builder context.
 
 **Step C: Build lineage from completed blockers**
 
-For each task in `blockedBy`:
-```python
-blocker = TaskGet(blocker_id)
-if blocker.metadata.get("helix_outcome") == "delivered":
-    lineage.append({
-        "seq": blocker.subject.split(":")[0],
-        "slug": blocker.subject.split(":")[1].strip(),
-        "delivered": blocker.metadata.get("delivered_summary", "")
-    })
+Collect TaskGet output for each delivered blocker, then:
+
+```bash
+python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[{"subject":"001: auth","metadata":{"helix_outcome":"delivered","delivered_summary":"Added JWT middleware"}}]'
 ```
+
+Returns `[{"seq": "001", "slug": "auth", "delivered": "Added JWT middleware"}]`.
 
 **Step D: Construct builder prompt**
 
@@ -236,7 +233,7 @@ python3 "$HELIX/lib/memory/core.py" store \
     --source "{task.subject}"
 ```
 
-Typical extraction: 0 memories per simple task, 1-2 per blocked task.
+Typical extraction: 0 memories per simple task, 1-2 per challenging or insight task, 1-3 per blocked task.
 
 ---
 
@@ -282,6 +279,13 @@ python3 "$HELIX/lib/tasks.py" feedback-verify --task-id "..." --verify-passed tr
 python3 "$HELIX/lib/memory/meta.py" warnings --objective "..."
 python3 "$HELIX/lib/memory/meta.py" complete --objective "..." --task-id "..." --status delivered --duration-ms 5000
 python3 "$HELIX/lib/memory/meta.py" health --objective "..."
+```
+
+### Context
+
+```bash
+python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
+python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
 ```
 
 ### Orchestrator

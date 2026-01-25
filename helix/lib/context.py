@@ -250,12 +250,16 @@ def _cli():
     parser = argparse.ArgumentParser(description="Build execution context for builders")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # build-context (preferred)
-    p = subparsers.add_parser("build-context", help="Build context from task data")
+    # build-context
+    p = subparsers.add_parser("build-context", help="Build full context from task data")
     p.add_argument("--task-data", required=True, help="JSON task data from TaskGet")
     p.add_argument("--lineage", default="[]", help="JSON lineage from parent tasks")
     p.add_argument("--memory-limit", type=int, default=5)
-    p.add_argument("--warning", default=None, help="Systemic issue warning from metacognition")
+    p.add_argument("--warning", default=None, help="Systemic issue warning")
+
+    # build-lineage
+    p = subparsers.add_parser("build-lineage", help="Build lineage from completed blocker tasks")
+    p.add_argument("--completed-tasks", required=True, help="JSON list of completed task data from TaskGet")
 
     args = parser.parse_args()
 
@@ -263,6 +267,11 @@ def _cli():
         task_data = json.loads(args.task_data)
         lineage = json.loads(args.lineage)
         result = build_context(task_data, lineage, args.memory_limit, args.warning)
+        print(json.dumps(result))
+
+    elif args.command == "build-lineage":
+        completed_tasks = json.loads(args.completed_tasks)
+        result = build_lineage_from_tasks(completed_tasks)
         print(json.dumps(result))
 
 
