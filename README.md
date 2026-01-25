@@ -1,6 +1,6 @@
-# Helix (v2.0.0)
+# helix
 
-A Claude Code orchestrator with integrated memory that learns from every session.
+A Claude Code orchestrator with integrated memory. helix persists useful, important knowledge across sessions to build on your work over time.
 
 ## Introduction
 
@@ -8,7 +8,8 @@ Before Opus 4.5, agentic harnesses focused on working around the two worst tende
 
 Opus 4.5 broke this pattern. We are now living the transformation of LLM agents from spastic assistants to capable collaborators.
 
-Helix builds on this shift. While previous harnesses were mostly meant to keep the models from drifting, helix persists knowledge across sessions to build on what we've already done instead of always starting from an empty context window.
+These previous harnesses quickly became bloated as they tried to keep the models from drifting and added many features to close model capability gaps. helix instead builds on the meaningful agentic jump in Opus 4.5 and removes these low level training wheels and hand-holding. 
+
 
 ## Philosophy
 
@@ -50,11 +51,11 @@ helix/
     └── plugin_root             # Cached plugin path for sub-agents
 ```
 
-**Prose-driven orchestrator**: SKILL.md contains the orchestration logic; Python utilities provide the muscle. State is implicit in conversation flow—the single source of truth is TaskList metadata (`helix_outcome` field).
+**Prose-driven orchestrator**: SKILL.md holds the orchestration logic that fully leverages Opus 4.5's capabilities. The Python utilities help guide the orchestration. We also integrate the new Task tool to keep state in the conversation itself. The single source of state truth is the TaskList's metadata.
 
-**Memory** (lib/memory/core.py) provides semantic storage with effectiveness tracking and graph relationships. SQLite database at `.helix/helix.db`.
+**Memory** (lib/memory/core.py) provides semantic storage with effectiveness tracking and graph relationships. Memories are stored in a local SQLite database at `.helix/helix.db`.
 
-**Three agents** are specialized for their phase: Explorer (Haiku) for fast reconnaissance; Planner and Builder (Opus) for complex reasoning. Learning extraction is orchestrator judgment, not a separate agent.
+**Three agents** are specialized for their phase: Explorer (Haiku) for quickly learning about the project's landscape. Planner and Builder inherit from Opus for their complex reasoning. The orchestrator looks at the agent's process and extract meaningful, helpful memories for the future.
 
 ## Quick Start
 
