@@ -115,32 +115,13 @@ Parse this to track seq-to-taskId mapping.
 
 ### Build Loop
 
-```python
-while True:
-    # 1. Get pending tasks
-    pending = [t for t in TaskList() if t.status == "pending"]
-    if not pending:
-        break  # All done -> BUILT
-
-    # 2. Find ready tasks (all blockers completed with helix_outcome=delivered)
-    ready = []
-    for task in pending:
-        blockers = task.blockedBy or []
-        if all(TaskGet(b).metadata.get("helix_outcome") == "delivered" for b in blockers):
-            ready.append(task)
-
-    # 3. Check for stall
-    if not ready:
-        # STALLED: pending tasks exist but none ready
-        # Present options via AskUserQuestion:
-        #   - "Replan": Go back to PLAN with failure context
-        #   - "Skip blocked": Mark blocked tasks skipped, continue
-        #   - "Abort": End session
-        break
-
-    # 4. Execute ready tasks (can parallelize)
-    for task in ready:
-        execute_task(task)
+```
+1. TaskList() → filter status="pending" → if empty: DONE
+2. For each pending: TaskGet(blocker_id) for each in blockedBy
+   → ready if all blockers have metadata.helix_outcome="delivered"
+3. If no ready tasks: STALLED → AskUserQuestion (Replan | Skip | Abort)
+4. For each ready task: execute Steps A–J below
+5. Go to 1
 ```
 
 ### Execute Single Task
