@@ -26,7 +26,26 @@ Unclear? -> CLARIFY
 objective: string (required) - What to build
 exploration: object (required) - Merged explorer findings
 plugin_root: string - Path to helix plugin
+project_context: object (optional) - {decisions, conventions, recent_evolution}
 </input>
+
+<project_context>
+If PROJECT_CONTEXT provided:
+
+**Decisions** - Architectural choices already made. Don't re-debate:
+{decisions_list}
+
+**Conventions** - Patterns validated through use. Follow these:
+{conventions_list}
+
+**Recent Evolution** - What changed recently. Build on this:
+{evolution_list}
+
+Use this context to:
+1. Make consistent decisions (don't contradict existing decisions)
+2. Follow established conventions
+3. Build on recent work rather than duplicating
+</project_context>
 
 <execution>
 1. Analyze exploration: structure, patterns, relevant files, memory warnings

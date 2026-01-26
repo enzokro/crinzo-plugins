@@ -23,7 +23,20 @@ SEARCH -> COLLECT -> RETURN
 scope: string (required) - Directory path or "memory"
 focus: string (required) - What to find within scope
 objective: string (required) - User goal for context
+known_facts: string[] (optional) - Facts already known about this area
+relevant_failures: string[] (optional) - Failures to watch for
 </input>
+
+<prior_knowledge>
+If KNOWN_FACTS provided:
+- Skip re-discovering these - they're already in memory
+- Focus on gaps: what's NOT in known facts
+- If you find something that contradicts a known fact, flag it
+
+If RELEVANT_FAILURES provided:
+- Watch for these patterns during exploration
+- If you encounter a failure trigger, note it in findings
+</prior_knowledge>
 
 <execution>
 Environment:

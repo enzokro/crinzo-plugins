@@ -32,7 +32,17 @@ State is implicit in conversation flow.
 ## 1. EXPLORE
 
 **Input:** User objective.
-**Output:** Merged exploration with non-empty `targets.files`.
+**Output:** Merged exploration with non-empty `targets.files` + extracted facts.
+
+### Pre-exploration: Inject known facts
+
+```bash
+# Get known facts for each scope
+explorer_context=$(python3 "$HELIX/lib/context.py" build-explorer-context \
+    --objective "$OBJECTIVE" --scope "$SCOPE")
+```
+
+Include `known_facts` in explorer prompts so they skip redundant discovery.
 
 ### Discover structure
 
@@ -54,32 +64,73 @@ Identify 3-6 natural partitions:
 ### Spawn explorer swarm
 
 ```python
-# Launch in parallel (single message, multiple Task calls)
-Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
+# Include known_facts in prompt
+known_facts = explorer_context.get("known_facts", [])
+Task(
+    subagent_type="helix:helix-explorer",
+    prompt=f"KNOWN_FACTS:\n{json.dumps(known_facts)}\n\nSCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}",
+    model="haiku",
+    run_in_background=True
+)
 Task(subagent_type="helix:helix-explorer", prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
 ```
 
-### Collect and merge
+### Collect, merge, and LEARN
 
 Synthesize explorer JSON: dedupe files, resolve conflicts, aggregate findings.
 If `targets.files` empty: **EMPTY_EXPLORATION** - broaden scope or clarify.
+
+```bash
+# After merging explorer outputs, extract facts
+python3 "$HELIX/lib/observer.py" explorer --output '{merged_exploration}' --store --min-confidence medium
+```
+
+Review stored facts. High-value discoveries about codebase structure accumulate for future sessions.
 
 ---
 
 ## 2. PLAN
 
 **Input:** Objective + merged exploration.
-**Output:** Task DAG via native TaskCreate.
+**Output:** Task DAG via native TaskCreate + extracted decisions.
 
 See `reference/task-granularity.md` for sizing heuristics.
+
+### Pre-planning: Inject project context
+
+```bash
+# Get decisions, conventions, recent evolution
+planner_context=$(python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE")
+```
 
 ### Spawn planner
 
 ```python
-Task(subagent_type="helix:helix-planner", prompt=f"OBJECTIVE: {objective}\n\nEXPLORATION:\n{json.dumps(merged_exploration, indent=2)}")
+Task(
+    subagent_type="helix:helix-planner",
+    prompt=f"""PROJECT_CONTEXT:
+Decisions: {json.dumps(planner_context.get('decisions', []))}
+Conventions: {json.dumps(planner_context.get('conventions', []))}
+Recent: {json.dumps(planner_context.get('recent_evolution', []))}
+
+OBJECTIVE: {objective}
+
+EXPLORATION:
+{json.dumps(merged_exploration, indent=2)}"""
+)
 ```
 
 Planner outputs task mapping + validates DAG (no cycles).
+
+### Post-planning: Extract decisions
+
+```bash
+# After planner completes, extract any decisions made
+python3 "$HELIX/lib/observer.py" planner \
+    --tasks "$(TaskList | jq -c)" \
+    --exploration '{merged_exploration}' \
+    --store --min-confidence medium
+```
 
 ### Validate
 
@@ -143,10 +194,12 @@ If `with_feedback: 0` and memories were injected, the loop was not closed proper
 
 ### Execute Single Task
 
-**A. Build context**
+**A. Build context** (enhanced with conventions + facts)
 ```bash
-memories=$(python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --expand)
-context=$(python3 "$HELIX/lib/context.py" build-context --task-data "$(TaskGet {task_id} | jq -c)" --lineage "$lineage")
+context=$(python3 "$HELIX/lib/context.py" build-context \
+    --task-data "$(TaskGet {task_id} | jq -c)" \
+    --lineage "$lineage")
+# Context now includes CONVENTIONS_TO_FOLLOW and RELATED_FACTS
 ```
 
 **B. Spawn builder**
@@ -164,24 +217,37 @@ python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
 timeout 120 {task.metadata.verify}
 ```
 
-**E. Feedback loop** (see `reference/feedback-deltas.md`)
+**E. Extract evolution and conventions** (NEW - before feedback)
 ```bash
-python3 "$HELIX/lib/memory/core.py" feedback --names '["memory-name"]' --delta 0.5
+# Get files changed by this task
+files_changed=$(git diff --name-only HEAD~1 2>/dev/null || echo "[]")
+
+# Extract learnings
+python3 "$HELIX/lib/observer.py" builder \
+    --task "$(TaskGet {task_id} | jq -c)" \
+    --result '{"status": "delivered", "summary": "..."}' \
+    --files-changed "$files_changed" \
+    --store --min-confidence low
 ```
 
-**F. Edge creation** (see `reference/edge-creation.md`)
+**F. Feedback loop** (see `reference/feedback-deltas.md`)
+```bash
+python3 "$HELIX/lib/memory/core.py" feedback --names '[INJECTED_MEMORY_NAMES]' --delta 0.5
+```
+
+**G. Edge creation** (see `reference/edge-creation.md`)
 ```bash
 python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
 ```
 
-**G. Systemic detection**
+**H. Systemic detection**
 ```bash
 python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7 --type failure
 ```
 If 2+ similar: escalate to systemic type.
 
-**H. Learning extraction**
+**I. Learning extraction**
 
 | Condition | Action |
 |-----------|--------|
@@ -197,10 +263,25 @@ Quality gates: Would it change future outcomes? Trigger specific? Resolution act
 
 All tasks done AND learning loop closed. Session ends.
 
+### Session Summary (MANDATORY)
+
+Before final completion, create session summary:
+```bash
+python3 "$HELIX/lib/observer.py" session \
+    --objective "$OBJECTIVE" \
+    --tasks "$(TaskList | jq -c)" \
+    --outcomes '{"task-001": "delivered", "task-002": "blocked"}' \
+    --store
+```
+
+This evolution entry tracks what was accomplished, enabling future sessions to understand project history.
+
 **Pre-completion checklist:**
 - [ ] All tasks have `helix_outcome` set (delivered/blocked/skipped)
 - [ ] Injected memories received feedback (if any)
 - [ ] Pattern/failure storage decisions made for each task
+- [ ] **Evolution entries created for delivered tasks**
+- [ ] **Session summary stored**
 - [ ] `health` shows `with_feedback > 0` if memories were used
 
 ---

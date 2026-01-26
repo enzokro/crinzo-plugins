@@ -1,6 +1,6 @@
 {
   "name": "helix",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Self-learning orchestrator with semantic memory graph. Explore → Plan → Build with feedback-based learning.",
   "author": { "name": "crinzo" },
   "hooks": {

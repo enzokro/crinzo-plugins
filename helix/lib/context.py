@@ -29,6 +29,100 @@ except ImportError:
     from memory import recall, recall_by_file_patterns
 
 
+def build_explorer_context(
+    objective: str,
+    scope: str,
+    limit: int = 5
+) -> dict:
+    """Build context for explorer agents with known facts.
+
+    Injects facts about codebase structure so explorers can
+    skip rediscovering what's already known.
+
+    Args:
+        objective: User objective
+        scope: Directory or area being explored
+        limit: Maximum facts to inject
+
+    Returns:
+        {"known_facts": [...], "relevant_failures": [...]}
+    """
+    # Query facts related to scope
+    facts = recall(scope, type="fact", limit=limit, expand=False)
+
+    # Also get any failures related to this area
+    failures = recall(scope, type="failure", limit=3, expand=False)
+
+    return {
+        "known_facts": [
+            f"{f['trigger']}" for f in facts
+        ],
+        "relevant_failures": [
+            f"{f['trigger']} -> {f['resolution']}" for f in failures
+        ]
+    }
+
+
+def build_planner_context(
+    objective: str,
+    limit: int = 5
+) -> dict:
+    """Build context for planner with decisions, conventions, evolution.
+
+    Injects project context so planner makes consistent decisions
+    and doesn't re-debate settled architectural choices.
+
+    Args:
+        objective: User objective
+        limit: Maximum items per category
+
+    Returns:
+        {"decisions": [...], "conventions": [...], "recent_evolution": [...]}
+    """
+    # Query each relevant type
+    decisions = recall(objective, type="decision", limit=limit, expand=False)
+    conventions = recall(objective, type="convention", limit=limit, expand=False)
+    evolution = recall(objective, type="evolution", limit=limit, expand=False)
+
+    return {
+        "decisions": [
+            f"{d['trigger']}" for d in decisions
+        ],
+        "conventions": [
+            f"[{d.get('effectiveness', 0.5):.0%}] {d['trigger']}" for d in conventions
+        ],
+        "recent_evolution": [
+            f"{e['trigger']} - {e['resolution'][:80]}" for e in evolution
+        ]
+    }
+
+
+def _query_by_type(objective: str, mem_type: str, limit: int = 2) -> List[dict]:
+    """Query memory for specific type."""
+    try:
+        return recall(objective, type=mem_type, limit=limit, expand=False)
+    except Exception:
+        return []
+
+
+def _query_facts_for_files(files: List[str], limit: int = 2) -> List[dict]:
+    """Query facts related to specific files."""
+    if not files:
+        return []
+    try:
+        # Use file names as queries
+        results = []
+        seen = set()
+        for f in files[:3]:  # Limit file queries
+            for mem in recall(f, type="fact", limit=1, expand=False):
+                if mem["name"] not in seen:
+                    seen.add(mem["name"])
+                    results.append(mem)
+        return results[:limit]
+    except Exception:
+        return []
+
+
 def _format_hint(memory: dict) -> str:
     """Format memory hint with confidence indicator.
 
@@ -86,17 +180,31 @@ def build_context(
     # Query 2: Structured search on relevant files (file patterns)
     file_memories = _query_by_files(relevant_files, limit=3)
 
+    # Query 3: Conventions for this area
+    conventions = _query_by_type(objective, "convention", limit=2)
+
+    # Query 4: Facts about relevant files
+    facts = _query_facts_for_files(relevant_files, limit=2)
+
     # Merge and dedupe with global budget
     all_memories = _merge_memories(semantic_memories, file_memories, limit=memory_limit)
 
     # Separate by type
     failures = [m for m in all_memories if m.get("type") == "failure"]
     patterns = [m for m in all_memories if m.get("type") == "pattern"]
-    injected = [m["name"] for m in all_memories]
+
+    # Build complete injected list (includes conventions and facts)
+    injected = list(set(
+        [m["name"] for m in all_memories] +
+        [c["name"] for c in conventions] +
+        [f["name"] for f in facts]
+    ))
 
     # Format for builder with confidence indicator
     failure_hints = [_format_hint(f) for f in failures]
     pattern_hints = [_format_hint(p) for p in patterns]
+    convention_hints = [_format_hint(c) for c in conventions]
+    fact_hints = [f"{f['trigger']}" for f in facts]
 
     # Build prompt with enrichment model
     prompt_lines = [
@@ -121,6 +229,13 @@ def build_context(
     # Add memory-derived context
     prompt_lines.append(f"FAILURES_TO_AVOID: {json.dumps(failure_hints)}")
     prompt_lines.append(f"PATTERNS_TO_APPLY: {json.dumps(pattern_hints)}")
+
+    # Add conventions and facts (new memory types)
+    if convention_hints:
+        prompt_lines.append(f"CONVENTIONS_TO_FOLLOW: {json.dumps(convention_hints)}")
+    if fact_hints:
+        prompt_lines.append(f"RELATED_FACTS: {json.dumps(fact_hints)}")
+
     prompt_lines.append(f"INJECTED_MEMORIES: {json.dumps(injected)}")
 
     if lineage:
@@ -253,6 +368,17 @@ def _cli():
     p = subparsers.add_parser("build-lineage", help="Build lineage from completed blocker tasks")
     p.add_argument("--completed-tasks", required=True, help="JSON list of completed task data from TaskGet")
 
+    # build-explorer-context
+    p = subparsers.add_parser("build-explorer-context", help="Build context for explorer")
+    p.add_argument("--objective", required=True)
+    p.add_argument("--scope", required=True)
+    p.add_argument("--limit", type=int, default=5)
+
+    # build-planner-context
+    p = subparsers.add_parser("build-planner-context", help="Build context for planner")
+    p.add_argument("--objective", required=True)
+    p.add_argument("--limit", type=int, default=5)
+
     args = parser.parse_args()
 
     if args.command == "build-context":
@@ -264,6 +390,14 @@ def _cli():
     elif args.command == "build-lineage":
         completed_tasks = json.loads(args.completed_tasks)
         result = build_lineage_from_tasks(completed_tasks)
+        print(json.dumps(result))
+
+    elif args.command == "build-explorer-context":
+        result = build_explorer_context(args.objective, args.scope, args.limit)
+        print(json.dumps(result))
+
+    elif args.command == "build-planner-context":
+        result = build_planner_context(args.objective, args.limit)
         print(json.dumps(result))
 
 

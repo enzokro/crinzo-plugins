@@ -34,7 +34,29 @@ SCORE_WEIGHTS = {
     'effectiveness': 0.3,
     'recency': 0.2,
 }
-VALID_TYPES = ("failure", "pattern", "systemic")
+VALID_TYPES = ("failure", "pattern", "systemic", "fact", "convention", "decision", "evolution")
+
+# Type-specific decay rates (half-life in days)
+DECAY_HALF_LIFE_BY_TYPE = {
+    "failure": 7,       # Failures should fade if not re-encountered
+    "pattern": 7,       # Patterns validated through use
+    "systemic": 14,     # Important recurring issues decay slower
+    "fact": 30,         # Codebase structure is stable
+    "convention": 14,   # Conventions are validated patterns
+    "decision": 30,     # Architectural decisions are long-lived
+    "evolution": 7,     # Recent changes most relevant
+}
+
+# Type-specific score weights
+SCORE_WEIGHTS_BY_TYPE = {
+    "failure":    {"relevance": 0.5, "effectiveness": 0.3, "recency": 0.2},
+    "pattern":    {"relevance": 0.5, "effectiveness": 0.3, "recency": 0.2},
+    "systemic":   {"relevance": 0.6, "effectiveness": 0.3, "recency": 0.1},
+    "fact":       {"relevance": 0.7, "effectiveness": 0.1, "recency": 0.2},
+    "convention": {"relevance": 0.4, "effectiveness": 0.4, "recency": 0.2},
+    "decision":   {"relevance": 0.6, "effectiveness": 0.2, "recency": 0.2},
+    "evolution":  {"relevance": 0.4, "effectiveness": 0.1, "recency": 0.5},
+}
 
 # Support both module and script execution
 try:
@@ -75,11 +97,13 @@ def _effectiveness(row) -> float:
     return h / (h + f) if (h + f) > 0 else 0.5
 
 
-def _recency_score(last_used: Optional[str], created_at: str) -> float:
-    """Calculate recency score with exponential decay."""
+def _recency_score(last_used: Optional[str], created_at: str, mem_type: str = "failure") -> float:
+    """Calculate recency score with type-specific exponential decay."""
     ref_date = last_used or created_at
     if not ref_date:
         return 0.5
+
+    half_life = DECAY_HALF_LIFE_BY_TYPE.get(mem_type, DECAY_HALF_LIFE_DAYS)
 
     try:
         ref = datetime.fromisoformat(ref_date.replace("Z", "+00:00"))
@@ -87,7 +111,7 @@ def _recency_score(last_used: Optional[str], created_at: str) -> float:
         if ref.tzinfo:
             now = datetime.now(ref.tzinfo)
         days_ago = (now - ref).days
-        return math.pow(2, -days_ago / DECAY_HALF_LIFE_DAYS)
+        return math.pow(2, -days_ago / half_life)
     except:
         return 0.5
 
@@ -120,7 +144,7 @@ def store(
 ) -> dict:
     """Store a memory. Returns {status, name, reason}.
 
-    Types: failure, pattern, systemic
+    Types: failure, pattern, systemic, fact, convention, decision, evolution
     Performs semantic deduplication - similar memories are merged.
     """
     if type not in VALID_TYPES:
@@ -228,12 +252,16 @@ def recall(
         eff = _effectiveness(r)
         if eff < min_effectiveness:
             continue
-        rel = cosine(q_emb, from_blob(r["embedding"]))
-        rec = _recency_score(r["last_used"], r["created_at"])
 
-        score = (SCORE_WEIGHTS['relevance'] * rel) + \
-                (SCORE_WEIGHTS['effectiveness'] * eff) + \
-                (SCORE_WEIGHTS['recency'] * rec)
+        mem_type = r["type"]
+        weights = SCORE_WEIGHTS_BY_TYPE.get(mem_type, SCORE_WEIGHTS)
+
+        rel = cosine(q_emb, from_blob(r["embedding"]))
+        rec = _recency_score(r["last_used"], r["created_at"], mem_type)
+
+        score = (weights['relevance'] * rel) + \
+                (weights['effectiveness'] * eff) + \
+                (weights['recency'] * rec)
 
         m = _to_dict(r)
         m["_relevance"] = round(rel, 3)
@@ -274,6 +302,33 @@ def recall(
         scored.sort(key=lambda x: -x[0])
 
     return [m for _, _, m in scored[:limit]]
+
+
+def recall_by_type(
+    query: str,
+    types: List[str],
+    limit: int = 5,
+    expand: bool = False
+) -> dict:
+    """Recall memories grouped by type.
+
+    Useful for agent-specific context building where different
+    memory types serve different purposes.
+
+    Args:
+        query: Search query
+        types: List of types to query (e.g., ["fact", "convention"])
+        limit: Maximum results per type
+        expand: Include graph neighbors
+
+    Returns:
+        Dict mapping type -> list of memories
+    """
+    results = {}
+    for t in types:
+        if t in VALID_TYPES:
+            results[t] = recall(query, type=t, limit=limit, expand=expand)
+    return results
 
 
 def get(name: str) -> Optional[dict]:
@@ -815,6 +870,12 @@ if __name__ == "__main__":
     s.add_argument("--days", type=int, default=7, help="Look back window in days")
     s.add_argument("--type", default=None, help="Filter by memory type")
 
+    s = sub.add_parser("recall-by-type", help="Recall memories grouped by type")
+    s.add_argument("query", help="Search query")
+    s.add_argument("--types", required=True, help="Comma-separated list of types")
+    s.add_argument("--limit", type=int, default=5, help="Max results per type")
+    s.add_argument("--expand", action="store_true", help="Include graph neighbors")
+
     s = sub.add_parser("get")
     s.add_argument("name")
 
@@ -865,6 +926,9 @@ if __name__ == "__main__":
         r = recall(args.query, args.type, args.limit, expand=args.expand)
     elif args.cmd == "similar-recent":
         r = similar_recent(args.trigger, args.threshold, args.days, args.type)
+    elif args.cmd == "recall-by-type":
+        types = [t.strip() for t in args.types.split(",")]
+        r = recall_by_type(args.query, types, args.limit, args.expand)
     elif args.cmd == "get":
         r = get(args.name)
         if r is None:

@@ -30,6 +30,8 @@ verify: string (required) - Command to prove success (exit 0)
 relevant_files: string[] - Files to read first
 failures_to_avoid: object[] - {trigger, resolution} pairs
 patterns_to_apply: object[] - {trigger, resolution} pairs
+conventions_to_follow: object[] (optional) - {trigger, resolution} with confidence
+related_facts: string[] (optional) - Facts about relevant files
 parent_deliveries: object[] - {seq, slug, delivered} from blockers
 warning: string - Systemic issue to address first
 </input>
@@ -70,6 +72,20 @@ Weighting guidance:
 
 When multiple memories conflict, prefer higher confidence.
 </memory_confidence>
+
+<conventions>
+CONVENTIONS_TO_FOLLOW are patterns validated through repeated use:
+- Follow these unless you have a specific reason not to
+- If you deviate, note why in your summary
+- High-confidence conventions (≥70%) should be treated as project standards
+</conventions>
+
+<related_facts>
+RELATED_FACTS provide context about the files you're working with:
+- Use these to understand the codebase structure
+- Don't re-discover what's already known
+- If a fact seems wrong, flag it in your summary
+</related_facts>
 
 <output>
 status: "delivered" | "blocked" (required)
