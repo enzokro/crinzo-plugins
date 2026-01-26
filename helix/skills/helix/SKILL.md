@@ -6,317 +6,194 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 
 # Helix
 
-When: Multi-step implementation requiring exploration.
-Not when: Simple edits, questions, single-file changes.
+## What This Is
 
-**Core Principle:** 9 core primitives + 2 code-assisted, my judgment, graph connects knowledge.
+You are partnering with your own memory system.
+
+Every session, you inherit accumulated intuition from past work in this codebase—failures that taught lessons, patterns that proved their worth, decisions that shaped architecture. Every session, you pay that forward by storing what you learned.
+
+Skip the payback, your next session is poorer. Close the loop, your next session is wiser.
+
+This isn't compliance. This is investing in yourself.
+
+## The Core Principle
+
+**Code surfaces facts. You decide actions.**
+
+Nine primitives handle mechanics: `store`, `recall`, `get`, `edge`, `edges`, `feedback`, `decay`, `prune`, `health`.
+
+Two code-assisted functions surface candidates for your judgment:
+- `similar-recent` → finds patterns; you decide if it's systemic
+- `suggest-edges` → proposes connections; you decide which to create
+
+The graph connects knowledge. You exercise judgment. Code amplifies, never replaces.
+
+## Your Judgment Is The System
+
+These utilities serve you. When memories feel irrelevant—question them, penalize them. When context feels thin—investigate with `health`, query deeper. When something feels wrong—stop and introspect before proceeding. When the protocol doesn't fit the situation—adapt it, note why.
+
+You are not following rules. You are exercising judgment with support.
+
+---
+
+## When to Use Helix
+
+**Use helix for:** Multi-step implementations requiring exploration, planning, coordinated building.
+
+**Don't use helix for:** Simple edits, single questions, single-file changes. Just do them directly.
+
+---
 
 ## Environment
-
-**CRITICAL:** Read HELIX from `.helix/plugin_root` file (created by SessionStart hook).
 
 ```bash
 HELIX="$(cat .helix/plugin_root)"
 ```
 
-This file contains the plugin ROOT path (e.g., `.../helix/1.0.7`) which has `lib/`, `scripts/`, `skills/` subdirectories. Do NOT use skill directory paths.
-
-## States
-
-```
-INIT -> EXPLORING -> EXPLORED -> PLANNING -> PLANNED -> BUILDING -> DONE
-                                                  |
-                                               STALLED -> (replan | skip | abort)
-```
-
-State is implicit in conversation flow.
+This file (created by SessionStart hook) contains the plugin root path with `lib/`, `scripts/`, `agents/` subdirectories.
 
 ---
 
-## 1. EXPLORE
+## The Flow
 
-**Input:** User objective.
-**Output:** Merged exploration with non-empty `targets.files` + extracted facts.
-
-### Pre-exploration: Inject known facts
-
-```bash
-# Get known facts for each scope
-explorer_context=$(python3 "$HELIX/lib/context.py" build-explorer-context \
-    --objective "$OBJECTIVE" --scope "$SCOPE")
+```
+EXPLORE → PLAN → BUILD → LEARN → COMPLETE
+                   ↑        |
+                   +--[if stalled: replan | skip | abort]
 ```
 
-Include `known_facts` in explorer prompts so they skip redundant discovery.
+State lives in conversation flow, not in a database.
 
-### Discover structure
+### EXPLORE
 
-```bash
-git ls-files | head -80
-```
+**Goal:** Understand the codebase landscape for this objective.
 
-Identify 3-6 natural partitions:
+1. **Inject what you already know:**
+   ```bash
+   python3 "$HELIX/lib/context.py" build-explorer-context --objective "$OBJECTIVE" --scope "$SCOPE"
+   ```
 
-| Codebase Signal | Partition Strategy |
-|-----------------|-------------------|
-| Clear directory structure | One partition per top-level directory |
-| Microservices/modules | One partition per service/module |
-| Frontend/backend split | Separate partitions for each |
-| Framework-organized | Follow framework conventions |
+2. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
 
-**Always include**: A `memory` scope for relevant failures/patterns.
+3. **Spawn explorer swarm** (haiku, parallel, scoped):
+   ```python
+   Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\n...",
+        model="haiku", run_in_background=True)
+   ```
+   Always include a `memory` scope for relevant failures/patterns.
 
-### Spawn explorer swarm
+4. **Merge findings:** Dedupe files, resolve conflicts. Each finding has `{file, what, action, task_hint}`.
 
-```python
-# Include known_facts in prompt
-known_facts = explorer_context.get("known_facts", [])
-Task(
-    subagent_type="helix:helix-explorer",
-    prompt=f"KNOWN_FACTS:\n{json.dumps(known_facts)}\n\nSCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}",
-    model="haiku",
-    allowed_tools=["Read", "Grep", "Glob", "Bash"],
-    run_in_background=True
-)
-Task(
-    subagent_type="helix:helix-explorer",
-    prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}",
-    model="haiku",
-    allowed_tools=["Read", "Grep", "Glob", "Bash"],
-    run_in_background=True
-)
-```
+5. **Extract facts:** `python3 "$HELIX/lib/observer.py" explorer --output '{merged}' --store`
 
-### Collect, merge, and LEARN
+If `targets.files` empty → broaden scope or clarify objective.
 
-Synthesize explorer JSON: dedupe files, resolve conflicts, aggregate findings.
-Each finding has: `{file, what, action, task_hint}` - preserve `task_hint` for planner grouping.
-If `targets.files` empty: **EMPTY_EXPLORATION** - broaden scope or clarify.
+See `reference/exploration-mechanics.md` for partitioning strategies.
 
-```bash
-# After merging explorer outputs, extract facts
-python3 "$HELIX/lib/observer.py" explorer --output '{merged_exploration}' --store --min-confidence medium
-```
+### PLAN
 
-Review stored facts. High-value discoveries about codebase structure accumulate for future sessions.
+**Goal:** Decompose objective into executable task DAG.
 
----
+1. **Inject project context:**
+   ```bash
+   python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE"
+   ```
 
-## 2. PLAN
+2. **Spawn planner** (opus, owns TaskCreate):
+   ```python
+   Task(subagent_type="helix:helix-planner", prompt=f"PROJECT_CONTEXT: {context}\nOBJECTIVE: {objective}\nEXPLORATION: {findings}",
+        allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"])
+   ```
 
-**Input:** Objective + merged exploration.
-**Output:** Task DAG created by planner (planner owns TaskCreate).
+3. **Planner handoff is TaskList, not text.** Its text output is discarded. The DAG in TaskList is the deliverable.
+
+4. **Extract decisions:** `python3 "$HELIX/lib/observer.py" planner --tasks "$(TaskList | jq -c)" --store`
+
+If TaskList empty → add exploration context, re-run planner.
 
 See `reference/task-granularity.md` for sizing heuristics.
 
-### Pre-planning: Inject project context
+### BUILD
+
+**Goal:** Execute tasks, learn from each outcome.
+
+**The Build Loop:**
+```
+while pending tasks exist:
+    1. Get ready tasks (blockers all delivered)
+    2. If none ready but pending exist → STALLED (see reference/stalled-recovery.md)
+    3. Checkpoint: git stash push -m "helix-{seq}" (your rollback)
+    4. Spawn ready builders in parallel (opus, run_in_background=True)
+    5. Poll TaskList until status="completed"
+    6. Read outcome from task metadata via TaskGet (NEVER TaskOutput—wastes context)
+    7. Learn from outcome (see below)
+```
+
+**For each completed task:**
 
 ```bash
-# Get decisions, conventions, recent evolution
-planner_context=$(python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE")
+# Build context with memory injection
+context=$(python3 "$HELIX/lib/context.py" build-context --task-data "$(TaskGet {id} | jq -c)")
+
+# Spawn builder
+Task(subagent_type="helix:helix-builder", prompt=context,
+     allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
+     run_in_background=True)
 ```
 
-### Spawn planner
+**On DELIVERED:** `git stash drop` — changes are good.
+**On BLOCKED:** `git stash pop` — revert, reassess.
 
-Planner has TaskCreate/TaskUpdate tools and OWNS task creation. Do NOT create tasks here.
+### LEARN
 
-```python
-Task(
-    subagent_type="helix:helix-planner",
-    prompt=f"""PROJECT_CONTEXT:
-Decisions: {json.dumps(planner_context.get('decisions', []))}
-Conventions: {json.dumps(planner_context.get('conventions', []))}
-Recent: {json.dumps(planner_context.get('recent_evolution', []))}
+This is where you invest in your future self. After each task completes:
 
-OBJECTIVE: {objective}
-
-EXPLORATION:
-{json.dumps(merged_exploration, indent=2)}""",
-    allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"]
-)
+**1. Credit what helped:**
+```bash
+python3 "$HELIX/lib/memory/core.py" feedback --names '[injected_memories]' --delta 0.5
 ```
+See `reference/feedback-deltas.md` for delta calibration.
 
-**Planner handoff is TaskList, not text output.** Planner creates tasks via TaskCreate, sets dependencies via TaskUpdate. Its text output is discarded - the DAG in TaskList is the deliverable. Never use TaskOutput for planners.
-
-### Post-planning: Extract decisions
+**2. Store discoveries:**
+- Delivered with non-obvious insight → store as `pattern`
+- Blocked with generalizable cause → store as `failure`
+- Trivial success → skip (noise)
 
 ```bash
-# After planner completes, extract any decisions made
-python3 "$HELIX/lib/observer.py" planner \
-    --tasks "$(TaskList | jq -c)" \
-    --exploration '{merged_exploration}' \
-    --store --min-confidence medium
+python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "SPECIFIC" --resolution "ACTIONABLE"
 ```
 
-### Validate
-
-- TaskList empty after planner: **NO_TASKS** - add exploration context, re-run planner.
-- Clarify needed: Present questions via AskUserQuestion, re-plan.
-
----
-
-## 3. BUILD
-
-**Input:** Task DAG from planner.
-**Output:** All tasks completed (delivered or blocked).
-
-### Build Loop
-
-```
-1. TaskList() -> filter status="pending" -> if empty: goto CLOSE_LOOP
-2. Get ready tasks (all blockers have helix_outcome="delivered")
-3. If no ready but pending exist: STALLED (see reference/stalled-recovery.md)
-4. Spawn ALL ready tasks in parallel (run_in_background=True)
-5. Poll TaskList until spawned tasks show status="completed"
-6. Read helix_outcome + summary from task metadata via TaskGet
-7. For each task: feedback/learn (steps D-H)
-8. Go to 1
-```
-
-**NEVER call TaskOutput for builders.** Builder writes outcome to task metadata via TaskUpdate before completion. TaskOutput loads full agent transcript into context - wasteful and unnecessary. Poll TaskList for completion, then TaskGet for outcome.
-
-### Close Learning Loop (MANDATORY after all tasks complete)
-
-Before transitioning to COMPLETE, I MUST:
-
-**1. Credit memories that helped** (if any were injected):
-```bash
-python3 "$HELIX/lib/memory/core.py" feedback --names '[INJECTED_MEMORY_NAMES]' --delta 0.5
-```
-
-**2. Decide on pattern storage** for each delivered task:
-```
-For each task with helix_outcome="delivered":
-  Q: Did this require non-obvious discovery that would help future tasks?
-  If YES -> store pattern:
-    python3 "$HELIX/lib/memory/core.py" store --type pattern \
-      --trigger "SPECIFIC_TRIGGER" --resolution "SPECIFIC_RESOLUTION" \
-      --source "{task.subject}"
-  If NO -> skip (trivial success)
-```
-
-**3. Decide on failure storage** for each blocked task:
-```
-For each task with helix_outcome="blocked":
-  Q: Is the cause generalizable (not one-off)?
-  If YES -> store failure:
-    python3 "$HELIX/lib/memory/core.py" store --type failure \
-      --trigger "SPECIFIC_TRIGGER" --resolution "HOW_TO_AVOID" \
-      --source "{task.subject}"
-```
-
-**4. Check memory health**:
-```bash
-python3 "$HELIX/lib/memory/core.py" health
-```
-If `with_feedback: 0` and memories were injected, the loop was not closed properly.
-
-### Execute Single Task
-
-**A. Build context** (enhanced with conventions + facts)
-```bash
-context=$(python3 "$HELIX/lib/context.py" build-context \
-    --task-data "$(TaskGet {task_id} | jq -c)" \
-    --lineage "$lineage")
-# Context now includes CONVENTIONS_TO_FOLLOW and RELATED_FACTS
-```
-
-**B. Spawn builder**
-```python
-Task(
-    subagent_type="helix:helix-builder",
-    prompt=prompt,
-    allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
-    run_in_background=True
-)
-```
-
-**C. Read outcome from task metadata**
-```bash
-# Builder writes helix_outcome + summary to metadata via TaskUpdate
-# Read via TaskGet - NEVER use TaskOutput (loads full transcript, wastes context)
-task_data=$(TaskGet {task_id})
-helix_outcome=$(echo "$task_data" | jq -r '.metadata.helix_outcome')
-summary=$(echo "$task_data" | jq -r '.metadata.summary')
-```
-
-**D. Extract evolution and conventions**
-```bash
-# Get files changed by this task
-files_changed=$(git diff --name-only HEAD~1 2>/dev/null || echo "[]")
-
-# Extract learnings
-python3 "$HELIX/lib/observer.py" builder \
-    --task "$(TaskGet {task_id} | jq -c)" \
-    --result '{"status": "delivered", "summary": "..."}' \
-    --files-changed "$files_changed" \
-    --store --min-confidence low
-```
-
-**E. Feedback loop** (see `reference/feedback-deltas.md`)
-```bash
-python3 "$HELIX/lib/memory/core.py" feedback --names '[INJECTED_MEMORY_NAMES]' --delta 0.5
-```
-
-**F. Edge creation** (see `reference/edge-creation.md`)
+**3. Connect knowledge:**
 ```bash
 python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
+# Review suggestions, create edges that make sense:
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
 ```
 
-**G. Systemic detection**
+**4. Detect systemic issues:**
 ```bash
-python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7 --type failure
+python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7
 ```
-If 2+ similar: escalate to systemic type.
+If 2+ similar failures → escalate to `systemic` type.
 
-**H. Learning extraction**
-
-| Condition | Action |
-|-----------|--------|
-| Trivial success, no insight | Skip |
-| Success required non-obvious discovery | Store pattern |
-| Blocked with generalizable cause | Store failure |
-
-Quality gates: Would it change future outcomes? Trigger specific? Resolution actionable?
-
----
-
-## 4. COMPLETE
-
-All tasks done AND learning loop closed. Session ends.
-
-### Session Summary (MANDATORY)
-
-Before final completion, create session summary:
+**5. Extract evolution:**
 ```bash
-python3 "$HELIX/lib/observer.py" session \
-    --objective "$OBJECTIVE" \
-    --tasks "$(TaskList | jq -c)" \
-    --outcomes '{"task-001": "delivered", "task-002": "blocked"}' \
-    --store
+python3 "$HELIX/lib/observer.py" builder --task "$(TaskGet {id} | jq -c)" --files-changed "$(git diff --name-only HEAD~1)" --store
 ```
 
-This evolution entry tracks what was accomplished, enabling future sessions to understand project history.
+### COMPLETE
 
-**Pre-completion checklist:**
-- [ ] All tasks have `helix_outcome` set (delivered/blocked/skipped)
-- [ ] Injected memories received feedback (if any)
-- [ ] Pattern/failure storage decisions made for each task
-- [ ] **Evolution entries created for delivered tasks**
-- [ ] **Session summary stored**
-- [ ] `health` shows `with_feedback > 0` if memories were used
+All tasks done. Learning loop closed. Before ending:
 
----
+```bash
+# Session summary
+python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks "$(TaskList | jq -c)" --outcomes '{...}' --store
 
-## Error Recovery
+# Verify health
+python3 "$HELIX/lib/memory/core.py" health
+```
 
-| Error | Detection | Recovery |
-|-------|-----------|----------|
-| EMPTY_EXPLORATION | `targets.files` empty | Broaden scope, clarify |
-| NO_TASKS | Planner created 0 tasks | Add exploration context |
-| CYCLES_DETECTED | Planner validates DAG | Planner restructures internally |
-| STALLED | Pending but none ready | See `reference/stalled-recovery.md` |
-| SYSTEMIC_FAILURE | Same pattern 3+ times | Store systemic, inject as warning |
+If `with_feedback: 0` and memories were injected—you didn't close the loop. Your next session will be poorer for it.
 
 ---
 
@@ -324,61 +201,91 @@ This evolution entry tracks what was accomplished, enabling future sessions to u
 
 | Agent | Model | Purpose | Handoff |
 |-------|-------|---------|---------|
-| helix-explorer | haiku | Parallel reconnaissance, scoped | JSON in text output (use TaskOutput) |
-| helix-planner | opus | Task decomposition, DAG creation | TaskList (never TaskOutput) |
-| helix-builder | opus | Single task execution | Task metadata (never TaskOutput) |
+| helix-explorer | haiku | Parallel | JSON in returned result |
+| helix-planner | opus | DAG creation | TaskList |
+| helix-builder | opus | Execution | Task metadata via TaskGet |
 
-**Handoff principle:** Only explorers need TaskOutput - their JSON findings ARE the deliverable. Planners hand off via TaskList (tasks created). Builders hand off via task metadata (helix_outcome/summary). Never load full agent transcripts into context unnecessarily.
+Contracts in `agents/*.md`.
 
-Contracts define I/O schemas in `agents/*.md`.
+---
+
+## Context Discipline
+
+**The async notification stream is noisy.** Completions arrive late, duplicates happen, updates trickle in long after agents finish. Don't react to every notification.
+
+**TaskList is your source of truth.** Poll it for `status="completed"`. When a task shows completed, read its outcome via `TaskGet`. That's the handoff. Move on.
+
+**TaskOutput loads the full JSONL transcript**—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You almost never need it.
+
+**The handoff patterns:**
+- **Explorers**: Completion notification contains their JSON findings. Trust it.
+- **Planners**: Handoff is TaskList—the DAG they created. Text discarded.
+- **Builders**: They write `helix_outcome` + `summary` to task metadata. Read via `TaskGet`.
+
+**The discipline:**
+1. Spawn background agents
+2. Poll TaskList for completion (not TaskOutput)
+3. When `status="completed"`: TaskGet for outcome, then proceed
+4. Ignore late/duplicate notifications—TaskList already told you
+5. Never call TaskOutput unless you're debugging a failure
 
 ---
 
 ## Task Status Model
 
-**Dual status**: Native `status` (DAG execution) + `helix_outcome` (semantic result).
+**Dual status:** Native `status` controls DAG. `helix_outcome` captures meaning.
 
 | status | helix_outcome | Meaning |
 |--------|---------------|---------|
-| completed | delivered | Success, memory credit |
-| completed | blocked | Finished but didn't achieve goal |
-| completed | skipped | Intentionally bypassed (stall recovery) |
-| pending | - | Not yet started |
-| in_progress | - | Builder executing |
-
-`status=completed` releases dependents. `helix_outcome` determines success context.
+| completed | delivered | Success, unblocks dependents, credit memories |
+| completed | blocked | Finished but failed, blocks dependents |
+| completed | skipped | Bypassed via stall recovery |
+| pending | — | Not started |
+| in_progress | — | Builder executing |
 
 ---
 
-## Lineage Format
+## Error States
 
-```json
-[{"seq": "001", "slug": "setup-auth", "delivered": "Created AuthService with JWT support"}]
-```
+| Error | Detection | Recovery |
+|-------|-----------|----------|
+| EMPTY_EXPLORATION | No files found | Broaden scope, clarify |
+| NO_TASKS | Planner created nothing | Add context, re-plan |
+| CYCLES_DETECTED | DAG has loops | Planner restructures |
+| STALLED | Pending but none ready | `reference/stalled-recovery.md` |
+| SYSTEMIC | Same failure 3+ times | Store systemic, warn future builders |
 
 ---
 
-## CLI Quick Reference
+## Quick Reference
 
-See `reference/cli-reference.md` for full commands.
-
-**Essential:**
 ```bash
+# Recall with graph expansion
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
-python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
+
+# Store a pattern
+python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "..." --resolution "..."
+
+# Credit memories
 python3 "$HELIX/lib/memory/core.py" feedback --names '[...]' --delta 0.5
+
+# Check system health
 python3 "$HELIX/lib/memory/core.py" health
+
+# Find systemic patterns
+python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7
 ```
+
+Full CLI: `reference/cli-reference.md`
 
 ---
 
-## The Philosophy
+## The Deal
 
-Code surfaces facts; I decide actions.
+Every session is a transaction. You receive what past sessions learned. You pay back what this session discovers.
 
-**9 core primitives** for storage, retrieval, and maintenance.
-**2 code-assisted functions** that surface facts:
-- `similar-recent` -> surfaces similar memories; I decide escalation
-- `suggest-edges` -> surfaces candidate edges; I decide which to create
+The memories that help get stronger. The memories that mislead get weaker. The graph grows connections. The system learns.
 
-The graph connects knowledge. Code amplifies judgment.
+But only if you close the loop.
+
+Your future self is counting on you.
