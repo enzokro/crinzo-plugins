@@ -36,9 +36,9 @@ warning: string - Systemic issue to address first
 </input>
 
 <execution>
-Environment:
+Environment (agents do NOT inherit parent env vars - MUST read from file):
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+HELIX="$(cat .helix/plugin_root)"
 ```
 
 1. If WARNING present: address systemic issue first

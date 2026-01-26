@@ -39,9 +39,9 @@ If RELEVANT_FAILURES provided:
 </prior_knowledge>
 
 <execution>
-Environment:
+Environment (agents do NOT inherit parent env vars - MUST read from file):
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+HELIX="$(cat .helix/plugin_root)"
 ```
 
 Directory scope:

@@ -10,7 +10,7 @@ Display memory system statistics, graph edges, and learning loop status.
 ## Execution
 
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+HELIX="$(cat .helix/plugin_root)"
 python3 "$HELIX/lib/memory/core.py" health
 ```
 
@@ -30,7 +30,7 @@ python3 "$HELIX/lib/memory/core.py" health
 After viewing health, consider running maintenance:
 
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+HELIX="$(cat .helix/plugin_root)"
 
 # Decay dormant memories (halve scores for unused memories)
 python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2

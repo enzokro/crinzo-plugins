@@ -13,9 +13,13 @@ Not when: Simple edits, questions, single-file changes.
 
 ## Environment
 
+**CRITICAL:** Read HELIX from `.helix/plugin_root` file (created by SessionStart hook).
+
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
+HELIX="$(cat .helix/plugin_root)"
 ```
+
+This file contains the plugin ROOT path (e.g., `.../helix/1.0.7`) which has `lib/`, `scripts/`, `skills/` subdirectories. Do NOT use skill directory paths.
 
 ## States
 
@@ -70,9 +74,16 @@ Task(
     subagent_type="helix:helix-explorer",
     prompt=f"KNOWN_FACTS:\n{json.dumps(known_facts)}\n\nSCOPE: src/api/\nFOCUS: route handlers\nOBJECTIVE: {objective}",
     model="haiku",
+    allowed_tools=["Read", "Grep", "Glob", "Bash"],
     run_in_background=True
 )
-Task(subagent_type="helix:helix-explorer", prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}", model="haiku", run_in_background=True)
+Task(
+    subagent_type="helix:helix-explorer",
+    prompt="SCOPE: memory\nFOCUS: failures and patterns\nOBJECTIVE: {objective}",
+    model="haiku",
+    allowed_tools=["Read", "Grep", "Glob", "Bash"],
+    run_in_background=True
+)
 ```
 
 ### Collect, merge, and LEARN
@@ -119,11 +130,12 @@ Recent: {json.dumps(planner_context.get('recent_evolution', []))}
 OBJECTIVE: {objective}
 
 EXPLORATION:
-{json.dumps(merged_exploration, indent=2)}"""
+{json.dumps(merged_exploration, indent=2)}""",
+    allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"]
 )
 ```
 
-Planner creates tasks directly via TaskCreate, sets dependencies via TaskUpdate, outputs TASK_MAPPING.
+**Planner handoff is TaskList, not text output.** Planner creates tasks via TaskCreate, sets dependencies via TaskUpdate. Its text output is discarded - the DAG in TaskList is the deliverable. Never use TaskOutput for planners.
 
 ### Post-planning: Extract decisions
 
@@ -154,10 +166,13 @@ python3 "$HELIX/lib/observer.py" planner \
 2. Get ready tasks (all blockers have helix_outcome="delivered")
 3. If no ready but pending exist: STALLED (see reference/stalled-recovery.md)
 4. Spawn ALL ready tasks in parallel (run_in_background=True)
-5. Collect results via TaskOutput
-6. Process each: feedback -> learn (steps D-H below are MANDATORY)
-7. Go to 1
+5. Poll TaskList until spawned tasks show status="completed"
+6. Read helix_outcome + summary from task metadata via TaskGet
+7. For each task: feedback/learn (steps D-H)
+8. Go to 1
 ```
+
+**NEVER call TaskOutput for builders.** Builder writes outcome to task metadata via TaskUpdate before completion. TaskOutput loads full agent transcript into context - wasteful and unnecessary. Poll TaskList for completion, then TaskGet for outcome.
 
 ### Close Learning Loop (MANDATORY after all tasks complete)
 
@@ -207,12 +222,21 @@ context=$(python3 "$HELIX/lib/context.py" build-context \
 
 **B. Spawn builder**
 ```python
-Task(subagent_type="helix:helix-builder", prompt=prompt, run_in_background=True)
+Task(
+    subagent_type="helix:helix-builder",
+    prompt=prompt,
+    allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
+    run_in_background=True
+)
 ```
 
-**C. Parse result**
+**C. Read outcome from task metadata**
 ```bash
-python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
+# Builder writes helix_outcome + summary to metadata via TaskUpdate
+# Read via TaskGet - NEVER use TaskOutput (loads full transcript, wastes context)
+task_data=$(TaskGet {task_id})
+helix_outcome=$(echo "$task_data" | jq -r '.metadata.helix_outcome')
+summary=$(echo "$task_data" | jq -r '.metadata.summary')
 ```
 
 **D. Extract evolution and conventions**
@@ -298,11 +322,13 @@ This evolution entry tracks what was accomplished, enabling future sessions to u
 
 ## Agent Contracts
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| helix-explorer | haiku | Parallel reconnaissance, scoped |
-| helix-planner | opus | Task decomposition, DAG creation |
-| helix-builder | opus | Single task execution |
+| Agent | Model | Purpose | Handoff |
+|-------|-------|---------|---------|
+| helix-explorer | haiku | Parallel reconnaissance, scoped | JSON in text output (use TaskOutput) |
+| helix-planner | opus | Task decomposition, DAG creation | TaskList (never TaskOutput) |
+| helix-builder | opus | Single task execution | Task metadata (never TaskOutput) |
+
+**Handoff principle:** Only explorers need TaskOutput - their JSON findings ARE the deliverable. Planners hand off via TaskList (tasks created). Builders hand off via task metadata (helix_outcome/summary). Never load full agent transcripts into context unnecessarily.
 
 Contracts define I/O schemas in `agents/*.md`.
 

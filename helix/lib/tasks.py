@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Task operations helper for helix orchestrator.
+"""Task state helper for helix orchestrator.
 
 This module provides:
-- parse_builder_output(): Parse DELIVERED/BLOCKED from builder output
 - helix_task_state(): Derive canonical task state from dual status model
 
 Note: The actual TaskCreate/TaskList/TaskGet/TaskUpdate calls are made
@@ -11,68 +10,11 @@ directly by the orchestrator using Claude Code's native Task tools.
 ARCHITECTURAL PRINCIPLE: Single Source of Truth
 -----------------------------------------------
 Task state is tracked in TaskList metadata via 'helix_outcome' field.
-Cycle detection is handled by dag_utils.py.
-
-Usage from SKILL.md:
-    python3 $HELIX/lib/tasks.py parse-output "$builder_output"
+Builder writes outcome via TaskUpdate; orchestrator reads via TaskGet.
+Never use TaskOutput for builders - wastes context loading full transcript.
 """
 
 import json
-import sys
-from pathlib import Path
-from typing import List, Optional
-
-
-
-def parse_builder_output(output: str) -> dict:
-    """Parse helix-builder output to extract status.
-
-    Builder outputs in format:
-        DELIVERED: <summary>
-
-    Or:
-        BLOCKED: <reason>
-        TRIED: <what was attempted>
-        ERROR: <error message>
-
-    Args:
-        output: Raw builder output string
-
-    Returns:
-        {
-            "status": "delivered" | "blocked",
-            "summary": "<delivered summary or blocked reason>",
-            "tried": "<what was tried if blocked>",
-            "error": "<error if any>"
-        }
-    """
-    result = {
-        "status": "unknown",
-        "summary": "",
-        "tried": "",
-        "error": ""
-    }
-
-    lines = output.strip().split("\n")
-
-    # Find DELIVERED or BLOCKED - FIRST match wins (fix for last-match bug)
-    for line in lines:
-        # Only set status on first match
-        if result["status"] == "unknown":
-            if line.startswith("DELIVERED:"):
-                result["status"] = "delivered"
-                result["summary"] = line.replace("DELIVERED:", "").strip()
-            elif line.startswith("BLOCKED:"):
-                result["status"] = "blocked"
-                result["summary"] = line.replace("BLOCKED:", "").strip()
-
-        # These can appear anywhere
-        if line.startswith("TRIED:"):
-            result["tried"] = line.replace("TRIED:", "").strip()
-        elif line.startswith("ERROR:"):
-            result["error"] = line.replace("ERROR:", "").strip()
-
-    return result
 
 
 def helix_task_state(task: dict) -> dict:
@@ -123,17 +65,18 @@ def helix_task_state(task: dict) -> dict:
 def _cli():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Helix task operations helper")
+    parser = argparse.ArgumentParser(description="Helix task state helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # parse-output
-    p = subparsers.add_parser("parse-output", help="Parse builder output")
-    p.add_argument("output", help="Builder output string")
+    # task-state
+    p = subparsers.add_parser("task-state", help="Derive canonical task state")
+    p.add_argument("task_json", help="Task JSON from TaskGet")
 
     args = parser.parse_args()
 
-    if args.command == "parse-output":
-        result = parse_builder_output(args.output)
+    if args.command == "task-state":
+        task = json.loads(args.task_json)
+        result = helix_task_state(task)
         print(json.dumps(result, indent=2))
 
 
