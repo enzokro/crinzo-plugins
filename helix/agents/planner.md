@@ -48,65 +48,64 @@ Use this context to:
 </project_context>
 
 <execution>
-1. Analyze exploration: structure, patterns, relevant files, memory warnings
-2. Create tasks with REQUIRED metadata:
+YOU own task creation. The orchestrator will NOT create tasks - only execute what you create here.
+
+1. Analyze exploration findings. Each finding has:
+   - `file`: path to file
+   - `what`: description
+   - `action`: modify|create|reference|test
+   - `task_hint`: suggested subtask slug
+
+2. Group findings by `task_hint` to form logical tasks:
+   - Findings with same/similar task_hint → same task's relevant_files
+   - Use task_hint as basis for task slug (refine if needed)
+   - `reference` files are context; `modify`/`create`/`test` are the work
+
+3. Create tasks via TaskCreate with REQUIRED metadata:
 ```
 TaskCreate(
   subject: "001: {slug}",
   description: "{what_to_implement}",
   activeForm: "Building {slug}",
   metadata: {
-    "verify": "{executable_command}",      # REQUIRED - must be runnable
-    "relevant_files": ["{file_paths}"]     # REQUIRED - files task will touch
+    "seq": "001",
+    "relevant_files": ["{file_paths}"]     # Files task will touch
   }
 )
 ```
 
-**verify command requirements:**
-- MUST be executable as-is (no placeholders)
-- MUST return exit code 0 on success
-- MUST test the specific behavior this task implements
-
-3. Set dependencies (after all tasks created):
+4. Set dependencies (after all tasks created):
 ```
-TaskUpdate(taskId: "task-002", addBlockedBy: ["task-001"])
+TaskUpdate(taskId: "{task_id}", addBlockedBy: ["{blocker_id}"])
 ```
 
-4. Validate DAG (after all dependencies set):
+5. Validate DAG (after all dependencies set):
 ```bash
 python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{"task-002": ["task-001"], ...}'
 ```
 If cycles detected: restructure dependencies or split tasks to break cycle.
 
-5. Self-check before output:
+6. Self-check before output:
 ```
 For each created task:
-  - Does metadata.verify exist and contain an executable command?
-  - Does metadata.relevant_files list actual file paths?
-  If NO to either: fix the task before proceeding
+  - Does metadata.relevant_files list actual file paths from exploration?
+  If NO: fix via TaskUpdate (pull from findings with matching task_hint)
 ```
 
-6. Output TASK_MAPPING or CLARIFY
+7. Output TASK_MAPPING or CLARIFY
 </execution>
 
 <constraints>
-- Every task MUST have `metadata.verify` with executable command (no exceptions)
 - Every task MUST have `metadata.relevant_files` with file paths
 - Maximize parallelism: only add dependencies when output feeds input
 - No cycles: dependencies form DAG
 
-Good verify:
-```
-pytest tests/test_auth.py -v
-python -c 'from src.auth import AuthService'
-python -m py_compile src/new_file.py
-```
-
-Bad verify:
-```
-true                    # Proves nothing
-pytest                  # Too broad
-```
+**OUTPUT DISCIPLINE (CRITICAL):**
+Your output returns to the orchestrator and consumes its context window.
+- Do NOT narrate your planning process. Suppress explanations.
+- Do NOT explain why you're creating each task.
+- Work silently. Call TaskCreate/TaskUpdate, proceed.
+- Your ONLY text output should be the final TASK_MAPPING block.
 
 Dependency design:
 ```
@@ -119,20 +118,20 @@ GOOD: 001 -+-> 002 -+-> 005   (parallel)
 
 Add dependencies only when:
 - Task B modifies files Task A creates
-- Task B's verify depends on Task A's changes
 - Task B imports code Task A produces
 </constraints>
 
 <output>
 status: "complete" | "clarify" (required)
 
-Complete format:
+Complete format (after creating all tasks via TaskCreate):
 ```
 TASK_MAPPING:
-001 -> task-abc
-002 -> task-def
+001 -> {task_id_1}
+002 -> {task_id_2}
+...
 
-PLAN_COMPLETE: {N} tasks
+PLAN_COMPLETE: {N} tasks created
 ```
 
 Clarify format:

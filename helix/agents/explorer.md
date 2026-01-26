@@ -61,10 +61,18 @@ python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --expand
 - Concrete findings only: file paths, line numbers
 - NEVER return empty findings without explanation
 - Include only relevant sections
+
+**OUTPUT DISCIPLINE (CRITICAL):**
+Your output returns to the orchestrator and consumes its context window.
+- Do NOT narrate your exploration. Suppress explanations.
+- Do NOT echo file contents or command outputs in your response text.
+- Work silently. Call tools, get results, proceed.
+- Your ONLY text output should be the final JSON block.
 </constraints>
 
 <output>
-REQUIRED FORMAT - Helix merges explorer JSON. Malformed output breaks helix.
+REQUIRED: Structured output the orchestrator can parse.
+Target format is JSON, but structured prose with matching, equivalent sections is acceptable.
 
 Success:
 ```json
@@ -73,10 +81,25 @@ Success:
   "focus": "{your focus}",
   "status": "success",
   "findings": [
-    {"file": "path/to/file.py", "what": "description", "relevance": "why it matters"}
+    {
+      "file": "path/to/file.py",
+      "what": "description of content/purpose",
+      "action": "modify|create|reference|test",
+      "task_hint": "logical-subtask-slug"
+    }
   ]
 }
 ```
+
+**Finding fields:**
+- `file`: Absolute or repo-relative path
+- `what`: What this file contains or does
+- `action`: What needs to happen
+  - `modify` - Change existing code
+  - `create` - New file needed here
+  - `reference` - Read for context only
+  - `test` - Add/update tests
+- `task_hint`: Short slug for the logical subtask this file relates to (e.g., "auth-middleware", "db-schema", "api-routes"). Planner uses this to group files into tasks.
 
 Error (when exploration fails):
 ```json

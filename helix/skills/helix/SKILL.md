@@ -78,6 +78,7 @@ Task(subagent_type="helix:helix-explorer", prompt="SCOPE: memory\nFOCUS: failure
 ### Collect, merge, and LEARN
 
 Synthesize explorer JSON: dedupe files, resolve conflicts, aggregate findings.
+Each finding has: `{file, what, action, task_hint}` - preserve `task_hint` for planner grouping.
 If `targets.files` empty: **EMPTY_EXPLORATION** - broaden scope or clarify.
 
 ```bash
@@ -92,7 +93,7 @@ Review stored facts. High-value discoveries about codebase structure accumulate 
 ## 2. PLAN
 
 **Input:** Objective + merged exploration.
-**Output:** Task DAG via native TaskCreate + extracted decisions.
+**Output:** Task DAG created by planner (planner owns TaskCreate).
 
 See `reference/task-granularity.md` for sizing heuristics.
 
@@ -104,6 +105,8 @@ planner_context=$(python3 "$HELIX/lib/context.py" build-planner-context --object
 ```
 
 ### Spawn planner
+
+Planner has TaskCreate/TaskUpdate tools and OWNS task creation. Do NOT create tasks here.
 
 ```python
 Task(
@@ -120,7 +123,7 @@ EXPLORATION:
 )
 ```
 
-Planner outputs task mapping + validates DAG (no cycles).
+Planner creates tasks directly via TaskCreate, sets dependencies via TaskUpdate, outputs TASK_MAPPING.
 
 ### Post-planning: Extract decisions
 
@@ -134,7 +137,7 @@ python3 "$HELIX/lib/observer.py" planner \
 
 ### Validate
 
-- No tasks: **NO_TASKS** - add exploration context.
+- TaskList empty after planner: **NO_TASKS** - add exploration context, re-run planner.
 - Clarify needed: Present questions via AskUserQuestion, re-plan.
 
 ---
@@ -152,7 +155,7 @@ python3 "$HELIX/lib/observer.py" planner \
 3. If no ready but pending exist: STALLED (see reference/stalled-recovery.md)
 4. Spawn ALL ready tasks in parallel (run_in_background=True)
 5. Collect results via TaskOutput
-6. Process each: verify -> feedback -> learn (steps D-H below are MANDATORY)
+6. Process each: feedback -> learn (steps D-H below are MANDATORY)
 7. Go to 1
 ```
 
@@ -212,12 +215,7 @@ Task(subagent_type="helix:helix-builder", prompt=prompt, run_in_background=True)
 python3 "$HELIX/lib/tasks.py" parse-output "{builder_output}"
 ```
 
-**D. Run verification**
-```bash
-timeout 120 {task.metadata.verify}
-```
-
-**E. Extract evolution and conventions** (NEW - before feedback)
+**D. Extract evolution and conventions**
 ```bash
 # Get files changed by this task
 files_changed=$(git diff --name-only HEAD~1 2>/dev/null || echo "[]")
@@ -230,24 +228,24 @@ python3 "$HELIX/lib/observer.py" builder \
     --store --min-confidence low
 ```
 
-**F. Feedback loop** (see `reference/feedback-deltas.md`)
+**E. Feedback loop** (see `reference/feedback-deltas.md`)
 ```bash
 python3 "$HELIX/lib/memory/core.py" feedback --names '[INJECTED_MEMORY_NAMES]' --delta 0.5
 ```
 
-**G. Edge creation** (see `reference/edge-creation.md`)
+**F. Edge creation** (see `reference/edge-creation.md`)
 ```bash
 python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
 ```
 
-**H. Systemic detection**
+**G. Systemic detection**
 ```bash
 python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7 --type failure
 ```
 If 2+ similar: escalate to systemic type.
 
-**I. Learning extraction**
+**H. Learning extraction**
 
 | Condition | Action |
 |-----------|--------|
