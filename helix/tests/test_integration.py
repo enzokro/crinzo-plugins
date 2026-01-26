@@ -14,7 +14,7 @@ class TestFeedbackLoop:
 
     def test_store_inject_feedback_cycle(self, test_db, mock_embeddings):
         """Complete cycle: store -> recall -> inject -> verify -> feedback."""
-        from lib.memory.core import store, recall, get, feedback_from_verification
+        from lib.memory.core import store, recall, get, feedback
         from lib.context import build_context
 
         # 1. Store a failure memory
@@ -42,21 +42,17 @@ class TestFeedbackLoop:
         assert memory_name in context["injected"]
 
         # 4. Simulate verify pass -> feedback
-        feedback = feedback_from_verification(
-            task_id="task-test",
-            verify_passed=True,
-            injected=context["injected"]
-        )
-        assert feedback["credited"] >= 1
+        result = feedback(context["injected"], 0.5)
+        assert result["updated"] >= 1
 
         # 5. Memory effectiveness increased
         mem = get(memory_name)
         assert mem["helped"] == 0.5
-        assert mem["effectiveness"] > 0.5  # Was 0.5, now helped/(helped+failed) > 0.5
+        assert mem["effectiveness"] > 0.5
 
     def test_effectiveness_increases_on_success(self, test_db, mock_embeddings):
         """Verify pass increases effectiveness over multiple uses."""
-        from lib.memory.core import store, get, feedback_from_verification
+        from lib.memory.core import store, get, feedback
 
         result = store(
             trigger="Authentication token expiry handling in middleware layer",
@@ -70,8 +66,8 @@ class TestFeedbackLoop:
         assert mem["effectiveness"] == 0.5
 
         # Two successful uses
-        feedback_from_verification("t1", True, [name])
-        feedback_from_verification("t2", True, [name])
+        feedback([name], 0.5)
+        feedback([name], 0.5)
 
         mem = get(name)
         # helped = 1.0, failed = 0 -> effectiveness = 1.0
@@ -80,7 +76,7 @@ class TestFeedbackLoop:
 
     def test_effectiveness_decreases_on_failure(self, test_db, mock_embeddings):
         """Verify fail decreases effectiveness for pruning."""
-        from lib.memory.core import store, get, feedback_from_verification
+        from lib.memory.core import store, get, feedback
 
         result = store(
             trigger="Cache invalidation strategy for distributed session store",
@@ -90,9 +86,9 @@ class TestFeedbackLoop:
         name = result["name"]
 
         # Mix of success and failure
-        feedback_from_verification("t1", True, [name])   # +0.5 helped
-        feedback_from_verification("t2", False, [name])  # +0.5 failed
-        feedback_from_verification("t3", False, [name])  # +0.5 failed
+        feedback([name], 0.5)   # +0.5 helped
+        feedback([name], -0.5)  # +0.5 failed
+        feedback([name], -0.5)  # +0.5 failed
 
         mem = get(name)
         # helped = 0.5, failed = 1.0 -> effectiveness = 0.5 / 1.5 = 0.333
@@ -129,7 +125,7 @@ class TestContextInjection:
 
     def test_context_feedback_ranking(self, test_db, mock_embeddings):
         """Higher effectiveness memories rank higher on next recall."""
-        from lib.memory.core import store, recall, feedback_from_verification
+        from lib.memory.core import store, recall, feedback
 
         # Store two similar memories
         r1 = store(
@@ -144,11 +140,11 @@ class TestContextInjection:
         )
 
         # Give r1 positive feedback
-        feedback_from_verification("t1", True, [r1["name"]])
-        feedback_from_verification("t2", True, [r1["name"]])
+        feedback([r1["name"]], 0.5)
+        feedback([r1["name"]], 0.5)
 
         # Give r2 negative feedback
-        feedback_from_verification("t3", False, [r2["name"]])
+        feedback([r2["name"]], -0.5)
 
         # Recall should rank r1 higher
         results = recall("database connection issues", limit=5)
@@ -164,7 +160,7 @@ class TestOrchestrationFlow:
 
     def test_tasks_progress_through_dag(self):
         """Tasks become ready as blockers complete."""
-        from lib.orchestrator import get_ready_tasks
+        from lib.dag_utils import get_ready_tasks
 
         # Initial state: only t1 ready
         tasks = [
@@ -192,7 +188,7 @@ class TestOrchestrationFlow:
 
     def test_stall_detection_with_blocked(self):
         """Stall detected when blocker is blocked."""
-        from lib.orchestrator import check_stalled
+        from lib.dag_utils import check_stalled
 
         tasks = [
             {"id": "t1", "status": "completed", "blockedBy": [], "metadata": {"helix_outcome": "delivered"}},

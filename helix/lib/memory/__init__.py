@@ -11,15 +11,15 @@
 - prune: Remove ineffective memories
 - health: System status check
 
-P0 Additions (code-assisted judgment):
+Code-Assisted (surfaces facts, orchestrator decides):
 - similar_recent: Find similar memories for systemic detection
 - suggest_edges: Suggest edge connections for a memory
 
-Legacy/Utility:
+Utility:
 - recall_by_file_patterns: Search by file patterns
-- feedback_from_verification: DEPRECATED - use feedback() with explicit delta
 - chunk: SOAR chunking - extract reusable pattern from success
 - consolidate: Merge similar memories
+- decay_edges: Decay edge weights for unused relationships
 """
 
 from .core import (
@@ -33,14 +33,14 @@ from .core import (
     decay,
     prune,
     health,
-    # P0 additions (code-assisted judgment)
+    # Code-assisted (surfaces facts)
     similar_recent,
     suggest_edges,
-    # Legacy/utility
+    # Utility
     recall_by_file_patterns,
-    feedback_from_verification,
     chunk,
     consolidate,
+    decay_edges,
 )
 
 __all__ = [
@@ -56,7 +56,7 @@ __all__ = [
     "similar_recent",
     "suggest_edges",
     "recall_by_file_patterns",
-    "feedback_from_verification",
     "chunk",
     "consolidate",
+    "decay_edges",
 ]

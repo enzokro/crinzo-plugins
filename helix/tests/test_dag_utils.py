@@ -1,4 +1,4 @@
-"""Tests for orchestrator.py - DAG utilities.
+"""Tests for dag_utils.py - DAG utilities.
 
 Tests cycle detection, task readiness, and stall detection.
 """
@@ -11,7 +11,7 @@ class TestCycleDetection:
 
     def test_detect_no_cycles(self):
         """Valid DAG has no cycles."""
-        from lib.orchestrator import detect_cycles
+        from lib.dag_utils import detect_cycles
 
         # A -> B -> C (valid DAG)
         dependencies = {
@@ -26,7 +26,7 @@ class TestCycleDetection:
 
     def test_detect_simple_cycle(self):
         """Detects simple A->B->A cycle."""
-        from lib.orchestrator import detect_cycles
+        from lib.dag_utils import detect_cycles
 
         dependencies = {
             "A": ["B"],
@@ -45,7 +45,7 @@ class TestCycleDetection:
 
     def test_detect_complex_cycle(self):
         """Detects longer A->B->C->A cycle."""
-        from lib.orchestrator import detect_cycles
+        from lib.dag_utils import detect_cycles
 
         dependencies = {
             "A": ["B"],
@@ -65,7 +65,7 @@ class TestCycleDetection:
 
     def test_detect_self_loop(self):
         """Detects self-referential A->A."""
-        from lib.orchestrator import detect_cycles
+        from lib.dag_utils import detect_cycles
 
         dependencies = {
             "A": ["A"],
@@ -81,7 +81,7 @@ class TestCycleDetection:
 
     def test_detect_multiple_cycles(self):
         """Detects independent cycles in graph."""
-        from lib.orchestrator import detect_cycles
+        from lib.dag_utils import detect_cycles
 
         # Two independent cycles
         dependencies = {
@@ -102,7 +102,7 @@ class TestTaskReadiness:
 
     def test_get_ready_no_blockers(self, sample_tasks):
         """Pending task with no blockers is ready."""
-        from lib.orchestrator import get_ready_tasks
+        from lib.dag_utils import get_ready_tasks
 
         # Modify sample_tasks: task-003 depends on task-002 which is delivered
         tasks = sample_tasks
@@ -114,7 +114,7 @@ class TestTaskReadiness:
 
     def test_get_ready_all_delivered(self):
         """Task is ready when all blockers delivered."""
-        from lib.orchestrator import get_ready_tasks
+        from lib.dag_utils import get_ready_tasks
 
         tasks = [
             {"id": "t1", "status": "completed", "blockedBy": [], "metadata": {"helix_outcome": "delivered"}},
@@ -128,7 +128,7 @@ class TestTaskReadiness:
 
     def test_get_ready_blocker_blocked(self, sample_tasks_with_blocked):
         """Task is not ready if blocker was blocked."""
-        from lib.orchestrator import get_ready_tasks
+        from lib.dag_utils import get_ready_tasks
 
         ready = get_ready_tasks(sample_tasks_with_blocked)
 
@@ -141,7 +141,7 @@ class TestStallDetection:
 
     def test_check_stalled_has_ready(self, sample_tasks):
         """Not stalled when ready tasks exist."""
-        from lib.orchestrator import check_stalled
+        from lib.dag_utils import check_stalled
 
         is_stalled, info = check_stalled(sample_tasks)
 
@@ -150,7 +150,7 @@ class TestStallDetection:
 
     def test_check_stalled_all_blocked(self, sample_tasks_with_blocked):
         """Stalled when pending tasks exist but none ready."""
-        from lib.orchestrator import check_stalled
+        from lib.dag_utils import check_stalled
 
         is_stalled, info = check_stalled(sample_tasks_with_blocked)
 

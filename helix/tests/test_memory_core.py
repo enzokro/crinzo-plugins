@@ -110,8 +110,8 @@ class TestStore:
         assert result2["status"] == "merged"
         assert result2["name"] == result1["name"]
 
-    def test_store_extracts_file_patterns(self, test_db, mock_embeddings):
-        """File patterns are extracted from trigger/resolution."""
+    def test_store_creates_file_patterns(self, test_db, mock_embeddings):
+        """File patterns are extracted and stored in normalized table."""
         from lib.memory.core import store
 
         result = store(
@@ -121,14 +121,14 @@ class TestStore:
         )
 
         assert result["status"] == "added"
-        # File patterns stored in DB (not returned in dict, but verified via query)
+        # File patterns stored in normalized table
         db = test_db
-        row = db.execute(
-            "SELECT file_patterns FROM memory WHERE name=?",
+        rows = db.execute(
+            "SELECT pattern FROM memory_file_pattern WHERE memory_name=?",
             (result["name"],)
-        ).fetchone()
-        assert row["file_patterns"] is not None
-        assert "test_auth.py" in row["file_patterns"] or "jwt.py" in row["file_patterns"]
+        ).fetchall()
+        patterns = [r["pattern"] for r in rows]
+        assert any("test_auth.py" in p or "jwt.py" in p for p in patterns)
 
 
 class TestRecall:
@@ -166,7 +166,7 @@ class TestRecall:
 
     def test_recall_filters_by_effectiveness(self, test_db, mock_embeddings):
         """Recall respects min_effectiveness threshold."""
-        from lib.memory.core import store, recall, feedback_from_verification
+        from lib.memory.core import store, recall, feedback
 
         # Store memory and give it feedback
         result = store(
@@ -176,16 +176,8 @@ class TestRecall:
         )
 
         # Give positive feedback to increase effectiveness above 0.5
-        feedback_from_verification(
-            task_id="test-task",
-            verify_passed=True,
-            injected=[result["name"]]
-        )
-        feedback_from_verification(
-            task_id="test-task-2",
-            verify_passed=True,
-            injected=[result["name"]]
-        )
+        feedback([result["name"]], 0.5)
+        feedback([result["name"]], 0.5)
 
         # Should appear with low threshold
         results_low = recall("async error handling", min_effectiveness=0.0, limit=5)
@@ -222,8 +214,8 @@ class TestFeedback:
     """Tests for feedback loop - THE critical mechanism."""
 
     def test_feedback_success_credits_memories(self, test_db, mock_embeddings):
-        """Verification pass credits all injected memories with +0.5 helped."""
-        from lib.memory.core import store, get, feedback_from_verification
+        """Positive delta credits memories with helped."""
+        from lib.memory.core import store, get, feedback
 
         # Store memory
         result = store(
@@ -239,14 +231,10 @@ class TestFeedback:
         assert mem_before["failed"] == 0
 
         # Give positive feedback
-        feedback = feedback_from_verification(
-            task_id="task-123",
-            verify_passed=True,
-            injected=[name]
-        )
+        fb_result = feedback([name], 0.5)
 
-        assert feedback["credited"] == 1
-        assert feedback["verify_passed"] is True
+        assert fb_result["updated"] == 1
+        assert fb_result["delta"] == 0.5
 
         # Check memory was credited
         mem_after = get(name)
@@ -255,8 +243,8 @@ class TestFeedback:
         assert mem_after["last_used"] is not None
 
     def test_feedback_failure_penalizes_memories(self, test_db, mock_embeddings):
-        """Verification failure adds +0.5 to failed for pruning capability."""
-        from lib.memory.core import store, get, feedback_from_verification
+        """Negative delta increases failed count for pruning capability."""
+        from lib.memory.core import store, get, feedback
 
         result = store(
             trigger="Memory leak when using closures in event handlers incorrectly",
@@ -266,14 +254,9 @@ class TestFeedback:
         name = result["name"]
 
         # Give negative feedback
-        feedback = feedback_from_verification(
-            task_id="task-456",
-            verify_passed=False,
-            injected=[name]
-        )
+        fb_result = feedback([name], -0.5)
 
-        # Should not credit but should record failure
-        assert feedback["credited"] == 0
+        assert fb_result["updated"] == 1
 
         mem = get(name)
         assert mem["helped"] == 0
@@ -281,20 +264,15 @@ class TestFeedback:
 
     def test_feedback_skips_unknown_memories(self, test_db, mock_embeddings):
         """Non-existent memory names are silently skipped."""
-        from lib.memory.core import feedback_from_verification
+        from lib.memory.core import feedback
 
-        feedback = feedback_from_verification(
-            task_id="task-789",
-            verify_passed=True,
-            injected=["nonexistent-memory-name", "also-does-not-exist"]
-        )
+        fb_result = feedback(["nonexistent-memory-name", "also-does-not-exist"], 0.5)
 
-        assert feedback["credited"] == 0
-        assert feedback["injected_count"] == 2
+        assert fb_result["updated"] == 0
 
     def test_feedback_updates_last_used(self, test_db, mock_embeddings):
         """Feedback updates last_used timestamp for recency scoring."""
-        from lib.memory.core import store, get, feedback_from_verification
+        from lib.memory.core import store, get, feedback
         import time
 
         result = store(
@@ -309,11 +287,7 @@ class TestFeedback:
 
         time.sleep(0.01)  # Small delay to ensure different timestamp
 
-        feedback_from_verification(
-            task_id="task-update",
-            verify_passed=True,
-            injected=[name]
-        )
+        feedback([name], 0.5)
 
         mem_after = get(name)
         assert mem_after["last_used"] != before_last_used

@@ -34,16 +34,19 @@ helix/
 ├── lib/
 │   ├── __init__.py             # Version: 2.0.0
 │   ├── memory/
-│   │   ├── core.py             # 9 primitives: store, recall, get, edge, edges, feedback, decay, prune, health
+│   │   ├── core.py             # 9 core + 2 code-assisted primitives
 │   │   └── embeddings.py       # all-MiniLM-L6-v2, fallback logic
 │   ├── db/
 │   │   ├── connection.py       # SQLite singleton, WAL, write_lock
 │   │   └── schema.py           # Memory, MemoryEdge dataclasses
 │   ├── context.py              # Builder prompt construction, dual-query memory retrieval
-│   ├── tasks.py                # Output parsing, verification-based feedback
-│   └── orchestrator.py         # Cycle detection, ready task calculation, stall detection
+│   ├── tasks.py                # Output parsing, task state derivation
+│   └── dag_utils.py            # Cycle detection, ready task calculation, stall detection
 ├── skills/
-│   └── helix*/SKILL.md         # Slash commands (/helix, /helix-query, /helix-stats)
+│   ├── helix/SKILL.md          # Main orchestrator
+│   ├── helix/reference/        # Decision tables (feedback, edges, stall recovery, etc.)
+│   ├── helix-query/SKILL.md    # Memory search
+│   └── helix-stats/SKILL.md    # Health check
 ├── agents/
 │   └── *.md                    # Agent definitions (explorer, planner, builder)
 └── .helix/                     # Runtime data (created on first use)
@@ -139,6 +142,9 @@ Or from inside Claude Code:
 
 Three memory types: **failure** (what went wrong), **pattern** (successful approaches), **systemic** (recurring issues, 3+ occurrences). Stored with 384-dimensional embeddings via `all-MiniLM-L6-v2`.
 
+**9 core primitives**: store, recall, get, edge, edges, feedback, decay, prune, health.
+**2 code-assisted functions**: similar-recent (systemic detection), suggest-edges (graph expansion candidates).
+
 **Scoring formula** balances relevance, effectiveness, and recency:
 
 ```
@@ -166,7 +172,7 @@ memory_edge (id, from_name, to_name, rel_type, weight, created_at)
 memory_file_pattern (memory_name, pattern)  -- Normalized for fast lookup
 ```
 
-### CLI Reference (9 Primitives)
+### CLI Reference (9 Core + 2 Code-Assisted)
 
 ```bash
 HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
@@ -197,6 +203,10 @@ python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 
 # Health check
 python3 "$HELIX/lib/memory/core.py" health
+
+# Code-assisted (surfaces facts, I decide)
+python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7
+python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 ```
 
 ### Constants

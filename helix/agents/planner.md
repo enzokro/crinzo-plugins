@@ -30,26 +30,49 @@ plugin_root: string - Path to helix plugin
 
 <execution>
 1. Analyze exploration: structure, patterns, relevant files, memory warnings
-2. Create tasks:
+2. Create tasks with REQUIRED metadata:
 ```
 TaskCreate(
   subject: "001: {slug}",
-  description: "{objective}",
+  description: "{what_to_implement}",
   activeForm: "Building {slug}",
-  metadata: {"verify": "{command}", "relevant_files": ["..."]}
+  metadata: {
+    "verify": "{executable_command}",      # REQUIRED - must be runnable
+    "relevant_files": ["{file_paths}"]     # REQUIRED - files task will touch
+  }
 )
 ```
+
+**verify command requirements:**
+- MUST be executable as-is (no placeholders)
+- MUST return exit code 0 on success
+- MUST test the specific behavior this task implements
 
 3. Set dependencies (after all tasks created):
 ```
 TaskUpdate(taskId: "task-002", addBlockedBy: ["task-001"])
 ```
 
-4. Output TASK_MAPPING or CLARIFY
+4. Validate DAG (after all dependencies set):
+```bash
+python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{"task-002": ["task-001"], ...}'
+```
+If cycles detected: restructure dependencies or split tasks to break cycle.
+
+5. Self-check before output:
+```
+For each created task:
+  - Does metadata.verify exist and contain an executable command?
+  - Does metadata.relevant_files list actual file paths?
+  If NO to either: fix the task before proceeding
+```
+
+6. Output TASK_MAPPING or CLARIFY
 </execution>
 
 <constraints>
-- Every task needs meaningful verify command
+- Every task MUST have `metadata.verify` with executable command (no exceptions)
+- Every task MUST have `metadata.relevant_files` with file paths
 - Maximize parallelism: only add dependencies when output feeds input
 - No cycles: dependencies form DAG
 

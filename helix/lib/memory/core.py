@@ -150,7 +150,6 @@ def store(
         emb_blob = to_blob(e)
 
     file_patterns = _extract_file_patterns(trigger, resolution)
-    file_patterns_json = json.dumps(file_patterns) if file_patterns else None
 
     db = get_db()
     now = datetime.now().isoformat()
@@ -158,10 +157,10 @@ def store(
     with write_lock():
         try:
             db.execute(
-                "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source, file_patterns) VALUES (?,?,?,?,?,?,?,?)",
-                (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source, file_patterns_json)
+                "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source) VALUES (?,?,?,?,?,?,?)",
+                (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source)
             )
-            # Also insert into normalized file pattern table
+            # Store patterns in normalized table only
             for pattern in file_patterns:
                 db.execute(
                     "INSERT OR IGNORE INTO memory_file_pattern (memory_name, pattern) VALUES (?, ?)",
@@ -173,8 +172,8 @@ def store(
             if "UNIQUE" in str(e):
                 name = f"{name}-{datetime.now().strftime('%H%M%S')}"
                 db.execute(
-                    "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source, file_patterns) VALUES (?,?,?,?,?,?,?,?)",
-                    (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source, file_patterns_json)
+                    "INSERT INTO memory (name, type, trigger, resolution, embedding, created_at, source) VALUES (?,?,?,?,?,?,?)",
+                    (name, type, trigger.strip(), resolution.strip(), emb_blob, now, source)
                 )
                 for pattern in file_patterns:
                     db.execute(
@@ -733,7 +732,7 @@ def recall_by_file_patterns(delta_files: List[str], limit: int = 3) -> List[dict
             stem = filename.rsplit(".", 1)[0] if "." in filename else filename
             partial_path = delta_file
 
-        # Query normalized pattern table first
+        # Query normalized pattern table
         rows = db.execute("""
             SELECT DISTINCT m.* FROM memory m
             JOIN memory_file_pattern p ON m.name = p.memory_name
@@ -741,16 +740,6 @@ def recall_by_file_patterns(delta_files: List[str], limit: int = 3) -> List[dict
             ORDER BY (m.helped * 1.0 / (m.helped + m.failed + 1)) DESC
             LIMIT ?
         """, (f'%{filename}%', f'%{stem}%', f'%{partial_path}%', limit * 2)).fetchall()
-
-        # Fallback to JSON column if no results
-        if not rows:
-            rows = db.execute("""
-                SELECT * FROM memory
-                WHERE file_patterns IS NOT NULL
-                  AND (file_patterns LIKE ? OR file_patterns LIKE ? OR file_patterns LIKE ?)
-                ORDER BY (helped * 1.0 / (helped + failed + 1)) DESC
-                LIMIT ?
-            """, (f'%{filename}%', f'%{stem}%', f'%{partial_path}%', limit * 2)).fetchall()
 
         for row in rows:
             name = row["name"]
@@ -760,39 +749,6 @@ def recall_by_file_patterns(delta_files: List[str], limit: int = 3) -> List[dict
 
     matches.sort(key=lambda m: m.get("effectiveness", 0.5), reverse=True)
     return matches[:limit]
-
-
-def feedback_from_verification(task_id: str, verify_passed: bool, injected: List[str], task_objective: str = "") -> dict:
-    """DEPRECATED: Use feedback() with explicit delta instead.
-
-    This function uses fixed ±0.5 delta which undermines the orchestrator's
-    judgment-based feedback mechanism. The orchestrator should decide delta
-    based on memory relevance to the outcome:
-
-        | Situation                        | Delta |
-        |----------------------------------|-------|
-        | Success, memory was relevant     | +0.7  |
-        | Success, memory was tangential   | +0.3  |
-        | Failure, memory may have misled  | -0.5  |
-        | Failure, memory was irrelevant   | -0.2  |
-
-    Prefer: feedback(names=['mem1', 'mem2'], delta=0.7)
-    """
-    import warnings
-    warnings.warn(
-        "feedback_from_verification() is deprecated. Use feedback(names, delta) with explicit delta.",
-        DeprecationWarning,
-        stacklevel=2
-    )
-    delta = 0.5 if verify_passed else -0.5
-    result = feedback(injected, delta)
-    # Map to legacy response format
-    return {
-        "credited": result["updated"] if verify_passed else 0,
-        "task_id": task_id,
-        "verify_passed": verify_passed,
-        "injected_count": len(injected)
-    }
 
 
 def chunk(task_objective: str, outcome: str, approach: str, source: str = "chunked") -> dict:
@@ -880,12 +836,6 @@ if __name__ == "__main__":
     s.add_argument("--names", required=True, help="JSON list of memory names")
     s.add_argument("--delta", type=float, required=True, help="Positive for helped, negative for failed")
 
-    # Legacy feedback-verify for backwards compatibility
-    s = sub.add_parser("feedback-verify")
-    s.add_argument("--task-id", required=True)
-    s.add_argument("--verify-passed", type=lambda x: x.lower() == "true", required=True)
-    s.add_argument("--injected", required=True)
-
     s = sub.add_parser("decay")
     s.add_argument("--days", type=int, default=30)
     s.add_argument("--min-uses", type=int, default=2)
@@ -927,12 +877,6 @@ if __name__ == "__main__":
         r = suggest_edges(args.memory_name, args.limit)
     elif args.cmd == "feedback":
         r = feedback(json.loads(args.names), args.delta)
-    elif args.cmd == "feedback-verify":
-        r = feedback_from_verification(
-            task_id=args.task_id,
-            verify_passed=args.verify_passed,
-            injected=json.loads(args.injected)
-        )
     elif args.cmd == "decay":
         r = decay(args.days, args.min_uses)
     elif args.cmd == "decay-edges":

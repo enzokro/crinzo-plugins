@@ -85,6 +85,59 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    # Migration v3: Migrate JSON file_patterns to normalized table
+    if current_version < 3:
+        try:
+            import json as _json
+            rows = db.execute("SELECT name, file_patterns FROM memory WHERE file_patterns IS NOT NULL").fetchall()
+            for row in rows:
+                try:
+                    patterns = _json.loads(row[1])
+                    for pattern in patterns:
+                        db.execute(
+                            "INSERT OR IGNORE INTO memory_file_pattern (memory_name, pattern) VALUES (?, ?)",
+                            (row[0], pattern)
+                        )
+                except Exception:
+                    pass
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (3, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
+    # Migration v4: Drop redundant file_patterns JSON column
+    # SQLite doesn't support DROP COLUMN directly before 3.35.0, so we recreate the table
+    if current_version < 4:
+        try:
+            # Check if column exists
+            cursor = db.execute("PRAGMA table_info(memory)")
+            has_column = any(row[1] == "file_patterns" for row in cursor.fetchall())
+            if has_column:
+                db.executescript("""
+                    CREATE TABLE memory_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT UNIQUE NOT NULL,
+                        type TEXT NOT NULL,
+                        trigger TEXT NOT NULL,
+                        resolution TEXT NOT NULL,
+                        helped REAL DEFAULT 0,
+                        failed REAL DEFAULT 0,
+                        embedding BLOB,
+                        source TEXT DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        last_used TEXT
+                    );
+                    INSERT INTO memory_new SELECT id, name, type, trigger, resolution, helped, failed, embedding, source, created_at, last_used FROM memory;
+                    DROP TABLE memory;
+                    ALTER TABLE memory_new RENAME TO memory;
+                    CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type);
+                    CREATE INDEX IF NOT EXISTS idx_memory_name ON memory(name);
+                """)
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (4, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
 
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
@@ -100,6 +153,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
 
         -- Memories: learned failures, patterns, and systemic issues
         -- Note: No CHECK constraint on type - I control the input
+        -- File patterns stored in normalized memory_file_pattern table
         CREATE TABLE IF NOT EXISTS memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -111,8 +165,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             embedding BLOB,
             source TEXT DEFAULT '',
             created_at TEXT NOT NULL,
-            last_used TEXT,
-            file_patterns TEXT
+            last_used TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type);

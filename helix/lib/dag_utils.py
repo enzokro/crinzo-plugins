@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Orchestrator utilities for Helix.
+"""DAG utilities for SKILL.md orchestration.
 
-Provides utility functions for the prose-driven orchestrator (SKILL.md):
-- Cycle detection in task dependencies
-- Task state derivation from TaskList metadata
-- Checkpoint management
+SKILL.md is the orchestrator. This module provides mechanical operations:
+- detect_cycles(): Find dependency loops
+- get_ready_tasks(): Identify unblocked tasks
+- check_stalled(): Detect build impasse
+
+Code surfaces facts. SKILL.md decides actions.
 
 ARCHITECTURAL PRINCIPLE: Single Source of Truth
 -----------------------------------------------
@@ -193,7 +195,7 @@ def clear_checkpoints() -> int:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Helix orchestrator utilities")
+    parser = argparse.ArgumentParser(description="Helix DAG utilities")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
     # clear command

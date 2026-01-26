@@ -24,10 +24,10 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Utilities                          │
-│  lib/memory/core.py  - 9 primitives                         │
+│  lib/memory/core.py  - 9 core + 2 code-assisted primitives  │
 │  lib/context.py      - Dual-query context building          │
-│  lib/tasks.py        - Output parsing, feedback helpers     │
-│  lib/orchestrator.py - Cycle detection, stall detection     │
+│  lib/tasks.py        - Output parsing, task state derivation│
+│  lib/dag_utils.py    - Cycle detection, stall detection     │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -136,9 +136,10 @@ TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "deliver
 | **pattern** | Successful approach | Success required non-obvious discovery |
 | **systemic** | Recurring issue | Same failure pattern 3+ times |
 
-### 9 Primitives (`lib/memory/core.py`)
+### 9 Core + 2 Code-Assisted (`lib/memory/core.py`)
 
 ```python
+# 9 Core Primitives
 store(trigger, resolution, type, source)  # → {"status": "added"|"merged", "name": "..."}
 recall(query, type, limit, expand)        # → [memories with _score, _relevance, _recency]
 get(name)                                  # → single memory dict
@@ -148,6 +149,10 @@ feedback(names, delta)                     # → update scores
 decay(unused_days, min_uses)              # → halve scores on dormant memories
 prune(min_effectiveness, min_uses)        # → remove low performers
 health()                                   # → system status
+
+# 2 Code-Assisted (surfaces facts, orchestrator decides)
+similar_recent(trigger, threshold, days, type)  # → systemic detection candidates
+suggest_edges(memory_name, limit)               # → edge creation candidates
 ```
 
 ### Scoring Formula
@@ -252,7 +257,7 @@ CREATE TABLE memory_file_pattern (
 
 **Note**: Plan, workspace, and exploration tables were removed in schema v2 migration. Task management is handled by Claude Code's native Task system with metadata.
 
-## Orchestrator Utilities (`lib/orchestrator.py`)
+## DAG Utilities (`lib/dag_utils.py`)
 
 ```python
 detect_cycles(dependencies)     # → List of cycles found
@@ -266,11 +271,11 @@ clear_checkpoints()             # → Clear all checkpoints
 ## Task Utilities (`lib/tasks.py`)
 
 ```python
-parse_builder_output(output)              # → {"status": "delivered"|"blocked", ...}
-close_feedback_loop_verified(task_id, verify_passed, injected)  # → feedback result
+parse_builder_output(output)   # → {"status": "delivered"|"blocked", "summary": "...", ...}
+helix_task_state(task)         # → {"executable", "finished", "successful", "outcome", "blocks_dependents"}
 ```
 
-**Verification-based feedback** is incorruptible: builders can't game the system by self-reporting.
+Derives canonical task state from dual status model (native `status` + `helix_outcome` metadata).
 
 ## CLI Reference
 
@@ -313,6 +318,10 @@ python3 "$HELIX/lib/memory/core.py" health
 
 # SOAR chunking
 python3 "$HELIX/lib/memory/core.py" chunk --task "..." --outcome "success..." --approach "..."
+
+# Code-assisted (surfaces facts, orchestrator decides)
+python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7 --type failure
+python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 ```
 
 ### Task Operations
@@ -320,9 +329,6 @@ python3 "$HELIX/lib/memory/core.py" chunk --task "..." --outcome "success..." --
 ```bash
 # Parse builder output
 python3 "$HELIX/lib/tasks.py" parse-output "$output"
-
-# Close feedback loop via verification
-python3 "$HELIX/lib/tasks.py" feedback-verify --task-id "..." --verify-passed true --injected '[...]'
 ```
 
 ### Context Operations
@@ -335,17 +341,17 @@ python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[..
 python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
 ```
 
-### Orchestrator Operations
+### DAG Operations
 
 ```bash
 # Clear checkpoints
-python3 "$HELIX/lib/orchestrator.py" clear
+python3 "$HELIX/lib/dag_utils.py" clear
 
 # Detect cycles
-python3 "$HELIX/lib/orchestrator.py" detect-cycles --dependencies '{...}'
+python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'
 
 # Check stalled
-python3 "$HELIX/lib/orchestrator.py" check-stalled --tasks '[...]'
+python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 ```
 
 ## Commands
@@ -386,21 +392,22 @@ helix/
 │   ├── __init__.py           # Version: 2.0.0
 │   ├── memory/
 │   │   ├── __init__.py       # Clean exports
-│   │   ├── core.py           # 9 primitives + utilities
+│   │   ├── core.py           # 9 core + 2 code-assisted primitives
 │   │   └── embeddings.py     # all-MiniLM-L6-v2
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── connection.py     # SQLite singleton, WAL, write_lock
 │   │   └── schema.py         # Memory, MemoryEdge dataclasses
 │   ├── context.py            # Dual-query context building
-│   ├── tasks.py              # Output parsing, feedback helpers
-│   └── orchestrator.py       # Cycle detection, stall detection
+│   ├── tasks.py              # Output parsing, task state derivation
+│   └── dag_utils.py          # Cycle detection, stall detection
 ├── scripts/
 │   ├── setup-env.sh          # SessionStart hook
 │   └── init.sh               # Database initialization
 ├── skills/
 │   ├── helix/
-│   │   └── SKILL.md          # Main orchestrator
+│   │   ├── SKILL.md          # Main orchestrator
+│   │   └── reference/        # Decision tables (feedback, edges, stall, etc.)
 │   ├── helix-query/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
