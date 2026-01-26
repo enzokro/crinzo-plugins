@@ -24,9 +24,10 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Utilities                          │
-│  lib/memory/core.py  - 9 core + 2 code-assisted primitives  │
-│  lib/context.py      - Dual-query context building          │
-│  lib/tasks.py        - Output parsing, task state derivation│
+│  lib/memory/core.py  - 9 core + 4 maintenance primitives    │
+│  lib/observer.py     - Learning extraction from agents      │
+│  lib/context.py      - Agent-specific context building      │
+│  lib/tasks.py        - Task state derivation                │
 │  lib/dag_utils.py    - Cycle detection, stall detection     │
 └─────────────────────────────────────────────────────────────┘
         │
@@ -47,11 +48,11 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 
 Three agents with distinct roles:
 
-| Agent | Model | Purpose | Tools |
-|-------|-------|---------|-------|
-| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash |
-| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash, TaskCreate, TaskUpdate |
-| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate |
+| Agent | Model | Purpose | Tools | Context Injection |
+|-------|-------|---------|-------|-------------------|
+| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | known_facts, relevant_failures |
+| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash, TaskCreate, TaskUpdate | decisions, conventions, evolution |
+| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate | failures, patterns, conventions, facts |
 
 ### Explorer (`agents/explorer.md`)
 
@@ -61,6 +62,8 @@ Input:
 - `scope`: Directory path or "memory"
 - `focus`: What to find within scope
 - `objective`: User goal for context
+- `known_facts`: Facts already known (skip re-discovery)
+- `relevant_failures`: Failures to watch for
 
 Output (JSON):
 ```json
@@ -68,8 +71,16 @@ Output (JSON):
   "scope": "src/api/",
   "focus": "route handlers",
   "status": "success",
-  "findings": [{"file": "...", "what": "...", "relevance": "..."}],
-  "framework": {"detected": "...", "confidence": "HIGH|MEDIUM|LOW"},
+  "findings": [
+    {
+      "file": "src/api/routes.py",
+      "what": "REST endpoint definitions",
+      "action": "modify|create|reference|test",
+      "task_hint": "api-routes"
+    }
+  ],
+  "framework": {"detected": "FastAPI", "confidence": "HIGH", "evidence": "..."},
+  "patterns_observed": ["dependency injection", "..."],
   "memories": [{"name": "...", "trigger": "...", "why": "..."}]
 }
 ```
@@ -81,6 +92,7 @@ Decomposes objective into task DAG using Claude Code's native Task system.
 Input:
 - `objective`: What to build
 - `exploration`: Merged explorer findings
+- `project_context`: {decisions, conventions, recent_evolution}
 
 Output:
 ```
@@ -96,6 +108,14 @@ Or clarification request:
 {"decision": "CLARIFY", "questions": ["..."]}
 ```
 
+Task metadata structure:
+```json
+{
+  "seq": "001",
+  "relevant_files": ["src/api/routes.py", "src/models/user.py"]
+}
+```
+
 ### Builder (`agents/builder.md`)
 
 Executes a single task. Reports DELIVERED or BLOCKED.
@@ -107,6 +127,8 @@ Input:
 - `relevant_files`: Files to read first
 - `failures_to_avoid`: Memory hints (with confidence: `[75%]` or `[unproven]`)
 - `patterns_to_apply`: Memory hints
+- `conventions_to_follow`: Project-specific conventions
+- `related_facts`: Facts about relevant files
 - `parent_deliveries`: Context from completed blockers
 - `warning`: Systemic issue to address first
 
@@ -123,25 +145,46 @@ ERROR: <message>
 
 Task update before text output:
 ```
-TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", ...})
+TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", "summary": "..."})
 ```
 
 ## Memory System
 
 ### Types
 
-| Type | Purpose | When stored |
-|------|---------|-------------|
-| **failure** | Something that went wrong | Builder blocks with generalizable cause |
-| **pattern** | Successful approach | Success required non-obvious discovery |
-| **systemic** | Recurring issue | Same failure pattern 3+ times |
+Seven memory types serve different purposes:
 
-### 9 Core + 2 Code-Assisted (`lib/memory/core.py`)
+| Type | Purpose | When Stored | Decay Half-Life |
+|------|---------|-------------|-----------------|
+| **failure** | What went wrong and how to fix it | Builder blocks with generalizable cause | 7 days |
+| **pattern** | Successful approach to apply | Success required non-obvious discovery | 7 days |
+| **systemic** | Recurring issue (3+ occurrences) | Same failure pattern detected 3+ times | 14 days |
+| **fact** | Codebase structure and relationships | Explorer finds high-confidence structure | 30 days |
+| **convention** | Validated patterns for this project | Builder applies pattern successfully | 14 days |
+| **decision** | Architectural choices already made | Planner makes explicit design choice | 30 days |
+| **evolution** | What changed recently | Task completes with file changes | 7 days |
 
+### Type-Specific Scoring
+
+Different memory types use different weight profiles:
+
+| Type | Relevance | Effectiveness | Recency |
+|------|-----------|---------------|---------|
+| failure | 0.5 | 0.3 | 0.2 |
+| pattern | 0.5 | 0.3 | 0.2 |
+| systemic | 0.6 | 0.3 | 0.1 |
+| fact | 0.7 | 0.1 | 0.2 |
+| convention | 0.4 | 0.4 | 0.2 |
+| decision | 0.6 | 0.2 | 0.2 |
+| evolution | 0.4 | 0.1 | 0.5 |
+
+### Primitives (`lib/memory/core.py`)
+
+**9 Core Primitives:**
 ```python
-# 9 Core Primitives
 store(trigger, resolution, type, source)  # → {"status": "added"|"merged", "name": "..."}
 recall(query, type, limit, expand)        # → [memories with _score, _relevance, _recency]
+recall_by_type(query, types, limit)       # → {type: [memories]} grouped by type
 get(name)                                  # → single memory dict
 edge(from_name, to_name, rel_type, weight) # → create/strengthen relationship
 edges(name, rel_type)                      # → query relationships
@@ -149,20 +192,29 @@ feedback(names, delta)                     # → update scores
 decay(unused_days, min_uses)              # → halve scores on dormant memories
 prune(min_effectiveness, min_uses)        # → remove low performers
 health()                                   # → system status
+```
 
-# 2 Code-Assisted (surfaces facts, orchestrator decides)
+**2 Code-Assisted (surfaces facts, orchestrator decides):**
+```python
 similar_recent(trigger, threshold, days, type)  # → systemic detection candidates
 suggest_edges(memory_name, limit)               # → edge creation candidates
+```
+
+**3 Maintenance Functions:**
+```python
+decay_edges(unused_days)        # → decay unused edge weights
+consolidate(similarity_threshold)  # → merge highly similar memories
+chunk(task, outcome, approach)  # → SOAR-pattern extraction
 ```
 
 ### Scoring Formula
 
 ```
-score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
+score = (relevance_weight × relevance) + (effectiveness_weight × effectiveness) + (recency_weight × recency)
 
 relevance = cosine_similarity(query_embedding, memory_embedding)
 effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
-recency = 2^(-days_since_use / 7)           # ACT-R decay, 7-day half-life
+recency = 2^(-days_since_use / half_life)   # type-specific half-life
 ```
 
 ### Graph System
@@ -173,21 +225,61 @@ Edge types:
 - **causes**: Failure A led to discovering failure B
 - **similar**: Conceptual overlap worth preserving
 
-Graph expansion (`--expand` flag) surfaces solutions connected to relevant failures.
+Graph expansion (`--expand` flag) surfaces solutions connected to relevant failures. Edge weights boost scores of graph-discovered memories.
 
-### Dual-Query Strategy (`lib/context.py`)
+## Observer System (`lib/observer.py`)
 
-Context builder uses two query paths:
-1. **Semantic search** on objective (natural language)
-2. **File pattern matching** on relevant files
+Extracts learnings from agent outputs. Orchestrator reviews candidates and decides storage.
 
-Results are merged, deduped, and ranked by effectiveness.
+### Observer Functions
 
-Memory hints include confidence indicators:
-- `[75%]` = Memory helped 75% of the time
-- `[unproven]` = Not enough usage data yet
+```python
+observe_explorer(output)                    # → candidates (type=fact, convention)
+observe_planner(tasks, exploration)         # → candidates (type=decision)
+observe_builder(task, result, files_changed) # → candidates (type=evolution, convention, failure)
+observe_session(objective, tasks, outcomes)  # → session summary (type=evolution)
 
-## Context Flow
+should_store(candidate, min_confidence)     # → bool
+store_candidates(candidates, min_confidence) # → {stored: [...], skipped: [...]}
+```
+
+### Confidence Levels
+
+Candidates include `_confidence` field: high, medium, low
+
+- **high**: We know this happened (task delivered, explicit error)
+- **medium**: Strong evidence (pattern detected, decision made)
+- **low**: Needs validation through use (observed pattern)
+
+## Context Building (`lib/context.py`)
+
+Agent-specific context injection:
+
+### Explorer Context
+```python
+build_explorer_context(objective, scope, limit)
+# Returns: {"known_facts": [...], "relevant_failures": [...]}
+```
+
+### Planner Context
+```python
+build_planner_context(objective, limit)
+# Returns: {"decisions": [...], "conventions": [...], "recent_evolution": [...]}
+```
+
+### Builder Context
+```python
+build_context(task_data, lineage, memory_limit, warning)
+# Returns: {"prompt": "...", "injected": ["memory-name-1", ...]}
+```
+
+Builder context includes:
+- `FAILURES_TO_AVOID`: Failure memories with confidence
+- `PATTERNS_TO_APPLY`: Pattern memories with confidence
+- `CONVENTIONS_TO_FOLLOW`: Convention memories with confidence
+- `RELATED_FACTS`: Fact memories about relevant files
+- `INJECTED_MEMORIES`: List of all memory names (for feedback tracking)
+- `PARENT_DELIVERIES`: Lineage from completed blockers
 
 ### Lineage Protocol
 
@@ -199,13 +291,50 @@ Parent deliveries passed to builders:
 ]
 ```
 
-Builders use this context to understand what blockers produced.
-
 ### Warning Injection
 
 Systemic issues placed at prompt start (priority):
 ```
 WARNING: Repeated circular import failures in this codebase. Check imports before adding new dependencies.
+```
+
+## Task System
+
+### Dual Status Model
+
+**Native `status`** controls DAG execution: pending → in_progress → completed
+**Helix `helix_outcome`** captures semantic result: delivered | blocked | skipped
+
+| status | helix_outcome | Meaning |
+|--------|---------------|---------|
+| completed | delivered | Success, memory credit |
+| completed | blocked | Finished but didn't achieve goal |
+| completed | skipped | Intentionally bypassed (stall recovery) |
+| pending | - | Not yet started |
+| in_progress | - | Builder executing |
+
+### Task State Derivation (`lib/tasks.py`)
+
+```python
+helix_task_state(task)
+# Returns: {
+#   "executable": bool,      # pending and unblocked
+#   "finished": bool,        # status=completed
+#   "successful": bool,      # finished AND helix_outcome=delivered
+#   "outcome": str,          # delivered|blocked|skipped|pending|in_progress
+#   "blocks_dependents": bool # finished AND not delivered
+# }
+```
+
+### DAG Utilities (`lib/dag_utils.py`)
+
+```python
+detect_cycles(dependencies)     # → List of cycles found
+get_completed_task_ids(tasks)   # → IDs with helix_outcome="delivered"
+get_blocked_task_ids(tasks)     # → IDs with helix_outcome="blocked"
+get_ready_tasks(tasks)          # → IDs ready for execution
+check_stalled(tasks)            # → (is_stalled, stall_info)
+clear_checkpoints()             # → Clear all checkpoints
 ```
 
 ## Database Schema
@@ -219,20 +348,19 @@ CREATE TABLE schema_version (
     applied_at TEXT NOT NULL
 );
 
--- Memories: learned failures, patterns, and systemic issues
+-- Memories: learned failures, patterns, facts, conventions, decisions, evolution
 CREATE TABLE memory (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL,                -- failure, pattern, systemic
+    type TEXT NOT NULL,                -- failure, pattern, systemic, fact, convention, decision, evolution
     trigger TEXT NOT NULL,
     resolution TEXT NOT NULL,
     helped REAL DEFAULT 0,
     failed REAL DEFAULT 0,
-    embedding BLOB,
+    embedding BLOB,                    -- 384-dim all-MiniLM-L6-v2
     source TEXT DEFAULT '',
     created_at TEXT NOT NULL,
-    last_used TEXT,
-    file_patterns TEXT                 -- JSON array of extracted patterns
+    last_used TEXT
 );
 
 -- Memory relationships (graph edges)
@@ -255,28 +383,6 @@ CREATE TABLE memory_file_pattern (
 );
 ```
 
-**Note**: Plan, workspace, and exploration tables were removed in schema v2 migration. Task management is handled by Claude Code's native Task system with metadata.
-
-## DAG Utilities (`lib/dag_utils.py`)
-
-```python
-detect_cycles(dependencies)     # → List of cycles found
-get_completed_task_ids(tasks)   # → IDs with helix_outcome="delivered"
-get_blocked_task_ids(tasks)     # → IDs with helix_outcome="blocked"
-get_ready_tasks(tasks)          # → IDs ready for execution
-check_stalled(tasks)            # → (is_stalled, stall_info)
-clear_checkpoints()             # → Clear all checkpoints
-```
-
-## Task Utilities (`lib/tasks.py`)
-
-```python
-parse_builder_output(output)   # → {"status": "delivered"|"blocked", "summary": "...", ...}
-helix_task_state(task)         # → {"executable", "finished", "successful", "outcome", "blocks_dependents"}
-```
-
-Derives canonical task state from dual status model (native `status` + `helix_outcome` metadata).
-
 ## CLI Reference
 
 ### Memory Operations
@@ -285,10 +391,13 @@ Derives canonical task state from dual status model (native `status` + `helix_ou
 HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 
 # Store
-python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
+python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..." --source "..."
 
 # Recall (with graph expansion)
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+
+# Recall grouped by type
+python3 "$HELIX/lib/memory/core.py" recall-by-type "query" --types "fact,convention" --limit 5
 
 # Get single memory
 python3 "$HELIX/lib/memory/core.py" get "memory-name"
@@ -324,21 +433,43 @@ python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --d
 python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
 ```
 
-### Task Operations
+### Observer Operations
 
 ```bash
-# Parse builder output
-python3 "$HELIX/lib/tasks.py" parse-output "$output"
+# Extract facts from explorer output
+python3 "$HELIX/lib/observer.py" explorer --output '{...}' --store --min-confidence medium
+
+# Extract decisions from planner
+python3 "$HELIX/lib/observer.py" planner --tasks '[...]' --exploration '{...}' --store
+
+# Extract evolution/conventions from builder
+python3 "$HELIX/lib/observer.py" builder --task '{...}' --result '{...}' --files-changed '[...]' --store
+
+# Create session summary
+python3 "$HELIX/lib/observer.py" session --objective "..." --tasks '[...]' --outcomes '{...}' --store
 ```
 
 ### Context Operations
 
 ```bash
-# Build context from task data
+# Explorer context
+python3 "$HELIX/lib/context.py" build-explorer-context --objective "..." --scope "src/api"
+
+# Planner context
+python3 "$HELIX/lib/context.py" build-planner-context --objective "..."
+
+# Builder context
 python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
 
 # Build lineage from completed tasks
 python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
+```
+
+### Task Operations
+
+```bash
+# Derive task state
+python3 "$HELIX/lib/tasks.py" task-state '{"status": "completed", "metadata": {"helix_outcome": "delivered"}}'
 ```
 
 ### DAG Operations
@@ -348,7 +479,7 @@ python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
 python3 "$HELIX/lib/dag_utils.py" clear
 
 # Detect cycles
-python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'
+python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{"task-002": ["task-001"]}'
 
 # Check stalled
 python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
@@ -358,7 +489,7 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 
 | Command | Purpose |
 |---------|---------|
-| `/helix <objective>` | Full pipeline: explore → plan → build |
+| `/helix <objective>` | Full pipeline: explore → plan → build → observe |
 | `/helix-query <text>` | Search memory by meaning (with graph expansion) |
 | `/helix-stats` | Memory health metrics |
 
@@ -368,22 +499,22 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 |----------|---------|---------|
 | `HELIX_DB_PATH` | Custom database location | `.helix/helix.db` |
 | `HELIX_PLUGIN_ROOT` | Plugin root path | Read from `.helix/plugin_root` |
+| `HELIX_EMBEDDING_CACHE` | Embedding cache size | 2000 |
 
 ## Constants
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `DECAY_HALF_LIFE_DAYS` | 7 | Recency score half-life |
+| `DECAY_HALF_LIFE_DAYS` | 7 (default) | Base recency score half-life |
 | `DUPLICATE_THRESHOLD` | 0.85 | Semantic deduplication threshold |
-| `SCORE_WEIGHTS` | 0.5/0.3/0.2 | Relevance/effectiveness/recency |
-| `VALID_TYPES` | failure, pattern, systemic | Allowed memory types |
+| `VALID_TYPES` | failure, pattern, systemic, fact, convention, decision, evolution | Allowed memory types |
 
 ## File Structure
 
 ```
 helix/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin manifest
+│   └── plugin.json           # Plugin manifest (v1.0.8)
 ├── agents/
 │   ├── explorer.md           # Parallel reconnaissance (haiku)
 │   ├── planner.md            # Task decomposition (opus)
@@ -392,14 +523,15 @@ helix/
 │   ├── __init__.py           # Version: 2.0.0
 │   ├── memory/
 │   │   ├── __init__.py       # Clean exports
-│   │   ├── core.py           # 9 core + 2 code-assisted primitives
+│   │   ├── core.py           # 9 core + 4 maintenance primitives
 │   │   └── embeddings.py     # all-MiniLM-L6-v2
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── connection.py     # SQLite singleton, WAL, write_lock
 │   │   └── schema.py         # Memory, MemoryEdge dataclasses
-│   ├── context.py            # Dual-query context building
-│   ├── tasks.py              # Output parsing, task state derivation
+│   ├── observer.py           # Learning extraction from agents
+│   ├── context.py            # Agent-specific context building
+│   ├── tasks.py              # Task state derivation
 │   └── dag_utils.py          # Cycle detection, stall detection
 ├── scripts/
 │   ├── setup-env.sh          # SessionStart hook
@@ -407,29 +539,28 @@ helix/
 ├── skills/
 │   ├── helix/
 │   │   ├── SKILL.md          # Main orchestrator
-│   │   └── reference/        # Decision tables (feedback, edges, stall, etc.)
+│   │   └── reference/        # Decision tables
+│   │       ├── feedback-deltas.md
+│   │       ├── edge-creation.md
+│   │       ├── stalled-recovery.md
+│   │       ├── task-granularity.md
+│   │       └── cli-reference.md
 │   ├── helix-query/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
 │       └── SKILL.md          # Health check
+├── tests/
+│   ├── conftest.py
+│   ├── test_memory_core.py
+│   ├── test_context.py
+│   ├── test_tasks.py
+│   ├── test_dag_utils.py
+│   ├── test_observer.py
+│   └── test_integration.py
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database
     └── plugin_root           # Plugin path for sub-agents
 ```
-
-## When to Use
-
-**Use helix when:**
-- Multi-step work requiring exploration first
-- Similar work has been done before (leverage learned context)
-- Verification needed at each phase
-- Past failures should inform future work
-
-**Skip helix when:**
-- Simple single-file changes
-- Exploratory prototyping
-- Quick one-offs with no future value
-- Work that doesn't benefit from learned context
 
 ## What Helix Is Not
 

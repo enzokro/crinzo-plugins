@@ -1,458 +1,158 @@
 # helix
 
-A Claude Code orchestrator with integrated memory. helix persists useful, important knowledge across sessions to build on your work over time.
+A self-learning orchestrator for Claude Code. Memory that earns its place through demonstrated usefulness.
 
-## Introduction
+## The Core Insight
 
-Before Opus 4.5, agentic harnesses focused on working around the two worst tendencies of LLMs: scope creep and over-engineering. Coding agents felt like overeager junior-savants that had to be carefully steered whenever projects became even moderately complex.
+Most agent memory systems accumulate knowledge indefinitely—storing everything, hoping relevance will emerge. This creates noise that drowns signal.
 
-Opus 4.5 broke this pattern. We are now living the transformation of LLM agents from spastic assistants to capable collaborators.
-
-These previous harnesses quickly became bloated as they tried to keep the models from drifting and added many features to close model capability gaps. helix instead builds on the meaningful agentic jump in Opus 4.5 and removes these low level training wheels and hand-holding.
-
-
-## Philosophy
-
-| Principle | Meaning |
-|-----------|---------|
-| Feedback closes the loop | Every task completion updates memory effectiveness |
-| Verify first | Shape work by starting with proof-of-success |
-| Bounded scope | Relevant files are explicit so humans can audit agent boundaries |
-| Present over future | Implement current requests, not anticipated needs |
-| Edit over create | Modify what exists before creating something new |
-| Blocking is success | Informed handoff creates learning data, prevents budget waste |
-
-## Architecture
+Helix inverts this: **memories must prove their worth**. Every memory tracks `helped` and `failed` counts. Verification outcomes update these scores automatically. Memories that consistently help rise in ranking; ineffective ones decay and eventually prune. The system learns what actually works, not what seemed important at storage time.
 
 ```
-helix/
-├── .claude-plugin/
-│   └── plugin.json             # Hook registration, plugin metadata
-├── scripts/
-│   ├── setup-env.sh            # SessionStart: venv, deps, DB init
-│   └── init.sh                 # Database initialization
-├── lib/
-│   ├── __init__.py             # Version: 2.0.0
-│   ├── memory/
-│   │   ├── core.py             # 9 core + 4 maintenance primitives
-│   │   └── embeddings.py       # all-MiniLM-L6-v2, fallback logic
-│   ├── db/
-│   │   ├── connection.py       # SQLite singleton, WAL, write_lock
-│   │   └── schema.py           # Memory, MemoryEdge dataclasses
-│   ├── context.py              # Agent-specific context builders
-│   ├── observer.py             # Learning extraction from agent outputs
-│   ├── tasks.py                # Task state derivation (dual status model)
-│   └── dag_utils.py            # Cycle detection, ready task calculation, stall detection
-├── skills/
-│   ├── helix/SKILL.md          # Main orchestrator
-│   ├── helix/reference/        # Decision tables (feedback, edges, stall recovery, etc.)
-│   ├── helix-query/SKILL.md    # Memory search
-│   └── helix-stats/SKILL.md    # Health check
-├── agents/
-│   └── *.md                    # Agent definitions (explorer, planner, builder)
-└── .helix/                     # Runtime data (created on first use)
-    ├── helix.db                # SQLite database
-    └── plugin_root             # Cached plugin path for sub-agents
+Memory injected → Builder executes → Verification runs → Feedback updates score
+                                                              ↓
+                                          Future recalls rank by proven effectiveness
 ```
 
-**Prose-driven orchestrator**: SKILL.md holds the orchestration logic that fully leverages Opus 4.5's capabilities. The Python utilities help guide the orchestration. We also integrate the new Task tool to keep state in the conversation itself. The single source of state truth is the TaskList's metadata.
+This closes the learning loop. The agent improves through use, not accumulation.
 
-**Memory** (lib/memory/core.py) provides semantic storage with effectiveness tracking and graph relationships. Memories are stored in a local SQLite database at `.helix/helix.db`.
+## Why Now
 
-**Observer** (lib/observer.py) extracts learnings from agent outputs—facts from explorers, decisions from planners, conventions and evolution from builders. The orchestrator reviews candidates and decides final storage.
+Opus 4.5 broke the pattern. Previous agent harnesses focused on constraining LLM tendencies—scope creep, over-engineering, context drift. They added guardrails, checkpoints, and hand-holding to compensate for model limitations.
 
-**Three agents** are specialized for their phase: Explorer (Haiku) for quickly learning about the project's landscape. Planner and Builder inherit from Opus for their complex reasoning. Each agent receives type-specific context from memory.
+Opus 4.5 doesn't need training wheels. It reasons well, follows instructions, and stays on task. Helix builds on this capability jump: prose-driven orchestration, minimal scaffolding, maximum model autonomy. The orchestrator is a markdown file (SKILL.md), not a state machine.
 
-## Quick Start
+## How It Works
+
+```
+/helix <objective>
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  EXPLORE (parallel, haiku)           │
+│  Swarm maps codebase structure       │
+│  Injects known facts, skips rediscovery
+└──────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  PLAN (opus)                         │
+│  Decomposes into task DAG            │
+│  Uses past decisions, conventions    │
+└──────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  BUILD (parallel, opus)              │
+│  Execute tasks with memory context   │
+│  Block on unknowns, don't spiral     │
+└──────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  OBSERVE + LEARN                     │
+│  Extract facts, decisions, patterns  │
+│  Update effectiveness scores         │
+│  Connect knowledge via graph edges   │
+└──────────────────────────────────────┘
+```
+
+Three specialized agents, each receiving context tuned to their role. Explorers get known facts to skip redundant discovery. Planners get past decisions and conventions for consistency. Builders get failures to avoid, patterns to apply, and confidence scores to weight advice.
+
+## Memory That Learns
+
+Seven memory types, each with purpose-specific scoring:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| **failure** | What went wrong | "Circular import when adding auth middleware" |
+| **pattern** | What worked | "Use dependency injection for database connections" |
+| **systemic** | Recurring issues | "This codebase has import cycle problems" |
+| **fact** | Codebase structure | "Authentication lives in src/auth/" |
+| **convention** | Project patterns | "All API routes use async handlers" |
+| **decision** | Architectural choices | "Chose PostgreSQL over MongoDB" |
+| **evolution** | Recent changes | "Added user profile endpoints yesterday" |
+
+Each type has different decay rates and scoring weights. Facts persist longer (30-day half-life) because codebase structure is stable. Evolution decays fast (7-day half-life) because recent changes matter most when recent.
+
+### Graph Relationships
+
+Memories connect: patterns **solve** failures, issues **co-occur**, failures **cause** other failures. Graph expansion surfaces solutions when you encounter related problems.
+
+```
+failure: "Import cycle in auth module"
+    ↑
+    solves
+    ↓
+pattern: "Use lazy imports for circular dependencies"
+```
+
+When you query about authentication and hit the failure, graph expansion brings the solution along.
+
+### Confidence Indicators
+
+Builders see effectiveness scores on injected memories:
+
+```
+FAILURES_TO_AVOID:
+  [75%] Circular import when adding middleware -> Use lazy imports
+  [unproven] Database timeout on large queries -> Add connection pooling
+```
+
+`[75%]` means this memory helped 75% of the time it was tried. Builders weight advice accordingly.
+
+## Installation
 
 ```bash
-# Add the crinzo-plugins marketplace
 claude plugin marketplace add https://github.com/enzokro/crinzo-plugins
-
-# Install helix
 claude plugin install helix@crinzo-plugins
 ```
 
-Or from inside Claude Code:
-```bash
-/plugin marketplace add https://github.com/enzokro/crinzo-plugins
-/plugin install helix@crinzo-plugins
-```
-
-## Why Helix?
-
-**Feedback closes the loop.** Memory layers store and retrieve; helix closes the loop. Every memory gets a helped/failed ratio updated based on verification outcomes. Memories that work rise in ranking; memories that don't sink. The system gets smarter through use, not just accumulation.
-
-**Bounded execution.** Three agents with explicit roles. When a builder hits an unknown error, it blocks—creating learning data rather than burning tokens. Relevant files are guidance, not hard constraints. You always know what the agent is working on.
-
-**Local-first.** SQLite database in `.helix/helix.db`. Your failures, patterns, and systemic issues stay on your machine. No API keys for memory services, no usage fees, no data leaving your system.
-
-**Unified architecture.** Memory and orchestration are one system. Direct Python imports, not subprocess calls. The feedback loop closes within a single function call. No external plugin discovery, no silent degradation.
-
-## Development Loop
-
-```
-/helix <task>
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│  EXPLORER SWARM (haiku)                     │
-│  Tools: Read, Grep, Glob, Bash              │
-│  Parallel reconnaissance by scope           │
-│  Input: known_facts, relevant_failures      │
-└─────────────────────────────────────────────┘
-    │
-    ▼ merged exploration + extracted facts
-┌─────────────────────────────────────────────┐
-│  PLANNER (opus)                             │
-│  Tools: Read, Grep, Glob, Bash,             │
-│         TaskCreate, TaskUpdate              │
-│  Input: decisions, conventions, evolution   │
-│  Decompose → Dependencies → Verify          │
-└─────────────────────────────────────────────┘
-    │
-    ▼ task DAG (native TaskList)
-┌─────────────────────────────────────────────┐
-│  BUILDER(S) (opus, parallel)                │
-│  Tools: Read, Write, Edit, Grep, Glob,      │
-│         Bash, TaskUpdate                    │
-│  Input: failures, patterns, conventions,    │
-│         facts, parent deliveries            │
-│  Read → Implement → Verify → Report         │
-└─────────────────────────────────────────────┘
-    │
-    ▼ DELIVERED/BLOCKED + verification
-┌─────────────────────────────────────────────┐
-│  OBSERVER + ORCHESTRATOR JUDGMENT           │
-│  Extract: facts, decisions, conventions,    │
-│           evolution from agent outputs      │
-│  Feedback, edge creation, systemic detection│
-│  Learning extraction (store/skip decision)  │
-└─────────────────────────────────────────────┘
-```
-
-**Explorer swarm** (Haiku) runs in parallel—one agent per scope. Receives known facts and relevant failures to skip redundant discovery. Gathers structure, framework patterns, and new findings. Orchestrator merges and extracts facts.
-
-**Planner** (Opus) decomposes work into a task DAG with dependencies and verification commands. Receives project context (decisions, conventions, recent evolution) to make consistent choices. Registers tasks in Claude Code's native Task system (visible via Ctrl+T).
-
-**Builders** (Opus) execute tasks with enriched context: failures to avoid, patterns to apply, conventions to follow, and related facts. Multiple builders run in parallel when dependencies allow. Block on unknown errors rather than debugging indefinitely. Report DELIVERED or BLOCKED.
-
-**Observer + Orchestrator** extracts learnings from each phase. Facts from exploration, decisions from planning, evolution and conventions from building. Closes the feedback loop with verification-based scoring.
-
-## Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/helix <task>` | Full pipeline: explore → plan → build → observe |
-| `/helix-query "topic"` | Surface relevant precedent from memory |
-| `/helix-stats` | Memory health metrics |
-
-## Memory System
-
-### Memory Types
-
-Seven memory types serve different purposes in the learning system:
-
-| Type | Purpose | Decay Half-Life |
-|------|---------|-----------------|
-| `failure` | What went wrong and how to fix it | 7 days |
-| `pattern` | Successful approaches to apply | 7 days |
-| `systemic` | Recurring issues (3+ occurrences) | 14 days |
-| `fact` | Codebase structure and relationships | 30 days |
-| `convention` | Validated patterns for this project | 14 days |
-| `decision` | Architectural choices already made | 30 days |
-| `evolution` | What changed recently (task completions) | 7 days |
-
-### Type-Specific Scoring
-
-Different memory types use different weight profiles for ranking:
-
-| Type | Relevance | Effectiveness | Recency |
-|------|-----------|---------------|---------|
-| `failure` | 0.5 | 0.3 | 0.2 |
-| `pattern` | 0.5 | 0.3 | 0.2 |
-| `systemic` | 0.6 | 0.3 | 0.1 |
-| `fact` | 0.7 | 0.1 | 0.2 |
-| `convention` | 0.4 | 0.4 | 0.2 |
-| `decision` | 0.6 | 0.2 | 0.2 |
-| `evolution` | 0.4 | 0.1 | 0.5 |
-
-**Base scoring formula:**
-```
-score = (relevance_weight × relevance) + (effectiveness_weight × effectiveness) + (recency_weight × recency)
-```
-
-Where:
-- `effectiveness = helped / (helped + failed)` — default 0.5 if no feedback
-- `recency = 2^(-days_since_use / half_life)` — ACT-R decay with type-specific half-life
-
-### Primitives
-
-**9 core primitives**: store, recall, get, edge, edges, feedback, decay, prune, health
-
-**2 code-assisted functions** (surface facts, orchestrator decides):
-- `similar-recent` — finds similar memories for systemic detection
-- `suggest-edges` — suggests graph connections for new memories
-
-**3 maintenance functions**:
-- `decay-edges` — decay unused edge weights
-- `consolidate` — merge highly similar memories
-- `chunk` — extract reusable rules from successful task completions (SOAR pattern)
-
-### Feedback Loop
-
-Verification outcomes drive memory effectiveness. Pass → partial credit to injected memories. Fail → no penalty (unknown cause). Memories that consistently help rise in ranking; ineffective ones decay.
-
-**Graph relationships** link memories (solves, co_occurs, similar, causes). Recall with `--expand` traverses 1-hop neighbors. Edge weights boost scores of graph-discovered memories.
-
-**Dual-query strategy**: Context builder queries both semantically (on objective) and by file patterns (on relevant files), then merges and dedupes.
-
-### Database Schema
-
-SQLite database at `.helix/helix.db` (WAL mode for concurrent access):
-
-```sql
-schema_version (version, applied_at)
-memory (id, name, type, trigger, resolution, helped, failed, embedding, source, created_at, last_used)
-memory_edge (id, from_name, to_name, rel_type, weight, created_at)
-memory_file_pattern (memory_name, pattern)  -- Normalized for fast lookup
-```
-
-### CLI Reference
+## Usage
 
 ```bash
-HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
-
-# Store
-python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
-
-# Recall (with graph expansion)
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
-
-# Recall grouped by type
-python3 "$HELIX/lib/memory/core.py" recall-by-type "query" --types "fact,convention" --limit 5
-
-# Get single memory
-python3 "$HELIX/lib/memory/core.py" get "memory-name"
-
-# Create edge
-python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
-
-# Query edges
-python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
-
-# Feedback (delta: positive for helped, negative for failed)
-python3 "$HELIX/lib/memory/core.py" feedback --names '["mem1", "mem2"]' --delta 0.5
-
-# Decay dormant memories
-python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
-
-# Decay unused edges
-python3 "$HELIX/lib/memory/core.py" decay-edges --days 60
-
-# Prune ineffective memories
-python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
-
-# Merge similar memories
-python3 "$HELIX/lib/memory/core.py" consolidate
-
-# Health check
-python3 "$HELIX/lib/memory/core.py" health
-
-# Code-assisted (surfaces facts, I decide)
-python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7 --type failure
-python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
-
-# SOAR-pattern chunking
-python3 "$HELIX/lib/memory/core.py" chunk --task "objective" --outcome "success" --approach "what worked"
+/helix add user authentication with JWT tokens
+/helix refactor the payment processing module
+/helix fix the flaky integration tests
 ```
 
-### Observer CLI
-
-Extracts learnings from agent outputs:
-
+Query memory directly:
 ```bash
-# Extract facts from explorer output
-python3 "$HELIX/lib/observer.py" explorer --output '{...}' --store --min-confidence medium
-
-# Extract decisions from planner
-python3 "$HELIX/lib/observer.py" planner --tasks '[...]' --exploration '{...}' --store
-
-# Extract evolution/conventions from builder
-python3 "$HELIX/lib/observer.py" builder --task '{...}' --result '{...}' --files-changed '[...]' --store
-
-# Create session summary
-python3 "$HELIX/lib/observer.py" session --objective "..." --tasks '[...]' --outcomes '{...}' --store
-```
-
-### Context Builder CLI
-
-Builds agent-specific context:
-
-```bash
-# Explorer context (known facts + failures)
-python3 "$HELIX/lib/context.py" build-explorer-context --objective "..." --scope "src/api"
-
-# Planner context (decisions, conventions, evolution)
-python3 "$HELIX/lib/context.py" build-planner-context --objective "..."
-
-# Builder context (full enrichment)
-python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
-```
-
-### Constants
-
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| DECAY_HALF_LIFE_DAYS | 7 (default) | Base recency score half-life |
-| DUPLICATE_THRESHOLD | 0.85 | Semantic deduplication threshold |
-| VALID_TYPES | failure, pattern, systemic, fact, convention, decision, evolution | Allowed memory types |
-
-### Optional Dependencies
-
-Embeddings require `sentence-transformers` and `numpy`. If unavailable, memory falls back to effectiveness-only ranking (no semantic search). Install via:
-
-```bash
-pip install sentence-transformers numpy
-```
-
-## Task DAG
-
-Plans support task dependencies with verification at each step:
-
-```
-001 (spec-auth) ──→ 003 (impl-auth) ──┐
-                                      ├──→ 005 (integrate)
-002 (spec-api) ──→ 004 (impl-api) ───┘
-```
-
-Each task has:
-- `relevant_files` — files the builder will work with
-- `verify` — command to verify completion
-- `depends` — tasks that must complete first
-
-### Dual Status Model
-
-**Native `status`** controls DAG execution: pending → in_progress → completed
-**Helix `helix_outcome`** captures semantic result: delivered | blocked | skipped
-
-| status | helix_outcome | Meaning |
-|--------|---------------|---------|
-| completed | delivered | Success, memory credit |
-| completed | blocked | Finished but didn't achieve goal |
-| completed | skipped | Intentionally bypassed (stall recovery) |
-| pending | - | Not yet started |
-| in_progress | - | Builder executing |
-
-`status=completed` releases dependents. `helix_outcome` determines success context.
-
-## Native Task Integration
-
-Tasks created by the Planner are visible in Claude Code's native task system (Ctrl+T). This provides:
-
-- **Visibility**: See task progress without reading agent output
-- **Ownership**: Tasks have `owner` field for claim tracking
-- **Dependencies**: `blockedBy` prevents starting before prerequisites complete
-- **Parallel execution**: Multiple builders via `run_in_background: true`
-
-The Planner uses `TaskCreate` to register tasks; Builders use `TaskUpdate` to report progress and completion.
-
-## Agent Contracts
-
-| Agent | Model | Purpose | Context Injection | Handoff |
-|-------|-------|---------|-------------------|---------|
-| helix-explorer | haiku | Parallel reconnaissance | known_facts, relevant_failures | JSON in text output |
-| helix-planner | opus | Task decomposition, DAG creation | decisions, conventions, evolution | TaskList (tasks created) |
-| helix-builder | opus | Single task execution | failures, patterns, conventions, facts | Task metadata (helix_outcome) |
-
-**Handoff principle:** Only explorers need TaskOutput—their JSON findings ARE the deliverable. Planners hand off via TaskList (tasks created). Builders hand off via task metadata (helix_outcome/summary). Never load full agent transcripts into context unnecessarily.
-
-Contracts define I/O schemas in `agents/*.md`.
-
-## Hook System
-
-Hooks provide environment setup for helix sessions.
-
-### SessionStart Hook
-
-`scripts/setup-env.sh` runs when a session begins:
-1. Creates Python venv if needed
-2. Installs dependencies (sentence-transformers, numpy)
-3. Initializes `.helix/helix.db` if missing
-4. Persists plugin root to `.helix/plugin_root`
-5. Reports memory health status
-
-### Learning Loop Flow
-
-Memory injection happens at context build time, not via hooks:
-
-```
-1. Orchestrator calls lib/context.py build-context
-2. Context builder queries memory (semantic + file patterns + type-specific)
-3. Memories injected with confidence indicators: [75%] or [unproven]
-4. Builder executes with memory context
-5. Orchestrator runs verify command
-6. Orchestrator calls feedback() with delta based on verification
-7. Observer extracts learnings (facts, decisions, conventions, evolution)
-8. Future recalls rank by actual effectiveness
-```
-
-The feedback loop is verification-based (incorruptible): builders can't game the system by self-reporting.
-
-## Examples
-
-### Single Task
-
-```bash
-/helix add CRUD endpoints for user profiles with validation
-```
-
-Explorer swarm maps structure and detects framework, receives known facts. Planner produces task DAG with project context. Builders execute with memory injection. Observer + orchestrator extract patterns from outcomes.
-
-### Learning Across Sessions
-
-```bash
-# Session 1: Builder blocks on circular import error
-# Observer extracts failure with context
-# Orchestrator stores with appropriate type
-
-# Session 2 (weeks later): Different project
-/helix add a notification service
-# Explorer retrieves the failure; builder avoids the mistake
+/helix-query "authentication patterns"
+/helix-stats  # Memory health metrics
 ```
 
 ## When to Use
 
-**Use helix when:**
-- Work should persist as precedent
-- You want bounded, reviewable scope
-- Complex objectives need multi-task coordination
-- Framework-specific development with idiom enforcement
-- Past failures should inform future work
+**Use helix for:**
+- Multi-step work that benefits from exploration first
+- Projects where past failures should inform future work
+- Complex objectives needing task coordination
+- Work that creates reusable precedent
 
-**Skip helix when:**
-- Exploratory prototyping (let models wander)
-- Quick one-offs with no future value
-- Simple single-file changes
-- Novel frameworks without idiom definitions
+**Skip helix for:**
+- Quick single-file changes
+- Exploratory prototyping where wandering is fine
+- One-off tasks with no future value
 
-## Configuration
+## Design Principles
 
-### Database Path
+| Principle | Meaning |
+|-----------|---------|
+| **Feedback closes the loop** | Verification outcomes update memory effectiveness |
+| **Blocking is success** | Unknown errors create learning data, not token burn |
+| **Bounded scope** | Relevant files are explicit and auditable |
+| **Present over future** | Implement current requests, not anticipated needs |
+| **Edit over create** | Modify existing code before creating new files |
 
-Default: `.helix/helix.db` in the project root. Override with `HELIX_DB_PATH` environment variable.
+## Local-First
 
-### Environment Variables
+Everything stays on your machine:
+- SQLite database at `.helix/helix.db`
+- No external API keys for memory services
+- No data leaving your system
+- No usage fees
 
-| Variable | Purpose |
-|----------|---------|
-| `HELIX_DB_PATH` | Custom database location |
-| `HELIX_EMBEDDING_CACHE` | Override embedding cache size (default: 2000) |
+## Technical Reference
 
-### Sub-agent Context
-
-Spawned agents (explorers, builders) need to locate the plugin. The `.helix/plugin_root` file stores the absolute path, created by `setup-env.sh` during session start.
-
-## Documentation
-
-For comprehensive technical reference—agent specifications, database schemas, configuration constants, and CLI tools—see [docs/HELIX_OVERVIEW.md](./docs/HELIX_OVERVIEW.md).
+For implementation details—agent contracts, database schema, CLI reference, scoring formulas—see [docs/HELIX_OVERVIEW.md](./docs/HELIX_OVERVIEW.md).
