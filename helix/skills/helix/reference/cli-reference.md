@@ -76,4 +76,4 @@ python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
 |-------|---------|-----------------|
 | builder | `DELIVERED:`, `BLOCKED:` | TaskGet metadata |
 | explorer | `"status":` | Last JSON in output_file |
-| planner | `PLAN_COMPLETE:`, `ERROR:` | TaskList (DAG) |
+| planner | `PLAN_COMPLETE:`, `ERROR:` | PLAN_SPEC JSON in returned result |

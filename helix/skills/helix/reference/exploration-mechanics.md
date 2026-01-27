@@ -20,23 +20,28 @@ Identify 3-6 natural partitions based on codebase signals:
 
 ## Explorer Spawn Pattern
 
-```python
-# Inject known facts so explorers skip redundant discovery
-explorer_context = python3 "$HELIX/lib/context.py" build-explorer-context \
-    --objective "$OBJECTIVE" --scope "$SCOPE"
+```bash
+# First, inject known facts so explorers skip redundant discovery
+explorer_context=$(python3 "$HELIX/lib/context.py" build-explorer-context \
+    --objective "$OBJECTIVE" --scope "$SCOPE")
+```
 
-Task(
-    subagent_type="helix:helix-explorer",
-    prompt=f"""KNOWN_FACTS:
-{json.dumps(explorer_context.get('known_facts', []))}
+Then spawn explorers using XML syntax (no `allowed_tools` needed—agents use frontmatter):
 
-SCOPE: {scope}
-FOCUS: {focus}
-OBJECTIVE: {objective}""",
-    model="haiku",
-    allowed_tools=["Read", "Grep", "Glob", "Bash"],
-    run_in_background=True
-)
+```xml
+<invoke name="Task">
+  <parameter name="subagent_type">helix:helix-explorer</parameter>
+  <parameter name="prompt">KNOWN_FACTS:
+{known_facts_json}
+
+SCOPE: src/api/
+FOCUS: route handlers
+OBJECTIVE: {objective}</parameter>
+  <parameter name="model">haiku</parameter>
+  <parameter name="max_turns">8</parameter>
+  <parameter name="run_in_background">true</parameter>
+  <parameter name="description">Explore src/api</parameter>
+</invoke>
 ```
 
 ## Merging Explorer Outputs
