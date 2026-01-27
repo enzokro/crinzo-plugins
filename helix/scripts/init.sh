@@ -15,7 +15,7 @@ fi
 export HELIX_ROOT
 export CLAUDE_PLUGIN_ROOT="$HELIX_ROOT"
 
-VENV_PATH="$HELIX_ROOT/venv"
+VENV_PATH="$HELIX_ROOT/.venv"
 REQUIREMENTS="$HELIX_ROOT/requirements.txt"
 
 # Create or recreate venv

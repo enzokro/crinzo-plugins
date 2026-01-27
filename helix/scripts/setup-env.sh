@@ -19,7 +19,7 @@ export CLAUDE_PLUGIN_ROOT="$HELIX_ROOT"
 mkdir -p .helix
 echo "$HELIX_ROOT" > .helix/plugin_root
 
-VENV_PATH="$HELIX_ROOT/venv"
+VENV_PATH="$HELIX_ROOT/.venv"
 
 # Self-heal: trigger init if venv missing or corrupted
 if [ ! -d "$VENV_PATH" ] || [ ! -x "$VENV_PATH/bin/python3" ]; then
