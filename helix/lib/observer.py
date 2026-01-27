@@ -139,29 +139,45 @@ def observe_planner(tasks: List[dict], exploration: dict) -> List[dict]:
 def observe_builder(
     task: dict,
     result: dict,
-    files_changed: List[str]
+    files_changed: Optional[List[str]] = None
 ) -> List[dict]:
     """Extract conventions and evolution from builder work.
 
     Args:
         task: Task data (subject, description, metadata)
         result: Builder output with status, summary
-        files_changed: List of files modified (from git diff --name-only)
+        files_changed: List of files modified (from git diff --name-only).
+                       If None, attempts to extract from task metadata.
 
     Returns:
         List of candidate memories for orchestrator review
     """
     candidates = []
+    metadata = task.get("metadata", {})
+
+    # Prefer files_changed from task metadata if available
+    files_changed = files_changed or metadata.get("files_changed", [])
+
+    # Extract verification info for richer evolution context
+    verify_passed = metadata.get("verify_passed")
+    verify_command = metadata.get("verify_command", "")
+
     status = result.get("status", "").lower()
     summary = result.get("summary", "")
     task_subject = task.get("subject", "")
 
     # Always create evolution entry for delivered tasks
     if status == "delivered" and files_changed:
+        resolution_parts = [f"Changed: {', '.join(files_changed[:5])}{'...' if len(files_changed) > 5 else ''}"]
+        if verify_command:
+            resolution_parts.append(f"Verified: {verify_command}")
+        if summary:
+            resolution_parts.append(summary[:100])
+
         candidates.append({
             "type": "evolution",
             "trigger": f"Task: {task_subject}",
-            "resolution": f"Changed: {', '.join(files_changed[:5])}{'...' if len(files_changed) > 5 else ''}. {summary[:100]}",
+            "resolution": ". ".join(resolution_parts),
             "source": f"builder:{task.get('id', '')}",
             "_confidence": "high"  # We know this happened
         })
@@ -354,7 +370,7 @@ def _cli():
     elif args.command == "builder":
         task = json.loads(args.task)
         result_data = json.loads(args.result)
-        files = json.loads(args.files_changed)
+        files = json.loads(args.files_changed) if args.files_changed != "[]" else None
         candidates = observe_builder(task, result_data, files)
         if args.store:
             storage = store_candidates(candidates, args.min_confidence)

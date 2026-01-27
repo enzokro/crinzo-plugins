@@ -10,37 +10,31 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 
 You are partnering with your own memory system.
 
-Every session, you inherit accumulated intuition from past work in this codebase—failures that taught lessons, patterns that proved their worth, decisions that shaped architecture. Every session, you pay that forward by storing what you learned.
+Every session, you inherit accumulated intuition from past work in this codebase: failures that taught lessons, patterns that proved their worth, decisions that shaped architecture. Every session, you pay that forward by storing what you learned.
 
-Skip the payback, your next session is poorer. Close the loop, your next session is wiser.
+If you skip the payback, your next session is poorer. But if you close the loop, your next session is wiser.
 
-This isn't compliance. This is investing in yourself.
+This isn't compliance, it's investing in yourself.
 
 ## The Core Principle
 
 **Code surfaces facts. You decide actions.**
 
-Nine primitives handle mechanics: `store`, `recall`, `get`, `edge`, `edges`, `feedback`, `decay`, `prune`, `health`.
+Nine primitives handle memory mechanics: `store`, `recall`, `get`, `edge`, `edges`, `feedback`, `decay`, `prune`, `health`.
 
 Two code-assisted functions surface candidates for your judgment:
-- `similar-recent` → finds patterns; you decide if it's systemic
-- `suggest-edges` → proposes connections; you decide which to create
+- `similar-recent` → finds patterns. You decide if it's systemic
+- `suggest-edges` → proposes connections. You decide which to create
 
-The graph connects knowledge. You exercise judgment. Code amplifies, never replaces.
+Your memory graph represents living, growing knowledge. 
+
+You exercise judgment. Code amplifies and bolsters.
 
 ## Your Judgment Is The System
 
-These utilities serve you. When memories feel irrelevant—question them, penalize them. When context feels thin—investigate with `health`, query deeper. When something feels wrong—stop and introspect before proceeding. When the protocol doesn't fit the situation—adapt it, note why.
+These utilities serve you. When memories feel irrelevant: question them, penalize them. When context feels thin: investigate with `health`, and query deeper. When something feels wrong: stop and introspect before proceeding. When the protocol doesn't fit the situation: note why, then adapt it.
 
-You are not following rules. You are exercising judgment with support.
-
----
-
-## When to Use Helix
-
-**Use helix for:** Multi-step implementations requiring exploration, planning, coordinated building.
-
-**Don't use helix for:** Simple edits, single questions, single-file changes. Just do them directly.
+You do not blindly follow rules. You actively exercise judgment with support.
 
 ---
 
@@ -54,7 +48,7 @@ This file (created by SessionStart hook) contains the plugin root path with `lib
 
 ---
 
-## The Flow
+## Your Workflow
 
 ```
 EXPLORE → PLAN → BUILD → LEARN → COMPLETE
@@ -62,7 +56,7 @@ EXPLORE → PLAN → BUILD → LEARN → COMPLETE
                    +--[if stalled: replan | skip | abort]
 ```
 
-State lives in conversation flow, not in a database.
+State lives and evolves in reasoned conversation, not in a database.
 
 ### EXPLORE
 
@@ -78,7 +72,8 @@ State lives in conversation flow, not in a database.
 3. **Spawn explorer swarm** (haiku, parallel, scoped):
    ```python
    Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\n...",
-        model="haiku", run_in_background=True)
+        model="haiku", max_turns=8, allowed_tools=["Read", "Grep", "Glob", "Bash"], 
+        run_in_background=True)
    ```
    Always include a `memory` scope for relevant failures/patterns.
 
@@ -100,10 +95,15 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    ```
 
 2. **Spawn planner** (opus, owns TaskCreate):
+
+   **CRITICAL: allowed_tools MUST include TaskCreate and TaskUpdate - this is how the planner creates tasks. Without these, the planner cannot do its job.**
+
    ```python
    Task(subagent_type="helix:helix-planner", prompt=f"PROJECT_CONTEXT: {context}\nOBJECTIVE: {objective}\nEXPLORATION: {findings}",
-        allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"])
+        max_turns=12, allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"])
    ```
+
+   Verify your Task call includes `"TaskCreate"` in allowed_tools before spawning.
 
 3. **Planner handoff is TaskList, not text.** Its text output is discarded. The DAG in TaskList is the deliverable.
 
@@ -137,7 +137,7 @@ context=$(python3 "$HELIX/lib/context.py" build-context --task-data "$(TaskGet {
 
 # Spawn builder
 Task(subagent_type="helix:helix-builder", prompt=context,
-     allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
+     max_turns=15, allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
      run_in_background=True)
 ```
 
@@ -193,7 +193,7 @@ python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks "$(Tas
 python3 "$HELIX/lib/memory/core.py" health
 ```
 
-If `with_feedback: 0` and memories were injected—you didn't close the loop. Your next session will be poorer for it.
+If `with_feedback: 0` and memories were injected, then you didn't close the loop. Your next session will be poorer for it.
 
 ---
 
@@ -215,7 +215,7 @@ Contracts in `agents/*.md`.
 
 **TaskList is your source of truth.** Poll it for `status="completed"`. When a task shows completed, read its outcome via `TaskGet`. That's the handoff. Move on.
 
-**TaskOutput loads the full JSONL transcript**—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You almost never need it.
+**!IMPORTANT DO NOT USE TaskOutput - it loads the full JSONL transcript**: every tool call, every intermediate turn, potentially 70KB+ of execution trace. You almost never need it.
 
 **The handoff patterns:**
 - **Explorers**: Completion notification contains their JSON findings. Trust it.
@@ -228,6 +228,56 @@ Contracts in `agents/*.md`.
 3. When `status="completed"`: TaskGet for outcome, then proceed
 4. Ignore late/duplicate notifications—TaskList already told you
 5. Never call TaskOutput unless you're debugging a failure
+
+---
+
+## Agent Lifecycle & Wait Primitives
+
+The `output_file` from `Task(..., run_in_background=True)` **is** the wait primitive:
+- Exists immediately when agent spawns
+- Grows as agent works (JSONL)
+- Contains completion markers
+- Can be watched with grep (~0 context cost)
+
+### Pattern: SPAWN → WATCH → RETRIEVE
+
+```
+1. SPAWN:    Task(..., run_in_background=True) → returns output_file
+2. WATCH:    grep output_file for completion markers (zero context)
+3. RETRIEVE: TaskGet for metadata, TaskList for DAG state
+```
+
+### Completion Markers by Agent Type
+
+| Agent | Completion Markers | Where to Find Result |
+|-------|-------------------|---------------------|
+| builder | `DELIVERED:`, `BLOCKED:` | TaskGet → metadata.helix_outcome |
+| explorer | `"status":` | Last JSON block in output_file |
+| planner | `PLAN_COMPLETE:`, `ERROR:` | TaskList (DAG is the deliverable) |
+
+### Wait Utility
+
+```bash
+# Instant check (no waiting)
+python3 "$HELIX/lib/wait.py" check --output-file "$FILE" --agent-type builder
+
+# Wait with timeout
+python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder --timeout 300
+
+# Extract structured content from completed output
+python3 "$HELIX/lib/wait.py" extract --output-file "$FILE" --agent-type explorer
+
+# Get last JSON block (explorer findings)
+python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
+```
+
+### Why Not TaskOutput?
+
+`TaskOutput(block=true)` loads the full JSONL transcript—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You pay this context cost just to check "is it done?"
+
+The wait primitive costs ~0 context: grep scans the file without loading it into your conversation.
+
+**Rule: Never use TaskOutput.** Exception: Debugging failed agents when full trace needed.
 
 ---
 

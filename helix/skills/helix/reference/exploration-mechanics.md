@@ -41,11 +41,15 @@ OBJECTIVE: {objective}""",
 
 ## Merging Explorer Outputs
 
-1. Collect all explorer JSON outputs via TaskOutput
-2. Deduplicate files across scopes
-3. Resolve conflicts (prefer higher-relevance findings)
-4. Aggregate findings preserving `task_hint` for planner grouping
-5. Each finding should have: `{file, what, action, task_hint}`
+1. Store `output_file` paths when spawning explorers
+2. Poll completion: `python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type explorer`
+3. Extract JSON from completed outputs: `python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"`
+4. Deduplicate files across scopes
+5. Resolve conflicts (prefer higher-relevance findings)
+6. Aggregate findings preserving `task_hint` for planner grouping
+7. Each finding should have: `{file, what, action, task_hint}`
+
+**Why not TaskOutput?** It loads full JSONL transcript (70KB+). The wait utility uses grep (~0 context cost).
 
 ## EMPTY_EXPLORATION Recovery
 

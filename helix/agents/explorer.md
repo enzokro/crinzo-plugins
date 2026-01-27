@@ -68,6 +68,8 @@ Your output returns to the orchestrator and consumes its context window.
 - Do NOT echo file contents or command outputs in your response text.
 - Work silently. Call tools, get results, proceed.
 - Your ONLY text output should be the final JSON block.
+
+**COMPLETION SIGNAL:** Your final output MUST contain `"status":` in a JSON block. The orchestrator polls for this marker.
 </constraints>
 
 <output>

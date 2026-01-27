@@ -51,3 +51,29 @@ python3 "$HELIX/lib/dag_utils.py" clear
 python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'
 python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 ```
+
+## Wait Utilities
+
+Zero-context completion polling. **Never use TaskOutput**—use these instead.
+
+```bash
+# Instant check (no waiting)
+python3 "$HELIX/lib/wait.py" check --output-file "$FILE" --agent-type builder
+
+# Wait with timeout (default 300s)
+python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder --timeout 300
+
+# Extract structured content from completed output
+python3 "$HELIX/lib/wait.py" extract --output-file "$FILE" --agent-type explorer
+
+# Get last JSON block (for explorer findings)
+python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
+```
+
+### Agent Types & Markers
+
+| Agent | Markers | Result Location |
+|-------|---------|-----------------|
+| builder | `DELIVERED:`, `BLOCKED:` | TaskGet metadata |
+| explorer | `"status":` | Last JSON in output_file |
+| planner | `PLAN_COMPLETE:`, `ERROR:` | TaskList (DAG) |

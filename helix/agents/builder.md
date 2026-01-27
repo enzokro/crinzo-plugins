@@ -58,6 +58,8 @@ HELIX="$(cat .helix/plugin_root)"
 - ZERO narration. ZERO explanation. ZERO echoing.
 - Work silently: Read -> Implement -> Verify -> TaskUpdate -> Status block
 
+**COMPLETION SIGNAL:** Your final output MUST contain `DELIVERED:` or `BLOCKED:`. The orchestrator polls for these markers.
+
 All other constraints:
 - Never claim DELIVERED without passing tests
 - Use parent_deliveries context from completed blockers
@@ -93,8 +95,29 @@ RELATED_FACTS provide context about the files you're working with:
 <output>
 1. Call TaskUpdate:
 ```
-TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered", "summary": "<100 chars>"})
+TaskUpdate(taskId="...", status="completed", metadata={
+    "helix_outcome": "delivered",
+    "summary": "<100 chars>",
+    "files_changed": ["file1.py", "file2.py"],
+    "verify_command": "pytest tests/test_xyz.py",
+    "verify_passed": true
+})
 ```
+
+<metadata_fields>
+Required:
+- `helix_outcome`: "delivered" | "blocked"
+- `summary`: <100 char description
+
+Optional (recommended):
+- `files_changed`: string[] - Files written/edited
+- `verify_command`: string - Command used to verify (e.g., "pytest tests/")
+- `verify_passed`: boolean - Whether verification succeeded
+
+On BLOCKED, include:
+- `error`: string - The error message
+- `tried`: string - What was attempted
+</metadata_fields>
 
 2. Output EXACTLY ONE of:
 ```
