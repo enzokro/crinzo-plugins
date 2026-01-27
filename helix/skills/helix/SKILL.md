@@ -57,6 +57,7 @@ EXPLORE → PLAN → BUILD → LEARN → COMPLETE
 ```
 
 State lives and evolves in reasoned conversation, not in a database.
+Run agents with the rules in [Agent Lifecycle & Wait Primitives](#Agent Lifecycle & Wait Primitives)
 
 ### EXPLORE
 
@@ -94,22 +95,37 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE"
    ```
 
-2. **Spawn planner** (opus, owns TaskCreate):
-
-   **CRITICAL: allowed_tools MUST include TaskCreate and TaskUpdate - this is how the planner creates tasks. Without these, the planner cannot do its job.**
-
+2. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
    ```python
-   Task(subagent_type="helix:helix-planner", prompt=f"PROJECT_CONTEXT: {context}\nOBJECTIVE: {objective}\nEXPLORATION: {findings}",
-        max_turns=12, allowed_tools=["Read", "Grep", "Glob", "Bash", "TaskCreate", "TaskUpdate"])
+   result = Task(subagent_type="helix:helix-planner",
+        prompt=f"PROJECT_CONTEXT: {context}\nOBJECTIVE: {objective}\nEXPLORATION: {findings}",
+        max_turns=12, allowed_tools=["Read", "Grep", "Glob", "Bash"])
    ```
 
-   Verify your Task call includes `"TaskCreate"` in allowed_tools before spawning.
+   Planner runs in foreground and returns a `PLAN_SPEC:` JSON block describing the task DAG.
 
-3. **Planner handoff is TaskList, not text.** Its text output is discarded. The DAG in TaskList is the deliverable.
+3. **Create tasks from PLAN_SPEC:** Parse the JSON array from planner output. For each task spec:
+   ```python
+   task_id = TaskCreate(
+     subject=f"{spec.seq}: {spec.slug}",
+     description=spec.description,
+     activeForm=f"Building {spec.slug}",
+     metadata={"seq": spec.seq, "relevant_files": spec.relevant_files}
+   )
+   # Track: seq_to_id[spec.seq] = task_id
+   ```
 
-4. **Extract decisions:** `python3 "$HELIX/lib/observer.py" planner --tasks "$(TaskList | jq -c)" --store`
+4. **Set dependencies:** After all tasks created, apply blocked_by:
+   ```python
+   for spec in plan_spec:
+     if spec.blocked_by:
+       TaskUpdate(taskId=seq_to_id[spec.seq],
+                  addBlockedBy=[seq_to_id[b] for b in spec.blocked_by])
+   ```
 
-If TaskList empty → add exploration context, re-run planner.
+5. **Extract decisions:** `python3 "$HELIX/lib/observer.py" planner --tasks "$(TaskList | jq -c)" --store`
+
+If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
 See `reference/task-granularity.md` for sizing heuristics.
 
@@ -201,33 +217,11 @@ If `with_feedback: 0` and memories were injected, then you didn't close the loop
 
 | Agent | Model | Purpose | Handoff |
 |-------|-------|---------|---------|
-| helix-explorer | haiku | Parallel | JSON in returned result |
-| helix-planner | opus | DAG creation | TaskList |
-| helix-builder | opus | Execution | Task metadata via TaskGet |
+| helix-explorer | haiku | Parallel codebase scanning | JSON findings in returned result |
+| helix-planner | opus | DAG specification | PLAN_SPEC JSON (orchestrator creates tasks) |
+| helix-builder | opus | Task execution | Task metadata via TaskGet |
 
 Contracts in `agents/*.md`.
-
----
-
-## Context Discipline
-
-**The async notification stream is noisy.** Completions arrive late, duplicates happen, updates trickle in long after agents finish. Don't react to every notification.
-
-**TaskList is your source of truth.** Poll it for `status="completed"`. When a task shows completed, read its outcome via `TaskGet`. That's the handoff. Move on.
-
-**!IMPORTANT DO NOT USE TaskOutput - it loads the full JSONL transcript**: every tool call, every intermediate turn, potentially 70KB+ of execution trace. You almost never need it.
-
-**The handoff patterns:**
-- **Explorers**: Completion notification contains their JSON findings. Trust it.
-- **Planners**: Handoff is TaskList—the DAG they created. Text discarded.
-- **Builders**: They write `helix_outcome` + `summary` to task metadata. Read via `TaskGet`.
-
-**The discipline:**
-1. Spawn background agents
-2. Poll TaskList for completion (not TaskOutput)
-3. When `status="completed"`: TaskGet for outcome, then proceed
-4. Ignore late/duplicate notifications—TaskList already told you
-5. Never call TaskOutput unless you're debugging a failure
 
 ---
 
@@ -253,7 +247,7 @@ The `output_file` from `Task(..., run_in_background=True)` **is** the wait primi
 |-------|-------------------|---------------------|
 | builder | `DELIVERED:`, `BLOCKED:` | TaskGet → metadata.helix_outcome |
 | explorer | `"status":` | Last JSON block in output_file |
-| planner | `PLAN_COMPLETE:`, `ERROR:` | TaskList (DAG is the deliverable) |
+| planner | `PLAN_COMPLETE:`, `ERROR:` | PLAN_SPEC JSON in returned result |
 
 ### Wait Utility
 
