@@ -71,10 +71,17 @@ Run agents with the rules in [Agent Lifecycle & Wait Primitives](#Agent Lifecycl
 2. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
 
 3. **Spawn explorer swarm** (haiku, parallel, scoped):
-   ```python
-   Task(subagent_type="helix:helix-explorer", prompt="SCOPE: src/api/\nFOCUS: route handlers\n...",
-        model="haiku", max_turns=8, allowed_tools=["Read", "Grep", "Glob", "Bash"], 
-        run_in_background=True)
+   ```xml
+   <invoke name="Task">
+     <parameter name="subagent_type">helix:helix-explorer</parameter>
+     <parameter name="prompt">SCOPE: src/api/
+   FOCUS: route handlers
+   ...</parameter>
+     <parameter name="model">haiku</parameter>
+     <parameter name="max_turns">8</parameter>
+     <parameter name="run_in_background">true</parameter>
+     <parameter name="description">Explore src/api</parameter>
+   </invoke>
    ```
    Always include a `memory` scope for relevant failures/patterns.
 
@@ -96,34 +103,42 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    ```
 
 2. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
-   ```python
-   result = Task(subagent_type="helix:helix-planner",
-        prompt=f"PROJECT_CONTEXT: {context}\nOBJECTIVE: {objective}\nEXPLORATION: {findings}",
-        max_turns=12, allowed_tools=["Read", "Grep", "Glob", "Bash"])
+   ```xml
+   <invoke name="Task">
+     <parameter name="subagent_type">helix:helix-planner</parameter>
+     <parameter name="prompt">PROJECT_CONTEXT: {context}
+   OBJECTIVE: {objective}
+   EXPLORATION: {findings}</parameter>
+     <parameter name="max_turns">12</parameter>
+     <parameter name="description">Plan task DAG</parameter>
+   </invoke>
    ```
 
    Planner runs in foreground and returns a `PLAN_SPEC:` JSON block describing the task DAG.
 
 3. **Create tasks from PLAN_SPEC:** Parse the JSON array from planner output. For each task spec:
-   ```python
-   task_id = TaskCreate(
-     subject=f"{spec.seq}: {spec.slug}",
-     description=spec.description,
-     activeForm=f"Building {spec.slug}",
-     metadata={"seq": spec.seq, "relevant_files": spec.relevant_files}
-   )
-   # Track: seq_to_id[spec.seq] = task_id
+   ```xml
+   <invoke name="TaskCreate">
+     <parameter name="subject">{spec.seq}: {spec.slug}</parameter>
+     <parameter name="description">{spec.description}</parameter>
+     <parameter name="activeForm">Building {spec.slug}</parameter>
+     <parameter name="metadata">{"seq": "{spec.seq}", "relevant_files": {spec.relevant_files}}</parameter>
+   </invoke>
+   ```
+   Track: `seq_to_id[spec.seq] = task_id` from result.
+
+4. **Set dependencies:** After all tasks created, for each spec with blocked_by:
+   ```xml
+   <invoke name="TaskUpdate">
+     <parameter name="taskId">{seq_to_id[spec.seq]}</parameter>
+     <parameter name="addBlockedBy">["{seq_to_id[b]}", ...]</parameter>
+   </invoke>
    ```
 
-4. **Set dependencies:** After all tasks created, apply blocked_by:
-   ```python
-   for spec in plan_spec:
-     if spec.blocked_by:
-       TaskUpdate(taskId=seq_to_id[spec.seq],
-                  addBlockedBy=[seq_to_id[b] for b in spec.blocked_by])
+5. **Extract decisions:** (use tasks JSON from TaskList result)
+   ```bash
+   python3 "$HELIX/lib/observer.py" planner --tasks '$TASKS_JSON' --store
    ```
-
-5. **Extract decisions:** `python3 "$HELIX/lib/observer.py" planner --tasks "$(TaskList | jq -c)" --store`
 
 If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
@@ -139,7 +154,7 @@ while pending tasks exist:
     1. Get ready tasks (blockers all delivered)
     2. If none ready but pending exist → STALLED (see reference/stalled-recovery.md)
     3. Checkpoint: git stash push -m "helix-{seq}" (your rollback)
-    4. Spawn ready builders in parallel (opus, run_in_background=True)
+    4. Spawn ready builders in parallel (opus, run_in_background=true)
     5. Poll TaskList until status="completed"
     6. Read outcome from task metadata via TaskGet (NEVER TaskOutput—wastes context)
     7. Learn from outcome (see below)
@@ -147,14 +162,21 @@ while pending tasks exist:
 
 **For each completed task:**
 
+1. First, get task data via TaskGet tool, then build context:
 ```bash
-# Build context with memory injection
-context=$(python3 "$HELIX/lib/context.py" build-context --task-data "$(TaskGet {id} | jq -c)")
+# Build context with memory injection (task_json from TaskGet result)
+context=$(python3 "$HELIX/lib/context.py" build-context --task-data '$TASK_JSON')
+```
 
-# Spawn builder
-Task(subagent_type="helix:helix-builder", prompt=context,
-     max_turns=15, allowed_tools=["Read", "Write", "Edit", "Grep", "Glob", "Bash", "TaskUpdate"],
-     run_in_background=True)
+2. Spawn builder:
+```xml
+<invoke name="Task">
+  <parameter name="subagent_type">helix:helix-builder</parameter>
+  <parameter name="prompt">{context}</parameter>
+  <parameter name="max_turns">15</parameter>
+  <parameter name="run_in_background">true</parameter>
+  <parameter name="description">Build task {id}</parameter>
+</invoke>
 ```
 
 **On DELIVERED:** `git stash drop` — changes are good.
@@ -192,9 +214,9 @@ python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold
 ```
 If 2+ similar failures → escalate to `systemic` type.
 
-**5. Extract evolution:**
+**5. Extract evolution:** (use task JSON from TaskGet result)
 ```bash
-python3 "$HELIX/lib/observer.py" builder --task "$(TaskGet {id} | jq -c)" --files-changed "$(git diff --name-only HEAD~1)" --store
+python3 "$HELIX/lib/observer.py" builder --task '$TASK_JSON' --files-changed "$(git diff --name-only HEAD~1)" --store
 ```
 
 ### COMPLETE
@@ -202,8 +224,8 @@ python3 "$HELIX/lib/observer.py" builder --task "$(TaskGet {id} | jq -c)" --file
 All tasks done. Learning loop closed. Before ending:
 
 ```bash
-# Session summary
-python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks "$(TaskList | jq -c)" --outcomes '{...}' --store
+# Session summary (use tasks JSON from TaskList result)
+python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks '$TASKS_JSON' --outcomes '{...}' --store
 
 # Verify health
 python3 "$HELIX/lib/memory/core.py" health
@@ -227,7 +249,7 @@ Contracts in `agents/*.md`.
 
 ## Agent Lifecycle & Wait Primitives
 
-The `output_file` from `Task(..., run_in_background=True)` **is** the wait primitive:
+The `output_file` from Task (with `run_in_background=true`) **is** the wait primitive:
 - Exists immediately when agent spawns
 - Grows as agent works (JSONL)
 - Contains completion markers
@@ -236,7 +258,7 @@ The `output_file` from `Task(..., run_in_background=True)` **is** the wait primi
 ### Pattern: SPAWN → WATCH → RETRIEVE
 
 ```
-1. SPAWN:    Task(..., run_in_background=True) → returns output_file
+1. SPAWN:    Task with run_in_background=true → returns output_file
 2. WATCH:    grep output_file for completion markers (zero context)
 3. RETRIEVE: TaskGet for metadata, TaskList for DAG state
 ```
@@ -267,7 +289,7 @@ python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
 
 ### Why Not TaskOutput?
 
-`TaskOutput(block=true)` loads the full JSONL transcript—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You pay this context cost just to check "is it done?"
+`TaskOutput` with `block=true` loads the full JSONL transcript—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You pay this context cost just to check "is it done?"
 
 The wait primitive costs ~0 context: grep scans the file without loading it into your conversation.
 

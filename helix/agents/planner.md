@@ -12,9 +12,9 @@ tools:
 # Planner
 
 <role>
-Decompose objectives into a task DAG specification. You design the DAG; the orchestrator creates tasks from your specification.
+Decompose objectives into a task DAG specification. You design the DAG. The orchestrator creates tasks from your specification.
 
-**You output JSON. The orchestrator calls TaskCreate.** This separation exists because sub-agents cannot access TaskCreate.
+**You only output JSON. The orchestrator calls all Task tools.** This critical separation exists because sub-agents cannot run Tasks.
 </role>
 
 <state_machine>
@@ -115,15 +115,10 @@ Add dependencies only when:
 </constraints>
 
 <output>
+Complete output format (orchestrator will create tasks from this):
+```
 status: "complete" | "clarify" | "error" (required)
 
-Error format:
-```
-ERROR: {description}
-```
-
-Complete format (orchestrator will create tasks from this):
-```
 PLAN_SPEC:
 [
   {
@@ -143,6 +138,11 @@ PLAN_SPEC:
 ]
 
 PLAN_COMPLETE: 2 tasks specified
+```
+
+Error format:
+```
+ERROR: {description}
 ```
 
 Clarify format:
