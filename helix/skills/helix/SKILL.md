@@ -135,10 +135,11 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    </invoke>
    ```
 
-5. **Extract decisions:** (use tasks JSON from TaskList result)
+5. **Extract decisions:** Call TaskList, then construct JSON array from results:
    ```bash
-   python3 "$HELIX/lib/observer.py" planner --tasks '$TASKS_JSON' --store
+   python3 "$HELIX/lib/observer.py" planner --tasks '[{"id": "1", "subject": "..."}]' --store
    ```
+   Note: TaskList returns human-readable text. Orchestrator must construct JSON.
 
 If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
@@ -162,11 +163,19 @@ while pending tasks exist:
 
 **For each completed task:**
 
-1. First, get task data via TaskGet tool, then build context:
-```bash
-# Build context with memory injection (task_json from TaskGet result)
-context=$(python3 "$HELIX/lib/context.py" build-context --task-data '$TASK_JSON')
-```
+1. Get task details via TaskGet, then construct JSON and build context:
+   ```xml
+   <invoke name="TaskGet">
+     <parameter name="taskId">{task_id}</parameter>
+   </invoke>
+   ```
+
+   From the result, construct task JSON and call:
+   ```bash
+   python3 "$HELIX/lib/context.py" build-context --task-data '{"id": "1", "subject": "001: task-slug", "description": "...", "metadata": {"relevant_files": [...]}}'
+   ```
+
+   Note: TaskGet returns human-readable text, not JSON. The orchestrator must parse the result and construct the JSON object manually.
 
 2. Spawn builder:
 ```xml
@@ -214,22 +223,24 @@ python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold
 ```
 If 2+ similar failures → escalate to `systemic` type.
 
-**5. Extract evolution:** (use task JSON from TaskGet result)
+**5. Extract evolution:** Construct task JSON from TaskGet result:
 ```bash
-python3 "$HELIX/lib/observer.py" builder --task '$TASK_JSON' --files-changed "$(git diff --name-only HEAD~1)" --store
+python3 "$HELIX/lib/observer.py" builder --task '{"id": "1", "subject": "...", "metadata": {...}}' --files-changed "$(git diff --name-only HEAD~1)" --store
 ```
+Note: Orchestrator constructs JSON from TaskGet text output.
 
 ### COMPLETE
 
 All tasks done. Learning loop closed. Before ending:
 
 ```bash
-# Session summary (use tasks JSON from TaskList result)
-python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks '$TASKS_JSON' --outcomes '{...}' --store
+# Session summary (construct tasks JSON from TaskList result)
+python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks '[{"id": "1", "subject": "...", "status": "completed"}]' --outcomes '{"delivered": [...], "blocked": [...]}' --store
 
 # Verify health
 python3 "$HELIX/lib/memory/core.py" health
 ```
+Note: Orchestrator constructs JSON from TaskList text output.
 
 If `with_feedback: 0` and memories were injected, then you didn't close the loop. Your next session will be poorer for it.
 
