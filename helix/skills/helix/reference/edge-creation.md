@@ -36,3 +36,9 @@ python3 "$HELIX/lib/memory/core.py" edge \
 ```
 
 Graph expansion surfaces solutions via edges on next recall.
+
+## Edge Weight Mechanics
+
+- Weights accumulate on repeated edge creation (capped at 10.0)
+- Temporal sorting prefers recent edges during expansion
+- Use `decay-edges` to halve weights on dormant relationships

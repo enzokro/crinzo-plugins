@@ -6,7 +6,7 @@
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --expand-depth 2 --intent why
 python3 "$HELIX/lib/memory/core.py" get "memory-name"
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
 python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
@@ -15,6 +15,18 @@ python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
 python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 python3 "$HELIX/lib/memory/core.py" health
 ```
+
+### Recall Options
+
+| Option | Description |
+|--------|-------------|
+| `--expand` | Include graph neighbors via edges |
+| `--expand-depth N` | Hops for graph expansion (default 1) |
+| `--intent` | Route by query intent: `why` (failures/systemic), `how` (patterns/conventions), `what` (facts/decisions), `debug` (failures/patterns) |
+
+### store() Conflict Detection
+
+`store()` now detects memories with similar triggers but conflicting resolutions. Returns `conflicts` array when found—review before accepting.
 
 ### Code-Assisted (surfaces facts, I decide)
 

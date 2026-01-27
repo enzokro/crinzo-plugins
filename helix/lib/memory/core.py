@@ -36,6 +36,30 @@ SCORE_WEIGHTS = {
 }
 VALID_TYPES = ("failure", "pattern", "systemic", "fact", "convention", "decision", "evolution")
 
+# Intent-aware query routing: prioritize memory types based on query intent
+INTENT_ROUTING = {
+    "why": {
+        "priority_types": ["failure", "systemic"],
+        "expand_rel": "causes",
+        "type_boost": 0.15,
+    },
+    "how": {
+        "priority_types": ["pattern", "convention"],
+        "expand_rel": "solves",
+        "type_boost": 0.15,
+    },
+    "what": {
+        "priority_types": ["fact", "decision"],
+        "expand_rel": "similar",
+        "type_boost": 0.1,
+    },
+    "debug": {
+        "priority_types": ["failure", "pattern"],
+        "expand_rel": "solves",
+        "type_boost": 0.12,
+    },
+}
+
 # Type-specific decay rates (half-life in days)
 DECAY_HALF_LIFE_BY_TYPE = {
     "failure": 7,       # Failures should fade if not re-encountered
@@ -136,16 +160,57 @@ def _to_dict(row) -> dict:
 # CORE PRIMITIVES
 # =============================================================================
 
+def _detect_conflicts(trigger: str, resolution: str, mem_type: str) -> List[dict]:
+    """Find memories with similar triggers but potentially conflicting resolutions.
+
+    Used to surface contradictions for orchestrator judgment before storing.
+    A conflict is detected when trigger similarity is high but resolution similarity is low.
+
+    Returns:
+        List of conflicting memories with _conflict_score field (higher = more conflicting).
+    """
+    similar = similar_recent(trigger, threshold=0.7, days=30, type=mem_type)
+    if not similar:
+        return []
+
+    resolution_emb = embed(resolution)
+    if resolution_emb is None:
+        return []
+
+    db = get_db()
+    conflicts = []
+
+    for m in similar:
+        # Get the resolution embedding for comparison
+        row = db.execute("SELECT embedding FROM memory WHERE name=?", (m["name"],)).fetchone()
+        if not row or not row["embedding"]:
+            continue
+
+        # Compare resolutions - low similarity indicates potential conflict
+        mem_emb = from_blob(row["embedding"])
+        res_sim = cosine(resolution_emb, mem_emb)
+
+        # If trigger is similar (already filtered by similar_recent) but resolution is very different
+        if res_sim < 0.4:
+            m["_conflict_score"] = round(1 - res_sim, 3)
+            conflicts.append(m)
+
+    conflicts.sort(key=lambda x: -x["_conflict_score"])
+    return conflicts
+
+
 def store(
     trigger: str,
     resolution: str,
     type: str = "failure",
-    source: str = ""
+    source: str = "",
+    check_conflicts: bool = True
 ) -> dict:
-    """Store a memory. Returns {status, name, reason}.
+    """Store a memory. Returns {status, name, reason, conflicts?}.
 
     Types: failure, pattern, systemic, fact, convention, decision, evolution
     Performs semantic deduplication - similar memories are merged.
+    Detects conflicts (similar trigger, different resolution) if check_conflicts=True.
     """
     if type not in VALID_TYPES:
         return {"status": "rejected", "name": "", "reason": f"type must be one of {VALID_TYPES}"}
@@ -155,6 +220,11 @@ def store(
 
     if not resolution.strip():
         return {"status": "rejected", "name": "", "reason": "resolution empty"}
+
+    # Check for conflicts before storing (similar trigger, different resolution)
+    conflicts = []
+    if check_conflicts:
+        conflicts = _detect_conflicts(trigger, resolution, type)
 
     # Check for semantic duplicate
     new_emb = embed(trigger)
@@ -191,7 +261,10 @@ def store(
                     (name, pattern)
                 )
             db.commit()
-            return {"status": "added", "name": name, "reason": ""}
+            result = {"status": "added", "name": name, "reason": ""}
+            if conflicts:
+                result["conflicts"] = conflicts
+            return result
         except Exception as e:
             if "UNIQUE" in str(e):
                 name = f"{name}-{datetime.now().strftime('%H%M%S')}"
@@ -205,7 +278,10 @@ def store(
                         (name, pattern)
                     )
                 db.commit()
-                return {"status": "added", "name": name, "reason": ""}
+                result = {"status": "added", "name": name, "reason": ""}
+                if conflicts:
+                    result["conflicts"] = conflicts
+                return result
             raise
 
 
@@ -214,7 +290,9 @@ def recall(
     type: Optional[str] = None,
     limit: int = 5,
     expand: bool = False,
-    min_effectiveness: float = 0.0
+    min_effectiveness: float = 0.0,
+    expand_depth: int = 1,
+    intent: Optional[str] = None
 ) -> List[dict]:
     """Recall memories by semantic similarity.
 
@@ -222,8 +300,10 @@ def recall(
         query: Search query
         type: Filter by type (failure, pattern, systemic)
         limit: Maximum results
-        expand: If True, include 1-hop graph neighbors
+        expand: If True, include graph neighbors via edges
         min_effectiveness: Minimum effectiveness threshold
+        expand_depth: Number of hops for graph expansion (default 1)
+        intent: Query intent for type prioritization (why, how, what, debug)
 
     Returns list with _relevance, _recency, _score fields.
     """
@@ -247,6 +327,9 @@ def recall(
         ).fetchall()
         return [_to_dict(r) for r in rows]
 
+    # Get intent routing if specified
+    routing = INTENT_ROUTING.get(intent) if intent else None
+
     scored = []
     for r in rows:
         eff = _effectiveness(r)
@@ -263,10 +346,16 @@ def recall(
                 (weights['effectiveness'] * eff) + \
                 (weights['recency'] * rec)
 
+        # Apply intent-based type boost
+        if routing and mem_type in routing["priority_types"]:
+            score += routing["type_boost"]
+
         m = _to_dict(r)
         m["_relevance"] = round(rel, 3)
         m["_recency"] = round(rec, 3)
         m["_score"] = round(score, 3)
+        if routing and mem_type in routing["priority_types"]:
+            m["_intent_boosted"] = True
         scored.append((score, rel, m))
 
     scored.sort(key=lambda x: -x[0])
@@ -274,7 +363,7 @@ def recall(
     # Graph expansion if requested
     if expand and scored:
         seed_names = [m["name"] for _, _, m in scored[:limit * 2]]
-        expanded_names = _expand_via_edges(seed_names, depth=1)
+        expanded_names = _expand_via_edges(seed_names, depth=expand_depth)
 
         # Fetch expanded memories not in seeds
         for name in expanded_names:
@@ -409,7 +498,7 @@ def edge(from_name: str, to_name: str, rel_type: str, weight: float = 1.0) -> di
         ).fetchone()
 
         if existing:
-            new_weight = existing["weight"] + weight
+            new_weight = min(existing["weight"] + weight, 10.0)  # Cap to prevent runaway accumulation
             db.execute(
                 "UPDATE memory_edge SET weight=? WHERE from_name=? AND to_name=? AND rel_type=?",
                 (new_weight, from_name, to_name, rel_type)
@@ -527,12 +616,23 @@ def suggest_edges(memory_name: str, limit: int = 5) -> List[dict]:
 
 
 def _expand_via_edges(names: List[str], depth: int = 1) -> Set[str]:
-    """Get names reachable within depth hops."""
+    """Get names reachable within depth hops.
+
+    Prefers recent edges over stale ones via temporal sorting.
+    """
+    db = get_db()
     current = set(names)
     for _ in range(depth):
         new_names = set()
         for name in current:
-            for e in edges(name=name):
+            # Query edges with temporal sorting - prefer recent relationships
+            edge_rows = db.execute(
+                """SELECT from_name, to_name FROM memory_edge
+                   WHERE from_name=? OR to_name=?
+                   ORDER BY created_at DESC""",
+                (name, name)
+            ).fetchall()
+            for e in edge_rows:
                 new_names.add(e["from_name"])
                 new_names.add(e["to_name"])
         current.update(new_names)
@@ -862,7 +962,10 @@ if __name__ == "__main__":
     s.add_argument("query")
     s.add_argument("--type", default=None)
     s.add_argument("--limit", type=int, default=5)
-    s.add_argument("--expand", action="store_true", help="Include 1-hop graph neighbors")
+    s.add_argument("--expand", action="store_true", help="Include graph neighbors via edges")
+    s.add_argument("--expand-depth", type=int, default=1, help="Hops for graph expansion (default 1)")
+    s.add_argument("--intent", default=None, choices=["why", "how", "what", "debug"],
+                   help="Query intent for type prioritization")
 
     s = sub.add_parser("similar-recent", help="Find similar memories for systemic detection")
     s.add_argument("trigger", help="Trigger text to compare against")
@@ -923,7 +1026,8 @@ if __name__ == "__main__":
     if args.cmd == "store":
         r = store(args.trigger, args.resolution, args.type, args.source)
     elif args.cmd == "recall":
-        r = recall(args.query, args.type, args.limit, expand=args.expand)
+        r = recall(args.query, args.type, args.limit, expand=args.expand,
+                   expand_depth=args.expand_depth, intent=args.intent)
     elif args.cmd == "similar-recent":
         r = similar_recent(args.trigger, args.threshold, args.days, args.type)
     elif args.cmd == "recall-by-type":

@@ -337,10 +337,10 @@ The wait primitive costs ~0 context: grep scans the file without loading it into
 ## Quick Reference
 
 ```bash
-# Recall with graph expansion
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+# Recall with intent routing and multi-hop expansion
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --intent why --expand-depth 2
 
-# Store a pattern
+# Store a pattern (returns conflicts if contradictions found)
 python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "..." --resolution "..."
 
 # Credit memories
@@ -352,6 +352,8 @@ python3 "$HELIX/lib/memory/core.py" health
 # Find systemic patterns
 python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7
 ```
+
+**Intent routing:** `--intent why` boosts failures/systemic. `--intent how` boosts patterns/conventions. `--intent what` boosts facts/decisions.
 
 Full CLI: `reference/cli-reference.md`
 
