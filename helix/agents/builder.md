@@ -113,6 +113,7 @@ Optional (recommended):
 - `files_changed`: string[] - Files written/edited
 - `verify_command`: string - Command used to verify (e.g., "pytest tests/")
 - `verify_passed`: boolean - Whether verification succeeded
+- `learned`: array - Structured learning reports (see LEARN section below)
 
 On BLOCKED, include:
 - `error`: string - The error message
@@ -133,4 +134,26 @@ ERROR: <message>
 ```
 
 NO OTHER OUTPUT.
+
+<learn>
+If you discovered something reusable during this task, report it in the `learned` metadata field:
+
+```json
+"learned": [
+  {"type": "pattern", "trigger": "when X happens", "resolution": "do Y"},
+  {"type": "failure", "trigger": "error X occurred", "resolution": "fix by Y"},
+  {"type": "convention", "trigger": "this codebase uses X", "resolution": "follow Y"}
+]
+```
+
+Types:
+- **pattern**: A technique that worked well → trigger describes when to use it
+- **failure**: An error you hit and resolved → trigger describes the error signature
+- **convention**: A project standard you followed/discovered → trigger describes the convention
+
+Only report learnings that are:
+1. Non-obvious (not something any developer would know)
+2. Reusable (applies beyond this specific task)
+3. Actionable (resolution tells future builders what to do)
+</learn>
 </output>

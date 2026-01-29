@@ -246,3 +246,91 @@ class TestShouldStore:
         assert should_store(candidate, "high") is False
         assert should_store(candidate, "medium") is False
         assert should_store(candidate, "low") is True
+
+
+class TestStructuredLearning:
+    """Tests for structured learning consumption from agents."""
+
+    def test_observe_builder_structured_learning(self):
+        """Builder's learned field should produce high-confidence candidates."""
+        task = {
+            "id": "task-001",
+            "subject": "001: add-auth",
+            "metadata": {
+                "learned": [
+                    {"type": "pattern", "trigger": "JWT validation in middleware", "resolution": "Use pyjwt with RS256"},
+                    {"type": "failure", "trigger": "Missing pyjwt dependency", "resolution": "Add pyjwt to requirements.txt"}
+                ]
+            }
+        }
+        result = {"status": "delivered", "summary": "Added JWT auth"}
+        files = ["src/auth/jwt.py"]
+
+        candidates = observe_builder(task, result, files)
+
+        # Should have structured learning entries with high confidence
+        patterns = [c for c in candidates if c["type"] == "pattern"]
+        failures = [c for c in candidates if c["type"] == "failure"]
+
+        assert len(patterns) >= 1
+        assert any("JWT validation" in p["trigger"] for p in patterns)
+        assert any(p["_confidence"] == "high" for p in patterns)
+
+        assert len(failures) >= 1
+        assert any("pyjwt" in f["trigger"] for f in failures)
+
+    def test_observe_builder_ignores_invalid_learned_types(self):
+        """Invalid learned types should be ignored."""
+        task = {
+            "id": "task-001",
+            "subject": "001: test",
+            "metadata": {
+                "learned": [
+                    {"type": "invalid", "trigger": "test", "resolution": "test"},
+                    {"type": "pattern", "trigger": "valid", "resolution": "valid"}
+                ]
+            }
+        }
+        result = {"status": "delivered", "summary": "Done"}
+
+        candidates = observe_builder(task, result, [])
+
+        # Only the valid pattern type should be extracted
+        from_learned = [c for c in candidates if c["_confidence"] == "high"]
+        assert len(from_learned) == 1
+        assert from_learned[0]["type"] == "pattern"
+
+    def test_observe_planner_structured_learned_block(self):
+        """Planner's LEARNED: block should produce high-confidence decisions."""
+        tasks = [{"subject": "001: setup", "description": "Setup auth", "metadata": {}}]
+        planner_output = '''
+PLAN_SPEC:
+[{"seq": "001", "slug": "setup", "description": "Setup", "relevant_files": [], "blocked_by": []}]
+
+PLAN_COMPLETE: 1 task
+
+LEARNED: [
+  {"type": "decision", "trigger": "chose JWT over sessions", "resolution": "stateless scaling requirement"}
+]
+'''
+        candidates = observe_planner(tasks, {}, planner_output)
+
+        # Should have high-confidence decision from LEARNED block
+        decisions = [c for c in candidates if c["type"] == "decision" and c["_confidence"] == "high"]
+        assert len(decisions) >= 1
+        assert any("JWT over sessions" in d["trigger"] for d in decisions)
+
+    def test_observe_planner_falls_back_to_regex(self):
+        """Without LEARNED block, planner should use regex extraction."""
+        tasks = [{
+            "subject": "001: setup",
+            "description": "Using FastAPI because it's async",
+            "metadata": {}
+        }]
+
+        candidates = observe_planner(tasks, {}, None)
+
+        # Should have medium-confidence decision from regex
+        decisions = [c for c in candidates if c["type"] == "decision"]
+        assert len(decisions) >= 1
+        assert any(d["_confidence"] == "medium" for d in decisions)

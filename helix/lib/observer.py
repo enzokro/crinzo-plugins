@@ -87,19 +87,42 @@ def observe_explorer(output: dict) -> List[dict]:
     return candidates
 
 
-def observe_planner(tasks: List[dict], exploration: dict) -> List[dict]:
+def observe_planner(
+    tasks: List[dict],
+    exploration: dict,
+    planner_output: Optional[str] = None
+) -> List[dict]:
     """Extract decisions from planner output.
 
     Args:
         tasks: List of created tasks with subject, description, metadata
         exploration: The exploration data planner received
+        planner_output: Raw planner output text (optional, for LEARNED: parsing)
 
     Returns:
         List of candidate memories (type=decision) for orchestrator review
     """
     candidates = []
 
-    # Decision indicators in text
+    # High fidelity path: consume structured LEARNED block from planner output
+    if planner_output:
+        learned_match = re.search(r'LEARNED:\s*(\[.*?\])', planner_output, re.DOTALL)
+        if learned_match:
+            try:
+                learned = json.loads(learned_match.group(1))
+                for item in learned:
+                    if isinstance(item, dict) and item.get("type") in ("decision", "pattern", "convention"):
+                        candidates.append({
+                            "type": item.get("type", "decision"),
+                            "trigger": item.get("trigger", "")[:200],
+                            "resolution": item.get("resolution", "")[:500],
+                            "source": "planner",
+                            "_confidence": "high"  # Agent-reported = high confidence
+                        })
+            except json.JSONDecodeError:
+                pass  # Fall through to regex extraction
+
+    # Fallback: regex extraction from task text (lower confidence)
     decision_patterns = [
         (r"chose?\s+(\w+)\s+(?:over|instead of)\s+(\w+)", "chose {0} over {1}"),
         (r"using\s+(\w+)\s+because\s+(.+?)(?:\.|$)", "using {0}: {1}"),
@@ -165,6 +188,17 @@ def observe_builder(
     status = result.get("status", "").lower()
     summary = result.get("summary", "")
     task_subject = task.get("subject", "")
+
+    # High fidelity path: consume structured learned field from builder metadata
+    for item in metadata.get("learned", []):
+        if isinstance(item, dict) and item.get("type") in ("pattern", "failure", "convention"):
+            candidates.append({
+                "type": item["type"],
+                "trigger": item.get("trigger", "")[:200],
+                "resolution": item.get("resolution", "")[:500],
+                "source": f"builder:{task.get('id', '')}",
+                "_confidence": "high"  # Agent-reported = high confidence
+            })
 
     # Always create evolution entry for delivered tasks
     if status == "delivered" and files_changed:
@@ -328,6 +362,7 @@ def _cli():
     p = subparsers.add_parser("planner", help="Extract decisions from planner output")
     p.add_argument("--tasks", required=True, help="JSON list of created tasks")
     p.add_argument("--exploration", default="{}", help="JSON exploration data")
+    p.add_argument("--planner-output", default=None, help="Raw planner output text for LEARNED: parsing")
     p.add_argument("--store", action="store_true")
     p.add_argument("--min-confidence", default="medium", choices=["high", "medium", "low"])
 
@@ -360,7 +395,7 @@ def _cli():
     elif args.command == "planner":
         tasks = json.loads(args.tasks)
         exploration = json.loads(args.exploration)
-        candidates = observe_planner(tasks, exploration)
+        candidates = observe_planner(tasks, exploration, args.planner_output)
         if args.store:
             result = store_candidates(candidates, args.min_confidence)
             print(json.dumps({"candidates": candidates, "storage": result}, indent=2))

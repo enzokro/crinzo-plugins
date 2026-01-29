@@ -45,7 +45,7 @@ def build_explorer_context(
         limit: Maximum facts to inject
 
     Returns:
-        {"known_facts": [...], "relevant_failures": [...]}
+        {"known_facts": [...], "relevant_failures": [...], "injected": [...]}
     """
     # Query facts related to scope
     facts = recall(scope, type="fact", limit=limit, expand=False)
@@ -53,13 +53,17 @@ def build_explorer_context(
     # Also get any failures related to this area
     failures = recall(scope, type="failure", limit=3, expand=False)
 
+    # Track injected memory names for feedback loop
+    injected = [f["name"] for f in facts] + [f["name"] for f in failures]
+
     return {
         "known_facts": [
             f"{f['trigger']}" for f in facts
         ],
         "relevant_failures": [
             f"{f['trigger']} -> {f['resolution']}" for f in failures
-        ]
+        ],
+        "injected": injected
     }
 
 
@@ -77,12 +81,17 @@ def build_planner_context(
         limit: Maximum items per category
 
     Returns:
-        {"decisions": [...], "conventions": [...], "recent_evolution": [...]}
+        {"decisions": [...], "conventions": [...], "recent_evolution": [...], "injected": [...]}
     """
     # Query each relevant type
     decisions = recall(objective, type="decision", limit=limit, expand=False)
     conventions = recall(objective, type="convention", limit=limit, expand=False)
     evolution = recall(objective, type="evolution", limit=limit, expand=False)
+
+    # Track injected memory names for feedback loop
+    injected = ([d["name"] for d in decisions] +
+                [c["name"] for c in conventions] +
+                [e["name"] for e in evolution])
 
     return {
         "decisions": [
@@ -93,7 +102,8 @@ def build_planner_context(
         ],
         "recent_evolution": [
             f"{e['trigger']} - {e['resolution'][:80]}" for e in evolution
-        ]
+        ],
+        "injected": injected
     }
 
 

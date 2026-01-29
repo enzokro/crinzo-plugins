@@ -65,7 +65,8 @@ Run agents with the rules in [Agent Lifecycle & Wait Primitives](#Agent Lifecycl
 
 1. **Inject what you already know:**
    ```bash
-   python3 "$HELIX/lib/context.py" build-explorer-context --objective "$OBJECTIVE" --scope "$SCOPE"
+   EXPLORER_CONTEXT=$(python3 "$HELIX/lib/context.py" build-explorer-context --objective "$OBJECTIVE" --scope "$SCOPE")
+   # Track injected memories for feedback: EXPLORER_INJECTED is in EXPLORER_CONTEXT.injected
    ```
 
 2. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
@@ -99,7 +100,8 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
 
 1. **Inject project context:**
    ```bash
-   python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE"
+   PLANNER_CONTEXT=$(python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE")
+   # Track injected memories for feedback: PLANNER_INJECTED is in PLANNER_CONTEXT.injected
    ```
 
 2. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
@@ -197,8 +199,18 @@ This is where you invest in your future self. After each task completes:
 
 **1. Credit what helped:**
 ```bash
+# Credit builder context memories (delta 0.5 - direct attribution)
 python3 "$HELIX/lib/memory/core.py" feedback --names '[injected_memories]' --delta 0.5
+
+# Credit explorer context memories (delta 0.3 - indirect attribution)
+# Only after exploration completes successfully:
+python3 "$HELIX/lib/memory/core.py" feedback --names '[EXPLORER_INJECTED]' --delta 0.3
+
+# Credit planner context memories (delta 0.3 - indirect attribution)
+# Only after planning produces valid PLAN_SPEC:
+python3 "$HELIX/lib/memory/core.py" feedback --names '[PLANNER_INJECTED]' --delta 0.3
 ```
+Note: Delta 0.3 for explorer/planner (vs 0.5 for builder) because success is less directly attributable to specific memories.
 See `reference/feedback-deltas.md` for delta calibration.
 
 **2. Store discoveries:**

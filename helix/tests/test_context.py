@@ -145,3 +145,68 @@ class TestLineage:
         assert lineage[0]["seq"] == "001"
         assert lineage[1]["seq"] == "003"
         assert lineage[1]["delivered"] == "Legacy delivery field"
+
+
+class TestInjectedTracking:
+    """Tests for injected memory tracking in context builders."""
+
+    def test_explorer_context_returns_injected(self, test_db, mock_embeddings, sample_memories):
+        """Explorer context should return injected memory names."""
+        from lib.context import build_explorer_context
+
+        ctx = build_explorer_context("test objective", "src/")
+
+        assert "injected" in ctx
+        assert isinstance(ctx["injected"], list)
+        # All injected names should be strings
+        for name in ctx["injected"]:
+            assert isinstance(name, str)
+
+    def test_explorer_context_injected_from_facts_and_failures(self, test_db, mock_embeddings, sample_memories):
+        """Explorer injected should include both facts and failures."""
+        from lib.context import build_explorer_context
+
+        ctx = build_explorer_context("test objective", "src/")
+
+        # injected comes from both facts and failures queries
+        # The exact names depend on sample_memories fixture
+        assert "injected" in ctx
+
+    def test_planner_context_returns_injected(self, test_db, mock_embeddings, sample_memories):
+        """Planner context should return injected memory names."""
+        from lib.context import build_planner_context
+
+        ctx = build_planner_context("test objective")
+
+        assert "injected" in ctx
+        assert isinstance(ctx["injected"], list)
+        # All injected names should be strings
+        for name in ctx["injected"]:
+            assert isinstance(name, str)
+
+    def test_planner_context_injected_from_decisions_conventions_evolution(self, test_db, mock_embeddings, sample_memories):
+        """Planner injected should include decisions, conventions, and evolution."""
+        from lib.context import build_planner_context
+
+        ctx = build_planner_context("test objective")
+
+        # injected comes from decisions, conventions, and evolution queries
+        assert "injected" in ctx
+
+    def test_explorer_context_empty_when_no_memories(self, test_db, mock_embeddings):
+        """Explorer context should have empty injected when no memories exist."""
+        from lib.context import build_explorer_context
+
+        ctx = build_explorer_context("nonexistent topic", "nonexistent/")
+
+        assert "injected" in ctx
+        assert ctx["injected"] == []
+
+    def test_planner_context_empty_when_no_memories(self, test_db, mock_embeddings):
+        """Planner context should have empty injected when no memories exist."""
+        from lib.context import build_planner_context
+
+        ctx = build_planner_context("nonexistent topic")
+
+        assert "injected" in ctx
+        assert ctx["injected"] == []

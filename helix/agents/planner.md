@@ -138,7 +138,13 @@ PLAN_SPEC:
 ]
 
 PLAN_COMPLETE: 2 tasks specified
+
+LEARNED: [
+  {"type": "decision", "trigger": "chose X over Y", "resolution": "because Z"}
+]
 ```
+
+The `LEARNED:` block is optional. Include it when you make non-obvious architectural decisions that future planners should know about.
 
 Error format:
 ```
