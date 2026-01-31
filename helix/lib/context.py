@@ -164,6 +164,12 @@ def build_context(
     Combines semantic search (on objective) with structured search
     (on relevant files) for comprehensive memory retrieval.
 
+    Optimizations:
+    - Uses intent="how" for builders (boosts patterns/conventions)
+    - Skips convention query if semantic already returned conventions
+    - Skips facts query if semantic already returned facts
+    - Limits lineage to 5 most recent entries
+
     Args:
         task_data: Dict with keys from TaskGet result:
             - subject: Task title (e.g., "001: impl-auth")
@@ -184,17 +190,20 @@ def build_context(
     objective = task_data.get("description", "")
     relevant_files = metadata.get("relevant_files", [])
 
-    # Query 1: Semantic search on objective (natural language works well)
-    semantic_memories = _query_semantic(objective, limit=3)
+    # Query 1: Semantic search with intent routing (boosts patterns/conventions for builders)
+    semantic_memories = _query_semantic(objective, limit=5, expand=True, intent="how")
 
     # Query 2: Structured search on relevant files (file patterns)
     file_memories = _query_by_files(relevant_files, limit=3)
 
-    # Query 3: Conventions for this area
-    conventions = _query_by_type(objective, "convention", limit=2)
+    # Check what types we already got from semantic search
+    types_found = {m.get("type") for m in semantic_memories}
 
-    # Query 4: Facts about relevant files
-    facts = _query_facts_for_files(relevant_files, limit=2)
+    # Query 3: Conventions - skip if semantic already returned some
+    conventions = [] if "convention" in types_found else _query_by_type(objective, "convention", limit=2)
+
+    # Query 4: Facts - skip if semantic already returned some
+    facts = [] if "fact" in types_found else _query_facts_for_files(relevant_files, limit=2)
 
     # Merge and dedupe with global budget
     all_memories = _merge_memories(semantic_memories, file_memories, limit=memory_limit)
@@ -249,7 +258,9 @@ def build_context(
     prompt_lines.append(f"INJECTED_MEMORIES: {json.dumps(injected)}")
 
     if lineage:
-        prompt_lines.append(f"PARENT_DELIVERIES: {json.dumps(lineage)}")
+        # Compress lineage: limit to 5 most recent, truncate summaries
+        compressed_lineage = _compress_lineage(lineage, max_entries=5, max_summary_len=60)
+        prompt_lines.append(f"PARENT_DELIVERIES: {json.dumps(compressed_lineage)}")
 
     prompt_lines.append("")
     prompt_lines.append("Execute this task following your builder protocol. Report DELIVERED or BLOCKED.")
@@ -260,14 +271,50 @@ def build_context(
     }
 
 
-def _query_semantic(objective: str, limit: int = 3, expand: bool = True) -> List[dict]:
+def _compress_lineage(
+    lineage: List[dict],
+    max_entries: int = 5,
+    max_summary_len: int = 60
+) -> List[dict]:
+    """Compress lineage to prevent context bloat in deep DAGs.
+
+    Args:
+        lineage: Full lineage from completed blockers
+        max_entries: Maximum number of entries to keep
+        max_summary_len: Maximum length for delivered summaries
+
+    Returns:
+        Compressed lineage (most recent entries, truncated summaries)
+    """
+    # Take most recent entries
+    recent = lineage[-max_entries:] if len(lineage) > max_entries else lineage
+
+    # Truncate summaries
+    compressed = []
+    for entry in recent:
+        compressed_entry = {
+            "seq": entry.get("seq", ""),
+            "slug": entry.get("slug", ""),
+        }
+        delivered = entry.get("delivered", "")
+        if len(delivered) > max_summary_len:
+            compressed_entry["delivered"] = delivered[:max_summary_len - 3] + "..."
+        else:
+            compressed_entry["delivered"] = delivered
+        compressed.append(compressed_entry)
+
+    return compressed
+
+
+def _query_semantic(objective: str, limit: int = 3, expand: bool = True, intent: Optional[str] = None) -> List[dict]:
     """Query memory using semantic search on objective with graph expansion.
 
     Works well because objectives are natural language.
     Graph expansion (expand=True) surfaces solutions connected to relevant failures.
+    Intent routing (intent="how") boosts patterns/conventions for builders.
     """
     try:
-        return recall(objective, limit=limit, expand=expand)
+        return recall(objective, limit=limit, expand=expand, intent=intent)
     except Exception:
         return []
 

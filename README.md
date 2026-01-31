@@ -9,9 +9,9 @@ Most agent memory systems accumulate knowledge indefinitely—storing everything
 Helix inverts this: **memories must prove their worth**. Every memory tracks `helped` and `failed` counts. Verification outcomes update these scores automatically. Memories that consistently help rise in ranking; ineffective ones decay and eventually prune. The system learns what actually works, not what seemed important at storage time.
 
 ```
-Memory injected → Builder executes → Verification runs → Feedback updates score
-                                                              ↓
-                                          Future recalls rank by proven effectiveness
+Memory injected (auto) → Builder executes → Outcome reported → Feedback applied (auto)
+       ↑                                                              ↓
+       └──────────────── Future recalls rank by proven effectiveness ─┘
 ```
 
 This closes the learning loop. The agent improves through use, not accumulation.
@@ -31,27 +31,27 @@ Opus 4.5 doesn't need training wheels. It reasons well, follows instructions, an
 ┌──────────────────────────────────────┐
 │  EXPLORE (parallel, haiku)           │
 │  Swarm maps codebase structure       │
-│  Injects known facts, skips rediscovery
+│  Memory auto-injected via hook       │
 └──────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────┐
 │  PLAN (opus)                         │
 │  Decomposes into task DAG            │
-│  Uses past decisions, conventions    │
+│  Context auto-injected via hook      │
 └──────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────┐
 │  BUILD (parallel, opus)              │
 │  Execute tasks with memory context   │
-│  Block on unknowns, don't spiral     │
+│  Auto-feedback on task outcome       │
 └──────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────┐
 │  OBSERVE + LEARN                     │
-│  Extract facts, decisions, patterns  │
+│  Learning queue for review           │
 │  Update effectiveness scores         │
 │  Connect knowledge via graph edges   │
 └──────────────────────────────────────┘
@@ -89,6 +89,18 @@ pattern: "Use lazy imports for circular dependencies"
 
 When you query about authentication and hit the failure, graph expansion brings the solution along.
 
+## Hook Architecture
+
+Helix uses Claude Code hooks for invisible memory operations:
+
+| Hook | Trigger | Action |
+|------|---------|--------|
+| PreToolUse(Task) | Agent spawn | Inject relevant memories into prompt |
+| SubagentStop | Agent completion | Extract learning candidates to queue |
+| PostToolUse(TaskUpdate) | Task outcome | Auto-credit/debit memories |
+
+Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator focuses on judgment; hooks handle mechanics.
+
 ### Confidence Indicators
 
 Builders see effectiveness scores on injected memories:
@@ -99,7 +111,7 @@ FAILURES_TO_AVOID:
   [unproven] Database timeout on large queries -> Add connection pooling
 ```
 
-`[75%]` means this memory helped 75% of the time it was tried. Builders weight advice accordingly.
+`[75%]` means this memory helped 75% of the time. Builders weight advice accordingly.
 
 ## Installation
 
@@ -149,6 +161,8 @@ Query memory directly:
 
 Everything stays on your machine:
 - SQLite database at `.helix/helix.db`
+- Injection state at `.helix/injection-state/`
+- Learning queue at `.helix/learning-queue/`
 - No external API keys for memory services
 - No data leaving your system
 - No usage fees

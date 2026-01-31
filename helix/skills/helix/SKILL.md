@@ -26,7 +26,7 @@ Two code-assisted functions surface candidates for your judgment:
 - `similar-recent` → finds patterns. You decide if it's systemic
 - `suggest-edges` → proposes connections. You decide which to create
 
-Your memory graph represents living, growing knowledge. 
+Your memory graph represents living, growing knowledge.
 
 You exercise judgment. Code amplifies and bolsters.
 
@@ -63,32 +63,27 @@ Run agents with the rules in [Agent Lifecycle & Wait Primitives](#Agent Lifecycl
 
 **Goal:** Understand the codebase landscape for this objective.
 
-1. **Inject what you already know:**
-   ```bash
-   EXPLORER_CONTEXT=$(python3 "$HELIX/lib/context.py" build-explorer-context --objective "$OBJECTIVE" --scope "$SCOPE")
-   # Track injected memories for feedback: EXPLORER_INJECTED is in EXPLORER_CONTEXT.injected
-   ```
+1. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
 
-2. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
-
-3. **Spawn explorer swarm** (haiku, parallel, scoped):
+2. **Spawn explorer swarm** (haiku, parallel, scoped):
    ```xml
    <invoke name="Task">
      <parameter name="subagent_type">helix:helix-explorer</parameter>
      <parameter name="prompt">SCOPE: src/api/
-   FOCUS: route handlers
-   ...</parameter>
+FOCUS: route handlers
+OBJECTIVE: {objective}</parameter>
      <parameter name="model">haiku</parameter>
      <parameter name="max_turns">8</parameter>
      <parameter name="run_in_background">true</parameter>
      <parameter name="description">Explore src/api</parameter>
    </invoke>
    ```
-   Always include a `memory` scope for relevant failures/patterns.
 
-4. **Merge findings:** Dedupe files, resolve conflicts. Each finding has `{file, what, action, task_hint}`.
+   Memory context is automatically injected via hook. Always include a `memory` scope for relevant failures/patterns.
 
-5. **Extract facts:** `python3 "$HELIX/lib/observer.py" explorer --output '{merged}' --store`
+3. **Merge findings:** Dedupe files, resolve conflicts. Each finding has `{file, what, action, task_hint}`.
+
+4. **Extract facts:** `python3 "$HELIX/lib/observer.py" explorer --output '{merged}' --store`
 
 If `targets.files` empty → broaden scope or clarify objective.
 
@@ -98,27 +93,21 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
 
 **Goal:** Decompose objective into executable task DAG.
 
-1. **Inject project context:**
-   ```bash
-   PLANNER_CONTEXT=$(python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE")
-   # Track injected memories for feedback: PLANNER_INJECTED is in PLANNER_CONTEXT.injected
-   ```
-
-2. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
+1. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
    ```xml
    <invoke name="Task">
      <parameter name="subagent_type">helix:helix-planner</parameter>
-     <parameter name="prompt">PROJECT_CONTEXT: {context}
-   OBJECTIVE: {objective}
-   EXPLORATION: {findings}</parameter>
+     <parameter name="prompt">OBJECTIVE: {objective}
+EXPLORATION: {findings_json}</parameter>
      <parameter name="max_turns">12</parameter>
      <parameter name="description">Plan task DAG</parameter>
    </invoke>
    ```
 
+   Project context (decisions, conventions, evolution) is automatically injected via hook.
    Planner runs in foreground and returns a `PLAN_SPEC:` JSON block describing the task DAG.
 
-3. **Create tasks from PLAN_SPEC:** Parse the JSON array from planner output. For each task spec:
+2. **Create tasks from PLAN_SPEC:** Parse the JSON array from planner output. For each task spec:
    ```xml
    <invoke name="TaskCreate">
      <parameter name="subject">{spec.seq}: {spec.slug}</parameter>
@@ -129,7 +118,7 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    ```
    Track: `seq_to_id[spec.seq] = task_id` from result.
 
-4. **Set dependencies:** After all tasks created, for each spec with blocked_by:
+3. **Set dependencies:** After all tasks created, for each spec with blocked_by:
    ```xml
    <invoke name="TaskUpdate">
      <parameter name="taskId">{seq_to_id[spec.seq]}</parameter>
@@ -137,7 +126,7 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
    </invoke>
    ```
 
-5. **Extract decisions:** Call TaskList, then construct JSON array from results:
+4. **Extract decisions:** Call TaskList, then construct JSON array from results:
    ```bash
    python3 "$HELIX/lib/observer.py" planner --tasks '[{"id": "1", "subject": "..."}]' --store
    ```
@@ -160,86 +149,74 @@ while pending tasks exist:
     4. Spawn ready builders in parallel (opus, run_in_background=true)
     5. Poll TaskList until status="completed"
     6. Read outcome from task metadata via TaskGet (NEVER TaskOutput—wastes context)
-    7. Learn from outcome (see below)
+    7. Review learning queue (see LEARN)
 ```
 
-**For each completed task:**
-
-1. Get task details via TaskGet, then construct JSON and build context:
-   ```xml
-   <invoke name="TaskGet">
-     <parameter name="taskId">{task_id}</parameter>
-   </invoke>
-   ```
-
-   From the result, construct task JSON and call:
-   ```bash
-   python3 "$HELIX/lib/context.py" build-context --task-data '{"id": "1", "subject": "001: task-slug", "description": "...", "metadata": {"relevant_files": [...]}}'
-   ```
-
-   Note: TaskGet returns human-readable text, not JSON. The orchestrator must parse the result and construct the JSON object manually.
-
-2. Spawn builder:
+**For each ready task, spawn builder:**
 ```xml
 <invoke name="Task">
   <parameter name="subagent_type">helix:helix-builder</parameter>
-  <parameter name="prompt">{context}</parameter>
+  <parameter name="prompt">TASK_ID: {task.id}
+TASK: {task.subject}
+OBJECTIVE: {task.description}
+VERIFY: {task.metadata.verify}
+RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
   <parameter name="max_turns">15</parameter>
   <parameter name="run_in_background">true</parameter>
   <parameter name="description">Build task {id}</parameter>
 </invoke>
 ```
 
+Memory context is automatically injected via hook. To include lineage/warnings:
+```
+LINEAGE: [{"seq": "001", "slug": "impl-auth", "delivered": "Added OAuth2 flow"}]
+WARNING: Similar auth failures in past 7 days - check token handling
+MEMORY_LIMIT: 7
+```
+
 **On DELIVERED:** `git stash drop` — changes are good.
 **On BLOCKED:** `git stash pop` — revert, reassess.
 
-### LEARN
+### LEARN (MANDATORY after BUILD)
 
-This is where you invest in your future self. After each task completes:
+**SKIP THIS AND YOUR NEXT SESSION IS POORER.**
 
-**1. Credit what helped:**
+Memory feedback is handled automatically via hooks:
+- When builder reports DELIVERED, injected memories are credited (+0.5)
+- When builder reports BLOCKED, injected memories are debited (-0.3)
+
+**1. Review learning queue:**
 ```bash
-# Credit builder context memories (delta 0.5 - direct attribution)
-python3 "$HELIX/lib/memory/core.py" feedback --names '[injected_memories]' --delta 0.5
-
-# Credit explorer context memories (delta 0.3 - indirect attribution)
-# Only after exploration completes successfully:
-python3 "$HELIX/lib/memory/core.py" feedback --names '[EXPLORER_INJECTED]' --delta 0.3
-
-# Credit planner context memories (delta 0.3 - indirect attribution)
-# Only after planning produces valid PLAN_SPEC:
-python3 "$HELIX/lib/memory/core.py" feedback --names '[PLANNER_INJECTED]' --delta 0.3
-```
-Note: Delta 0.3 for explorer/planner (vs 0.5 for builder) because success is less directly attributable to specific memories.
-See `reference/feedback-deltas.md` for delta calibration.
-
-**2. Store discoveries:**
-- Delivered with non-obvious insight → store as `pattern`
-- Blocked with generalizable cause → store as `failure`
-- Trivial success → skip (noise)
-
-```bash
-python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "SPECIFIC" --resolution "ACTIONABLE"
+ls .helix/learning-queue/
 ```
 
-**3. Connect knowledge:**
+Each file contains extracted candidates from completed agents. Hooks automatically extract:
+- `learned` fields from builders
+- FINDINGS from explorers
+- LEARNED blocks from planners
+
+**2. For each candidate, decide:**
+- **Store as-is:** `python3 "$HELIX/lib/memory/core.py" store --type {type} --trigger "{trigger}" --resolution "{resolution}"`
+- **Modify and store:** adjust trigger/resolution before storing
+- **Discard:** not worth storing (delete from queue)
+
+**3. Connect & detect:**
 ```bash
 python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
-# Review suggestions, create edges that make sense:
-python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
-```
-
-**4. Detect systemic issues:**
-```bash
 python3 "$HELIX/lib/memory/core.py" similar-recent "failure trigger" --threshold 0.7 --days 7
 ```
-If 2+ similar failures → escalate to `systemic` type.
 
-**5. Extract evolution:** Construct task JSON from TaskGet result:
+**4. Clear processed queue:**
 ```bash
-python3 "$HELIX/lib/observer.py" builder --task '{"id": "1", "subject": "...", "metadata": {...}}' --files-changed "$(git diff --name-only HEAD~1)" --store
+rm .helix/learning-queue/*.json
 ```
-Note: Orchestrator constructs JSON from TaskGet text output.
+
+**Override automatic feedback:** Call feedback directly with custom delta if default isn't appropriate:
+```bash
+python3 "$HELIX/lib/memory/core.py" feedback --names '[...]' --delta 0.8  # stronger credit
+```
+
+See `reference/feedback-deltas.md` for delta calibration.
 
 ### COMPLETE
 
@@ -266,57 +243,28 @@ If `with_feedback: 0` and memories were injected, then you didn't close the loop
 | helix-planner | opus | DAG specification | PLAN_SPEC JSON (orchestrator creates tasks) |
 | helix-builder | opus | Task execution | Task metadata via TaskGet |
 
+Memory context is injected automatically via PreToolUse hook. Learning candidates are extracted automatically via SubagentStop hook.
+
 Contracts in `agents/*.md`.
 
 ---
 
 ## Agent Lifecycle & Wait Primitives
 
-The `output_file` from Task (with `run_in_background=true`) **is** the wait primitive:
-- Exists immediately when agent spawns
-- Grows as agent works (JSONL)
-- Contains completion markers
-- Can be watched with grep (~0 context cost)
+Pattern: SPAWN (background) → WATCH (grep markers) → RETRIEVE (TaskGet)
 
-### Pattern: SPAWN → WATCH → RETRIEVE
-
-```
-1. SPAWN:    Task with run_in_background=true → returns output_file
-2. WATCH:    grep output_file for completion markers (zero context)
-3. RETRIEVE: TaskGet for metadata, TaskList for DAG state
-```
-
-### Completion Markers by Agent Type
-
-| Agent | Completion Markers | Where to Find Result |
-|-------|-------------------|---------------------|
-| builder | `DELIVERED:`, `BLOCKED:` | TaskGet → metadata.helix_outcome |
-| explorer | `"status":` | Last JSON block in output_file |
-| planner | `PLAN_COMPLETE:`, `ERROR:` | PLAN_SPEC JSON in returned result |
-
-### Wait Utility
+| Agent | Done Marker | Result Location |
+|-------|-------------|-----------------|
+| builder | `DELIVERED:`/`BLOCKED:` | TaskGet → metadata.helix_outcome |
+| explorer | `"status":` | wait.py last-json |
+| planner | `PLAN_COMPLETE:`/`ERROR:` | PLAN_SPEC in returned result |
 
 ```bash
-# Instant check (no waiting)
-python3 "$HELIX/lib/wait.py" check --output-file "$FILE" --agent-type builder
-
-# Wait with timeout
 python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder --timeout 300
-
-# Extract structured content from completed output
-python3 "$HELIX/lib/wait.py" extract --output-file "$FILE" --agent-type explorer
-
-# Get last JSON block (explorer findings)
-python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
+python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"  # explorer findings
 ```
 
-### Why Not TaskOutput?
-
-`TaskOutput` with `block=true` loads the full JSONL transcript—every tool call, every intermediate turn, potentially 70KB+ of execution trace. You pay this context cost just to check "is it done?"
-
-The wait primitive costs ~0 context: grep scans the file without loading it into your conversation.
-
-**Rule: Never use TaskOutput.** Exception: Debugging failed agents when full trace needed.
+**NEVER TaskOutput** (70KB+ context). Full patterns: `reference/agent-lifecycle.md`
 
 ---
 
@@ -331,6 +279,15 @@ The wait primitive costs ~0 context: grep scans the file without loading it into
 | completed | skipped | Bypassed via stall recovery |
 | pending | — | Not started |
 | in_progress | — | Builder executing |
+
+---
+
+## State Files
+
+| Directory | Purpose |
+|-----------|---------|
+| `.helix/injection-state/` | Tracks what memories were injected, for feedback attribution |
+| `.helix/learning-queue/` | Extracted candidates pending orchestrator review |
 
 ---
 
@@ -355,7 +312,7 @@ python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --intent w
 # Store a pattern (returns conflicts if contradictions found)
 python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "..." --resolution "..."
 
-# Credit memories
+# Credit memories (usually automatic via hooks)
 python3 "$HELIX/lib/memory/core.py" feedback --names '[...]' --delta 0.5
 
 # Check system health
@@ -371,12 +328,23 @@ Full CLI: `reference/cli-reference.md`
 
 ---
 
+## Hook Architecture
+
+Hooks handle mechanical context-building invisibly:
+
+| Hook | Trigger | Action |
+|------|---------|--------|
+| PreToolUse(Task) | helix agent spawn | Inject memory context into prompt |
+| SubagentStop | helix agent completion | Extract learning candidates to queue |
+| PostToolUse(TaskUpdate) | Task outcome reported | Auto-credit/debit injected memories |
+
+**Disable injection:** Add `NO_INJECT: true` to prompt.
+**Override feedback:** Call `feedback` directly with custom delta.
+
+---
+
 ## The Deal
 
-Every session is a transaction. You receive what past sessions learned. You pay back what this session discovers.
+You receive accumulated knowledge. You pay back discoveries.
 
-The memories that help get stronger. The memories that mislead get weaker. The graph grows connections. The system learns.
-
-But only if you close the loop.
-
-Your future self is counting on you.
+Memories that help get stronger. Memories that mislead get weaker. **Close the loop or your next session suffers.**

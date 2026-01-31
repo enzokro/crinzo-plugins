@@ -9,8 +9,14 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    SKILL.md (Orchestrator)                  │
-│  State: implicit in conversation flow                       │
-│  Source of truth: TaskList metadata (helix_outcome)         │
+│  Judgment: what to explore, what to store, when to override │
+└─────────────────────────────────────────────────────────────┘
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Hook Layer (Invisible)                    │
+│  PreToolUse: inject memory    SubagentStop: extract learning │
+│  PostToolUse: auto-feedback                                  │
 └─────────────────────────────────────────────────────────────┘
         │                      │                      │
         ▼                      ▼                      ▼
@@ -25,10 +31,9 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Utilities                          │
 │  lib/memory/core.py  - 9 core + 4 maintenance primitives    │
-│  lib/observer.py     - Learning extraction from agents      │
+│  lib/hooks/          - Memory injection & learning extraction│
 │  lib/context.py      - Agent-specific context building      │
-│  lib/tasks.py        - Task state derivation                │
-│  lib/dag_utils.py    - Cycle detection, stall detection     │
+│  lib/prompt_parser.py - Structured field extraction         │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -38,11 +43,7 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Key principle**: Learning extraction is orchestrator judgment, not a separate agent. The orchestrator decides:
-- What delta to pass to `feedback()`
-- When to create edges and what type
-- When to store systemic patterns (3+ occurrences)
-- What to learn vs. skip
+**Key principle**: Hooks separate judgment from mechanics. Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator retains judgment: what to store, when to override feedback, what candidates to keep
 
 ## Agents
 
@@ -50,9 +51,9 @@ Three agents with distinct roles:
 
 | Agent | Model | Purpose | Tools | Context Injection |
 |-------|-------|---------|-------|-------------------|
-| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | known_facts, relevant_failures |
-| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash, TaskCreate, TaskUpdate | decisions, conventions, evolution |
-| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate | failures, patterns, conventions, facts |
+| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | Auto: facts, failures |
+| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash | Auto: decisions, conventions, evolution |
+| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate | Auto: all types + lineage |
 
 ### Explorer (`agents/explorer.md`)
 
@@ -148,6 +149,71 @@ Task update before text output:
 TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", "summary": "..."})
 ```
 
+## Hook System
+
+Helix uses Claude Code hooks for invisible memory operations.
+
+### PreToolUse(Task) Hook
+
+**Files:** `scripts/hooks/pretool-task.sh` → `lib/hooks/inject_memory.py`
+
+Intercepts Task tool calls for helix agents. Parses prompt fields, queries memory graph, enriches prompt with relevant context.
+
+| Agent | Context Block | Memory Types |
+|-------|---------------|--------------|
+| Explorer | `# MEMORY CONTEXT` | facts, failures |
+| Planner | `# PROJECT CONTEXT` | decisions, conventions, evolution |
+| Builder | Structured fields | all types via semantic + file search |
+
+**Control:** Add `NO_INJECT: true` to prompt to skip injection.
+
+### SubagentStop Hook
+
+**Files:** `scripts/hooks/subagent-stop.sh` → `lib/hooks/extract_learning.py`
+
+Parses agent transcripts for learning markers. Writes candidates to `.helix/learning-queue/`.
+
+| Agent | Marker | Memory Types |
+|-------|--------|--------------|
+| Builder | `learned` metadata field | pattern, failure, convention |
+| Explorer | FINDINGS section | fact |
+| Planner | LEARNED block | decision |
+
+### PostToolUse(TaskUpdate) Hook
+
+**File:** `scripts/hooks/posttool-taskupdate.sh`
+
+Detects `helix_outcome` in TaskUpdate metadata. Auto-credits/debits injected memories:
+- **delivered**: +0.5 to `helped`
+- **blocked**: -0.3 to `failed`
+
+Correlates with injection state via task_id, then cleans up state file.
+
+### State Files
+
+| Directory | Purpose | Lifecycle |
+|-----------|---------|-----------|
+| `.helix/injection-state/` | Tracks injected memories | Created on inject, deleted after feedback |
+| `.helix/learning-queue/` | Learning candidates | Created on agent stop, deleted after review |
+
+## Prompt Parser (`lib/prompt_parser.py`)
+
+Parses structured fields from Task prompts for hook injection.
+
+**Recognized Fields:**
+- Explorer: `SCOPE`, `FOCUS`, `OBJECTIVE`
+- Planner: `OBJECTIVE`, `EXPLORATION`
+- Builder: `TASK_ID`, `TASK`, `OBJECTIVE`, `VERIFY`, `RELEVANT_FILES`, `LINEAGE`, `WARNING`, `MEMORY_LIMIT`
+- Control: `NO_INJECT` (skip injection if "true")
+
+**Functions:**
+```python
+parse_prompt(prompt)           # → dict with parsed fields
+detect_agent_type(prompt)      # → "explorer" | "planner" | "builder"
+should_inject(prompt)          # → False if NO_INJECT: true
+extract_*_params(prompt)       # → agent-specific parameters
+```
+
 ## Memory System
 
 ### Types
@@ -217,6 +283,19 @@ effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
 recency = 2^(-days_since_use / half_life)   # type-specific half-life
 ```
 
+### Intent-Aware Query Routing
+
+The `recall` command supports `--intent` for type boosting:
+
+| Intent | Priority Types | Use Case |
+|--------|---------------|----------|
+| `why` | failure, systemic | Debugging, root cause |
+| `how` | pattern, convention | Implementation guidance |
+| `what` | fact, decision | Understanding structure |
+| `debug` | failure, pattern | Error resolution |
+
+Builder context uses `intent="how"` to boost patterns and conventions.
+
 ### Graph System
 
 Edge types:
@@ -253,33 +332,39 @@ Candidates include `_confidence` field: high, medium, low
 
 ## Context Building (`lib/context.py`)
 
-Agent-specific context injection:
+Context is automatically injected via PreToolUse hook. The orchestrator does not call context.py directly.
 
 ### Explorer Context
 ```python
-build_explorer_context(objective, scope, limit)
-# Returns: {"known_facts": [...], "relevant_failures": [...]}
+build_explorer_context(objective, scope, limit=5)
+# Returns: {"known_facts": [...], "relevant_failures": [...], "injected": [...]}
 ```
 
 ### Planner Context
 ```python
-build_planner_context(objective, limit)
-# Returns: {"decisions": [...], "conventions": [...], "recent_evolution": [...]}
+build_planner_context(objective, limit=5)
+# Returns: {"decisions": [...], "conventions": [...], "recent_evolution": [...], "injected": [...]}
 ```
 
 ### Builder Context
 ```python
-build_context(task_data, lineage, memory_limit, warning)
+build_context(task_data, lineage=None, memory_limit=5, warning=None)
 # Returns: {"prompt": "...", "injected": ["memory-name-1", ...]}
 ```
 
 Builder context includes:
-- `FAILURES_TO_AVOID`: Failure memories with confidence
-- `PATTERNS_TO_APPLY`: Pattern memories with confidence
-- `CONVENTIONS_TO_FOLLOW`: Convention memories with confidence
-- `RELATED_FACTS`: Fact memories about relevant files
-- `INJECTED_MEMORIES`: List of all memory names (for feedback tracking)
-- `PARENT_DELIVERIES`: Lineage from completed blockers
+- `FAILURES_TO_AVOID`: Error patterns with `[effectiveness%]` scores
+- `PATTERNS_TO_APPLY`: Proven techniques
+- `CONVENTIONS_TO_FOLLOW`: Project standards
+- `RELATED_FACTS`: Context about relevant files
+- `INJECTED_MEMORIES`: List of memory names for feedback tracking
+
+### Manual Override
+
+Add `NO_INJECT: true` to prompt to skip automatic injection and call context.py directly:
+```bash
+python3 "$HELIX/lib/context.py" build-context --task-data '...' --lineage '...'
+```
 
 ### Lineage Protocol
 
@@ -336,6 +421,23 @@ get_ready_tasks(tasks)          # → IDs ready for execution
 check_stalled(tasks)            # → (is_stalled, stall_info)
 clear_checkpoints()             # → Clear all checkpoints
 ```
+
+## Automatic Feedback Attribution
+
+Hooks create a closed learning loop:
+
+1. **PreToolUse(Task)**: Inject memories, store injection state
+2. **Agent executes**: Uses enriched context
+3. **Builder reports**: TaskUpdate with `helix_outcome`
+4. **PostToolUse(TaskUpdate)**: Auto-credit/debit based on outcome
+
+**Feedback deltas:**
+| Outcome | Delta | Effect |
+|---------|-------|--------|
+| delivered | +0.5 | Increases `helped` |
+| blocked | -0.3 | Increases `failed` |
+
+**Override:** Call `feedback` directly with custom delta to override automatic attribution.
 
 ## Database Schema
 
@@ -514,13 +616,19 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 ```
 helix/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin manifest (v1.0.8)
+│   └── plugin.json           # Plugin manifest (v1.0.11)
+├── .claude/
+│   └── settings.json         # Hook configuration
 ├── agents/
 │   ├── explorer.md           # Parallel reconnaissance (haiku)
 │   ├── planner.md            # Task decomposition (opus)
 │   └── builder.md            # Task execution (opus)
 ├── lib/
 │   ├── __init__.py           # Version: 2.0.0
+│   ├── hooks/                # Hook implementations
+│   │   ├── __init__.py
+│   │   ├── inject_memory.py  # Memory injection
+│   │   └── extract_learning.py # Learning extraction
 │   ├── memory/
 │   │   ├── __init__.py       # Clean exports
 │   │   ├── core.py           # 9 core + 4 maintenance primitives
@@ -529,11 +637,17 @@ helix/
 │   │   ├── __init__.py
 │   │   ├── connection.py     # SQLite singleton, WAL, write_lock
 │   │   └── schema.py         # Memory, MemoryEdge dataclasses
-│   ├── observer.py           # Learning extraction from agents
 │   ├── context.py            # Agent-specific context building
+│   ├── prompt_parser.py      # Prompt field parsing
+│   ├── observer.py           # Learning extraction from agents
 │   ├── tasks.py              # Task state derivation
-│   └── dag_utils.py          # Cycle detection, stall detection
+│   ├── dag_utils.py          # Cycle detection, stall detection
+│   └── wait.py
 ├── scripts/
+│   ├── hooks/                # Hook shell scripts
+│   │   ├── pretool-task.sh
+│   │   ├── subagent-stop.sh
+│   │   └── posttool-taskupdate.sh
 │   ├── setup-env.sh          # SessionStart hook
 │   └── init.sh               # Database initialization
 ├── skills/
@@ -556,10 +670,15 @@ helix/
 │   ├── test_tasks.py
 │   ├── test_dag_utils.py
 │   ├── test_observer.py
+│   ├── test_inject_memory.py
+│   ├── test_extract_learning.py
+│   ├── test_prompt_parser.py
 │   └── test_integration.py
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database
-    └── plugin_root           # Plugin path for sub-agents
+    ├── plugin_root           # Plugin path for sub-agents
+    ├── injection-state/      # Injection tracking
+    └── learning-queue/       # Learning candidates
 ```
 
 ## What Helix Is Not
