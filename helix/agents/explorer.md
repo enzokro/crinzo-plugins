@@ -49,50 +49,31 @@ Memory: `python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --exp
 </constraints>
 
 <output>
-REQUIRED: Structured output the orchestrator can parse.
-Target format is JSON, but structured prose with matching, equivalent sections is acceptable.
+**YOUR OUTPUT MUST BE VALID JSON.** No prose. No markdown. Just the JSON object below.
 
-Success:
 ```json
 {
   "scope": "{your scope}",
   "focus": "{your focus}",
   "status": "success",
   "findings": [
-    {
-      "file": "path/to/file.py",
-      "what": "description of content/purpose",
-      "action": "modify|create|reference|test",
-      "task_hint": "logical-subtask-slug"
-    }
+    {"file": "path/to/file.py", "what": "what it does", "action": "modify", "task_hint": "subtask-slug"}
   ]
 }
 ```
 
-**Finding fields:**
-- `file`: Absolute or repo-relative path
-- `what`: What this file contains or does
-- `action`: What needs to happen
-  - `modify` - Change existing code
-  - `create` - New file needed here
-  - `reference` - Read for context only
-  - `test` - Add/update tests
-- `task_hint`: Short slug for the logical subtask this file relates to (e.g., "auth-middleware", "db-schema", "api-routes"). Planner uses this to group files into tasks.
+**Required fields:**
+- `status`: "success" or "error"
+- `findings`: Array of objects, each with:
+  - `file`: Path to file
+  - `what`: One-line description
+  - `action`: One of: modify, create, reference, test
+  - `task_hint`: Short slug for grouping (e.g., "auth-middleware")
 
-Error (when exploration fails):
+**If exploration fails:**
 ```json
-{
-  "scope": "{your scope}",
-  "focus": "{your focus}",
-  "status": "error",
-  "error": "Description of what went wrong",
-  "findings": []
-}
+{"scope": "...", "focus": "...", "status": "error", "error": "what went wrong", "findings": []}
 ```
 
-Optional fields if found:
-- "patterns_observed": ["..."]
-- "dependencies": ["..."]
-- "framework": {"detected": "...", "confidence": "HIGH|MEDIUM|LOW", "evidence": "..."}
-- "memories": [{"name": "...", "trigger": "...", "why": "..."}]
+**IMPORTANT:** Output ONLY the JSON object. No text before or after.
 </output>

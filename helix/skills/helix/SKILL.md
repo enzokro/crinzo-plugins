@@ -63,9 +63,16 @@ Run agents with the rules in [Agent Lifecycle & Wait Primitives](#Agent Lifecycl
 
 **Goal:** Understand the codebase landscape for this objective.
 
+**Greenfield fast path:** If `git ls-files | wc -l` returns 0 or only config files:
+1. Skip exploration swarm
+2. Proceed to PLAN with `EXPLORATION: {}`
+3. Planner designs from scratch
+
+**Standard path:**
+
 1. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
 
-2. **Spawn explorer swarm** (haiku, parallel, scoped):
+2. **Spawn explorer swarm** (haiku, parallel, background):
    ```xml
    <invoke name="Task">
      <parameter name="subagent_type">helix:helix-explorer</parameter>
@@ -79,13 +86,31 @@ OBJECTIVE: {objective}</parameter>
    </invoke>
    ```
 
-   Memory context is automatically injected via hook. Always include a `memory` scope for relevant failures/patterns.
+   Track expected count: `EXPLORER_COUNT=N`
+   Memory context is automatically injected via hook.
 
-3. **Merge findings:** Dedupe files, resolve conflicts. Each finding has `{file, what, action, task_hint}`.
+3. **Wait for results** (SubagentStop hook writes findings to files):
+   ```bash
+   # Wait for all explorers to complete (~500 bytes per file, not 70KB)
+   while [ $(ls .helix/explorer-results/*.json 2>/dev/null | wc -l) -lt $EXPLORER_COUNT ]; do
+     sleep 2
+   done
+   ```
 
-4. **Extract facts:** `python3 "$HELIX/lib/observer.py" explorer --output '{merged}' --store`
+4. **Merge findings:**
+   ```bash
+   # Combine all explorer findings into single array
+   cat .helix/explorer-results/*.json | jq -s '[.[].findings // []] | add | unique_by(.file)'
+   ```
 
-If `targets.files` empty → broaden scope or clarify objective.
+5. **Cleanup:**
+   ```bash
+   rm -rf .helix/explorer-results/
+   ```
+
+**NEVER use TaskOutput** — SubagentStop hook extracts findings to small JSON files.
+
+If merged findings empty → broaden scope or clarify objective.
 
 See `reference/exploration-mechanics.md` for partitioning strategies.
 
@@ -93,7 +118,7 @@ See `reference/exploration-mechanics.md` for partitioning strategies.
 
 **Goal:** Decompose objective into executable task DAG.
 
-1. **Spawn planner** (opus, foreground, returns PLAN_SPEC):
+1. **Spawn planner** (opus, **FOREGROUND**, returns PLAN_SPEC directly):
    ```xml
    <invoke name="Task">
      <parameter name="subagent_type">helix:helix-planner</parameter>
@@ -104,10 +129,14 @@ EXPLORATION: {findings_json}</parameter>
    </invoke>
    ```
 
+   **No `run_in_background`.** Task returns synchronously with planner output.
    Project context (decisions, conventions, evolution) is automatically injected via hook.
-   Planner runs in foreground and returns a `PLAN_SPEC:` JSON block describing the task DAG.
 
-2. **Create tasks from PLAN_SPEC:** Parse the JSON array from planner output. For each task spec:
+2. **Parse PLAN_SPEC from returned result:**
+   The Task tool returns the planner's output directly. Extract the JSON array after `PLAN_SPEC:`.
+   **No polling. No TaskOutput. No file I/O.** Result comes back in the tool response.
+
+3. **Create tasks from PLAN_SPEC:** For each task spec:
    ```xml
    <invoke name="TaskCreate">
      <parameter name="subject">{spec.seq}: {spec.slug}</parameter>
@@ -118,7 +147,7 @@ EXPLORATION: {findings_json}</parameter>
    ```
    Track: `seq_to_id[spec.seq] = task_id` from result.
 
-3. **Set dependencies:** After all tasks created, for each spec with blocked_by:
+4. **Set dependencies:** After all tasks created, for each spec with blocked_by:
    ```xml
    <invoke name="TaskUpdate">
      <parameter name="taskId">{seq_to_id[spec.seq]}</parameter>
@@ -126,7 +155,7 @@ EXPLORATION: {findings_json}</parameter>
    </invoke>
    ```
 
-4. **Extract decisions:** Call TaskList, then construct JSON array from results:
+5. **Extract decisions:** Call TaskList, then construct JSON array from results:
    ```bash
    python3 "$HELIX/lib/observer.py" planner --tasks '[{"id": "1", "subject": "..."}]' --store
    ```
@@ -140,19 +169,10 @@ See `reference/task-granularity.md` for sizing heuristics.
 
 **Goal:** Execute tasks, learn from each outcome.
 
-**The Build Loop:**
-```
-while pending tasks exist:
-    1. Get ready tasks (blockers all delivered)
-    2. If none ready but pending exist → STALLED (see reference/stalled-recovery.md)
-    3. Checkpoint: git stash push -m "helix-{seq}" (your rollback)
-    4. Spawn ready builders in parallel (opus, run_in_background=true)
-    5. Poll TaskList until status="completed"
-    6. Read outcome from task metadata via TaskGet (NEVER TaskOutput—wastes context)
-    7. Review learning queue (see LEARN)
-```
+#### Single Task (Foreground)
 
-**For each ready task, spawn builder:**
+For sequential execution or single tasks:
+
 ```xml
 <invoke name="Task">
   <parameter name="subagent_type">helix:helix-builder</parameter>
@@ -161,10 +181,79 @@ TASK: {task.subject}
 OBJECTIVE: {task.description}
 VERIFY: {task.metadata.verify}
 RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
-  <parameter name="max_turns">15</parameter>
+  <parameter name="max_turns">25</parameter>
+  <parameter name="description">Build task {id}</parameter>
+</invoke>
+```
+
+**Processing foreground result:**
+1. Task tool returns synchronously with builder output
+2. Parse returned result for `DELIVERED:` or `BLOCKED:` line
+3. Extract summary text after the marker
+4. Call TaskUpdate:
+   ```xml
+   <invoke name="TaskUpdate">
+     <parameter name="taskId">{task.id}</parameter>
+     <parameter name="status">completed</parameter>
+     <parameter name="metadata">{"helix_outcome": "delivered", "summary": "<extracted summary>"}</parameter>
+   </invoke>
+   ```
+
+#### Parallel Tasks (Background)
+
+For concurrent execution of independent tasks:
+
+```xml
+<invoke name="Task">
+  <parameter name="subagent_type">helix:helix-builder</parameter>
+  <parameter name="prompt">TASK_ID: {task.id}
+TASK: {task.subject}
+OBJECTIVE: {task.description}
+VERIFY: {task.metadata.verify}
+RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
+  <parameter name="max_turns">25</parameter>
   <parameter name="run_in_background">true</parameter>
   <parameter name="description">Build task {id}</parameter>
 </invoke>
+```
+
+**Processing background results:**
+1. Spawn N builders with `run_in_background=true`
+2. Track spawned task_ids
+3. Poll `.helix/task-status.jsonl` until all task_ids appear:
+   ```bash
+   # Check completion (SubagentStop hook writes entries when builders finish)
+   cat .helix/task-status.jsonl 2>/dev/null | grep -c '"task_id"' || echo 0
+   ```
+4. Read status file entries for your task_ids:
+   ```bash
+   cat .helix/task-status.jsonl
+   ```
+5. For each matching entry, call TaskUpdate:
+   ```xml
+   <invoke name="TaskUpdate">
+     <parameter name="taskId">{entry.task_id}</parameter>
+     <parameter name="status">completed</parameter>
+     <parameter name="metadata">{"helix_outcome": "{entry.outcome}", "summary": "{entry.summary}"}</parameter>
+   </invoke>
+   ```
+6. Clear status file after processing:
+   ```bash
+   rm .helix/task-status.jsonl 2>/dev/null || true
+   ```
+
+**NEVER use TaskOutput** — dumps 70KB+ execution traces.
+
+#### Build Loop
+
+```
+while pending tasks exist:
+    1. Get ready tasks (blockers all delivered)
+    2. If none ready but pending exist → STALLED (see reference/stalled-recovery.md)
+    3. Checkpoint: git stash push -m "helix-{seq}" (your rollback)
+    4. Spawn ready builders (foreground for single, background for parallel)
+    5. Process results as above
+    6. Review learning queue (see LEARN)
 ```
 
 Memory context is automatically injected via hook. To include lineage/warnings:
@@ -224,7 +313,7 @@ All tasks done. Learning loop closed. Before ending:
 
 ```bash
 # Session summary (construct tasks JSON from TaskList result)
-python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks '[{"id": "1", "subject": "...", "status": "completed"}]' --outcomes '{"delivered": [...], "blocked": [...]}' --store
+python3 "$HELIX/lib/observer.py" session --objective "$OBJECTIVE" --tasks '[{"id": "1", "subject": "...", "status": "completed"}]' --outcomes '{"1": "delivered", "2": "blocked"}' --store
 
 # Verify health
 python3 "$HELIX/lib/memory/core.py" health
@@ -237,34 +326,42 @@ If `with_feedback: 0` and memories were injected, then you didn't close the loop
 
 ## Agent Contracts
 
-| Agent | Model | Purpose | Handoff |
-|-------|-------|---------|---------|
-| helix-explorer | haiku | Parallel codebase scanning | JSON findings in returned result |
-| helix-planner | opus | DAG specification | PLAN_SPEC JSON (orchestrator creates tasks) |
-| helix-builder | opus | Task execution | Task metadata via TaskGet |
+| Agent | Model | Mode | Handoff |
+|-------|-------|------|---------|
+| helix-explorer | haiku | Background | `.helix/explorer-results/{id}.json` via SubagentStop hook |
+| helix-planner | opus | **Foreground** | Task returns PLAN_SPEC directly |
+| helix-builder | opus | Foreground/Background | Foreground: parse returned result. Background: `.helix/task-status.jsonl` |
 
-Memory context is injected automatically via PreToolUse hook. Learning candidates are extracted automatically via SubagentStop hook.
+Memory context is injected automatically via PreToolUse hook. Results are extracted automatically via SubagentStop hook.
 
 Contracts in `agents/*.md`.
 
 ---
 
-## Agent Lifecycle & Wait Primitives
+## Agent Lifecycle & Result Flow
 
-Pattern: SPAWN (background) → WATCH (grep markers) → RETRIEVE (TaskGet)
+| Agent | Mode | Result Flow |
+|-------|------|-------------|
+| explorer | Background (parallel) | SubagentStop → `.helix/explorer-results/{id}.json` → orchestrator reads |
+| planner | **Foreground** | Task returns directly → orchestrator parses PLAN_SPEC |
+| builder (single) | Foreground | Task returns directly → orchestrator parses DELIVERED/BLOCKED |
+| builder (parallel) | Background | SubagentStop → `.helix/task-status.jsonl` → orchestrator reads |
 
-| Agent | Done Marker | Result Location |
-|-------|-------------|-----------------|
-| builder | `DELIVERED:`/`BLOCKED:` | TaskGet → metadata.helix_outcome |
-| explorer | `"status":` | wait.py last-json |
-| planner | `PLAN_COMPLETE:`/`ERROR:` | PLAN_SPEC in returned result |
+**Foreground agents:** Task tool returns result synchronously. Parse output directly.
+
+**Background agents:** SubagentStop hook extracts results to small files. Orchestrator reads files.
 
 ```bash
-python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder --timeout 300
-python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"  # explorer findings
+# Wait for explorer results (~500 bytes each)
+while [ $(ls .helix/explorer-results/*.json 2>/dev/null | wc -l) -lt $N ]; do sleep 2; done
+cat .helix/explorer-results/*.json | jq -s '...'
+
+# Wait for builder results (~100 bytes each)
+while [ $(grep -c '"task_id"' .helix/task-status.jsonl 2>/dev/null) -lt $N ]; do sleep 2; done
+cat .helix/task-status.jsonl
 ```
 
-**NEVER TaskOutput** (70KB+ context). Full patterns: `reference/agent-lifecycle.md`
+**NEVER use TaskOutput** — dumps 70KB+ execution traces into context.
 
 ---
 
@@ -284,10 +381,12 @@ python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"  # explorer finding
 
 ## State Files
 
-| Directory | Purpose |
-|-----------|---------|
+| Path | Purpose |
+|------|---------|
 | `.helix/injection-state/` | Tracks what memories were injected, for feedback attribution |
 | `.helix/learning-queue/` | Extracted candidates pending orchestrator review |
+| `.helix/explorer-results/` | Explorer findings written by SubagentStop hook (~500 bytes each) |
+| `.helix/task-status.jsonl` | Builder outcomes written by SubagentStop hook (~100 bytes each) |
 
 ---
 
@@ -330,13 +429,17 @@ Full CLI: `reference/cli-reference.md`
 
 ## Hook Architecture
 
-Hooks handle mechanical context-building invisibly:
+Hooks handle mechanical context-building and result extraction invisibly:
 
 | Hook | Trigger | Action |
 |------|---------|--------|
 | PreToolUse(Task) | helix agent spawn | Inject memory context into prompt |
-| SubagentStop | helix agent completion | Extract learning candidates to queue |
+| SubagentStop | helix agent completion | Extract learning candidates; write explorer/builder results to files |
 | PostToolUse(TaskUpdate) | Task outcome reported | Auto-credit/debit injected memories |
+
+**SubagentStop writes:**
+- Explorer: `.helix/explorer-results/{agent_id}.json` (~500 bytes)
+- Builder: `.helix/task-status.jsonl` (~100 bytes per entry)
 
 **Disable injection:** Add `NO_INJECT: true` to prompt.
 **Override feedback:** Call `feedback` directly with custom delta.

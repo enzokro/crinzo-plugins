@@ -29,11 +29,16 @@ fi
 
 # Persist environment for Claude's bash commands
 # PYTHONPATH enables sub-agents to import lib modules from any working directory
+# HELIX_DB_PATH ensures subprocesses from different CWDs hit the same database
+PROJECT_ROOT="$(pwd)"
+HELIX_DB_PATH="$PROJECT_ROOT/.helix/helix.db"
+export HELIX_DB_PATH
+
 if [ -n "$CLAUDE_ENV_FILE" ]; then
     echo "export PATH='$VENV_PATH/bin:$PATH'" >> "$CLAUDE_ENV_FILE"
     echo "export PYTHONPATH='$HELIX_ROOT:$PYTHONPATH'" >> "$CLAUDE_ENV_FILE"
     echo "export HELIX_ROOT='$HELIX_ROOT'" >> "$CLAUDE_ENV_FILE"
-    echo "export HELIX_PLUGIN_ROOT='$HELIX_ROOT'" >> "$CLAUDE_ENV_FILE"
+    echo "export HELIX_DB_PATH='$HELIX_DB_PATH'" >> "$CLAUDE_ENV_FILE"
 fi
 
 # Quick health check

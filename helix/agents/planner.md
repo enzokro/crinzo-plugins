@@ -96,7 +96,7 @@ LEARNED: [
 ]
 ```
 
-The `LEARNED:` block is optional. Include it when you make non-obvious architectural decisions that future planners should know about.
+The `LEARNED:` block is REQUIRED. Include architectural decisions, dependency rationale, and patterns discovered during planning.
 
 Error format:
 ```

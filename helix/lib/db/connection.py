@@ -17,8 +17,24 @@ _db = None
 _db_lock = threading.Lock()
 _write_lock = threading.RLock()
 
+
+def _get_default_db_path() -> str:
+    """Resolve to absolute path, finding .helix in ancestors."""
+    env_path = os.environ.get("HELIX_DB_PATH")
+    if env_path:
+        return os.path.abspath(env_path)
+
+    cwd = Path.cwd()
+    for parent in [cwd] + list(cwd.parents):
+        helix_dir = parent / ".helix"
+        if helix_dir.exists() and helix_dir.is_dir():
+            return str(helix_dir / "helix.db")
+
+    return str(cwd / ".helix" / "helix.db")
+
+
 # Default database path
-DB_PATH = os.environ.get("HELIX_DB_PATH", ".helix/helix.db")
+DB_PATH = _get_default_db_path()
 
 
 def _resolve_db_path() -> Path:

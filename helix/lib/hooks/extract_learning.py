@@ -27,7 +27,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def get_helix_dir() -> Path:
@@ -42,6 +42,189 @@ def get_learning_queue_dir() -> Path:
     queue_dir = get_helix_dir() / "learning-queue"
     queue_dir.mkdir(exist_ok=True)
     return queue_dir
+
+
+def extract_task_id(transcript: str) -> Optional[str]:
+    """Extract TASK_ID from first user message in transcript.
+
+    Transcript is JSONL. First line with user role contains TASK_ID: xxx
+
+    Args:
+        transcript: Full agent transcript (JSONL format)
+
+    Returns:
+        Task ID string or None
+    """
+    for line in transcript.split('\n'):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            # Check for user message
+            role = entry.get('message', {}).get('role', entry.get('role', ''))
+            if role == 'user':
+                content = entry.get('message', {}).get('content', '')
+                if isinstance(content, list):
+                    content = ' '.join(
+                        c.get('text', '') for c in content
+                        if isinstance(c, dict) and c.get('type') == 'text'
+                    )
+                if isinstance(content, str):
+                    match = re.search(r'TASK_ID:\s*(\S+)', content)
+                    if match:
+                        return match.group(1)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def extract_delivered_summary(transcript: str) -> Tuple[str, Optional[str]]:
+    """Extract outcome and summary from assistant output.
+
+    Parses from last assistant message for DELIVERED:/BLOCKED: markers.
+
+    Args:
+        transcript: Full agent transcript (JSONL format)
+
+    Returns:
+        (outcome, summary) tuple. outcome is "delivered", "blocked", or "unknown"
+    """
+    # Parse in reverse to find last assistant message
+    lines = transcript.split('\n')
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            role = entry.get('message', {}).get('role', entry.get('role', ''))
+            if role != 'assistant':
+                continue
+
+            content = entry.get('message', {}).get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    c.get('text', '') for c in content
+                    if isinstance(c, dict) and c.get('type') == 'text'
+                )
+
+            # Check for DELIVERED
+            match = re.search(r'DELIVERED:\s*(.+?)(?:\n|$)', str(content))
+            if match:
+                return ("delivered", match.group(1).strip())
+
+            # Check for BLOCKED
+            match = re.search(r'BLOCKED:\s*(.+?)(?:\n|$)', str(content))
+            if match:
+                return ("blocked", match.group(1).strip())
+        except json.JSONDecodeError:
+            continue
+
+    return ("unknown", None)
+
+
+def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Optional[str]):
+    """Write task status entry for orchestrator polling.
+
+    Appends to .helix/task-status.jsonl (append-only, ~100 bytes per entry).
+
+    Args:
+        task_id: Task ID from prompt
+        agent_id: Agent ID from hook input
+        outcome: "delivered", "blocked", or "unknown"
+        summary: Summary text from DELIVERED/BLOCKED line
+    """
+    status_file = get_helix_dir() / "task-status.jsonl"
+    entry = {
+        "task_id": task_id,
+        "agent_id": agent_id,
+        "outcome": outcome,
+        "summary": summary or "",
+        "ts": datetime.now(timezone.utc).isoformat()
+    }
+    with open(status_file, 'a') as f:
+        f.write(json.dumps(entry) + '\n')
+
+
+def extract_explorer_findings(transcript: str) -> Optional[dict]:
+    """Extract JSON findings block from explorer transcript.
+
+    Looks for structured JSON output with status/findings in assistant messages.
+    Returns the findings dict for orchestrator consumption.
+
+    Args:
+        transcript: Full agent transcript (JSONL format)
+
+    Returns:
+        Parsed findings dict or None
+    """
+    # Parse in reverse to find last assistant message with JSON
+    for line in reversed(transcript.split('\n')):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            role = entry.get('message', {}).get('role', '')
+            if role != 'assistant':
+                continue
+
+            content = entry.get('message', {}).get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    c.get('text', '') for c in content
+                    if isinstance(c, dict) and c.get('type') == 'text'
+                )
+
+            # Look for JSON with findings
+            if '"findings"' not in str(content) and '"status"' not in str(content):
+                continue
+
+            # Find JSON block boundaries
+            text = str(content)
+            start = text.find('{')
+            if start < 0:
+                continue
+
+            # Find matching closing brace
+            depth = 0
+            end = -1
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+
+            if end > start:
+                try:
+                    parsed = json.loads(text[start:end])
+                    if 'findings' in parsed or 'status' in parsed:
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
+def write_explorer_results(agent_id: str, findings: dict):
+    """Write explorer findings to results directory.
+
+    Orchestrator reads these small files instead of using TaskOutput.
+    Each file is ~500 bytes vs 70KB+ from TaskOutput.
+
+    Args:
+        agent_id: Agent ID from hook input
+        findings: Parsed findings dict from explorer
+    """
+    results_dir = get_helix_dir() / "explorer-results"
+    results_dir.mkdir(exist_ok=True)
+
+    result_file = results_dir / f"{agent_id}.json"
+    result_file.write_text(json.dumps(findings, indent=2))
 
 
 def get_injection_state(tool_use_id: str) -> Optional[dict]:
@@ -67,8 +250,8 @@ def get_injection_state(tool_use_id: str) -> Optional[dict]:
 def extract_learned_field(transcript: str) -> Optional[dict]:
     """Extract `learned` JSON field from builder output.
 
-    Builders may output:
-        learned: {"trigger": "...", "resolution": "...", "type": "pattern"}
+    Builders output:
+        learned: {"type": "...", "trigger": "...", "resolution": "..."}
 
     Args:
         transcript: Full agent transcript
@@ -76,20 +259,37 @@ def extract_learned_field(transcript: str) -> Optional[dict]:
     Returns:
         Parsed learned dict or None
     """
-    # Look for learned: followed by JSON
+    # Find learned: followed by JSON object (handles nested braces)
     patterns = [
-        r'learned:\s*(\{[^}]+\})',
-        r'"learned":\s*(\{[^}]+\})',
-        r'`learned`:\s*(\{[^}]+\})',
+        r'learned:\s*(\{)',
+        r'"learned":\s*(\{)',
+        r'`learned`:\s*(\{)',
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, transcript, re.IGNORECASE | re.DOTALL)
+        match = re.search(pattern, transcript, re.IGNORECASE)
         if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                continue
+            # Find the start of the JSON object
+            start = match.start(1)
+            text = transcript[start:]
+
+            # Extract balanced JSON object
+            depth = 0
+            end = 0
+            for i, char in enumerate(text):
+                if char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+
+            if end > 0:
+                try:
+                    return json.loads(text[:end])
+                except json.JSONDecodeError:
+                    continue
 
     return None
 
@@ -113,23 +313,27 @@ def extract_outcome(transcript: str) -> str:
     return "unknown"
 
 
-def extract_findings_section(transcript: str) -> List[str]:
-    """Extract FINDINGS section from explorer transcript.
+def extract_findings_section(transcript: str) -> List[dict]:
+    """Extract findings from explorer transcript JSON output.
 
-    Explorers output:
-        ## FINDINGS
-        - Finding 1
-        - Finding 2
+    Explorers output JSON with findings array:
+        {"findings": [{"file": "...", "what": "...", ...}]}
+
+    Falls back to markdown bullets if JSON not found.
 
     Args:
         transcript: Full agent transcript
 
     Returns:
-        List of finding strings
+        List of finding dicts or strings
     """
-    findings = []
+    # Try JSON extraction first (preferred)
+    findings_dict = extract_explorer_findings(transcript)
+    if findings_dict and 'findings' in findings_dict:
+        return findings_dict['findings']
 
-    # Look for FINDINGS section
+    # Fallback: markdown bullets (legacy format)
+    findings = []
     match = re.search(
         r'(?:##\s*)?FINDINGS?\s*[\n:](.+?)(?=(?:##|$))',
         transcript,
@@ -138,34 +342,60 @@ def extract_findings_section(transcript: str) -> List[str]:
 
     if match:
         section = match.group(1)
-        # Extract bullet points
         for line in section.split('\n'):
             line = line.strip()
             if line.startswith(('-', '*', '•')):
-                findings.append(line.lstrip('-*• ').strip())
+                findings.append({"what": line.lstrip('-*• ').strip()})
 
     return findings
 
 
-def extract_learned_block(transcript: str) -> List[str]:
+def extract_learned_block(transcript: str) -> List[dict]:
     """Extract LEARNED block from planner transcript.
 
-    Planners may output:
-        ### LEARNED
-        - Decision: We chose X because Y
-        - Pattern: When doing Z, always W
+    Planners output JSON array after LEARNED:
+        LEARNED: [
+          {"type": "decision", "trigger": "chose X over Y", "resolution": "because Z"}
+        ]
+
+    Falls back to markdown bullets if JSON not found.
 
     Args:
         transcript: Full agent transcript
 
     Returns:
-        List of learned strings
+        List of learned dicts
     """
-    learned = []
+    # Try JSON array extraction (preferred format per contract)
+    match = re.search(r'LEARNED:\s*(\[)', transcript, re.IGNORECASE)
+    if match:
+        start = match.start(1)
+        text = transcript[start:]
 
-    # Look for LEARNED section
+        # Extract balanced JSON array
+        depth = 0
+        end = 0
+        for i, char in enumerate(text):
+            if char == '[':
+                depth += 1
+            elif char == ']':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+
+        if end > 0:
+            try:
+                parsed = json.loads(text[:end])
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+
+    # Fallback: markdown bullets (legacy format)
+    learned = []
     match = re.search(
-        r'(?:###?\s*)?LEARNED\s*[\n:](.+?)(?=(?:###?|$))',
+        r'(?:###?\s*)?LEARNED\s*[\n:](.+?)(?=(?:###?|PLAN_COMPLETE|$))',
         transcript,
         re.IGNORECASE | re.DOTALL
     )
@@ -175,9 +405,37 @@ def extract_learned_block(transcript: str) -> List[str]:
         for line in section.split('\n'):
             line = line.strip()
             if line.startswith(('-', '*', '•')):
-                learned.append(line.lstrip('-*• ').strip())
+                text = line.lstrip('-*• ').strip()
+                trigger, resolution = parse_trigger_resolution(text)
+                learned.append({
+                    "type": classify_learning(text),
+                    "trigger": trigger,
+                    "resolution": resolution
+                })
 
     return learned
+
+
+def is_valid_learning(trigger: str, resolution: str) -> bool:
+    """Validate learning candidate is not code noise.
+
+    Args:
+        trigger: Learning trigger text
+        resolution: Learning resolution text
+
+    Returns:
+        True if valid learning, False if code noise
+    """
+    if len(trigger) > 300 or len(resolution) > 500:
+        return False
+    code_tokens = [
+        'expect(', 'assert', 'def ', 'class ', '>>>',
+        'at ', 'File "', 'Traceback', '    at ',
+        '.toContain(', '.toBe(', 'describe(', 'it(',
+        'import ', 'from ', 'require(', '});', '=> {'
+    ]
+    combined = trigger + resolution
+    return not any(t in combined for t in code_tokens)
 
 
 def classify_learning(text: str) -> str:
@@ -258,32 +516,19 @@ def extract_builder_candidates(transcript: str) -> List[dict]:
     """
     candidates = []
 
-    # Try structured learned field
+    # Only use structured learned field - inline extraction produces too much noise
     learned = extract_learned_field(transcript)
     if learned:
-        candidates.append({
-            "type": learned.get("type", "pattern"),
-            "trigger": learned.get("trigger", ""),
-            "resolution": learned.get("resolution", ""),
-            "confidence": "high",
-            "source": "builder:structured",
-        })
-
-    # Also look for inline learnings
-    # Pattern: "Learned: X" or "Note: X"
-    for pattern in [r'Learned:\s*(.+?)(?:\n|$)', r'Note:\s*(.+?)(?:\n|$)']:
-        for match in re.finditer(pattern, transcript, re.IGNORECASE):
-            text = match.group(1).strip()
-            if len(text) > 10:  # Skip very short notes
-                mem_type = classify_learning(text)
-                trigger, resolution = parse_trigger_resolution(text)
-                candidates.append({
-                    "type": mem_type,
-                    "trigger": trigger,
-                    "resolution": resolution,
-                    "confidence": "medium",
-                    "source": "builder:inline",
-                })
+        trigger = learned.get("trigger", "")
+        resolution = learned.get("resolution", "")
+        if is_valid_learning(trigger, resolution):
+            candidates.append({
+                "type": learned.get("type", "pattern"),
+                "trigger": trigger,
+                "resolution": resolution,
+                "confidence": "high",
+                "source": "builder:structured",
+            })
 
     return candidates
 
@@ -301,10 +546,18 @@ def extract_explorer_candidates(transcript: str) -> List[dict]:
     findings = extract_findings_section(transcript)
 
     for finding in findings:
-        if len(finding) > 15:  # Skip trivial findings
+        # Handle dict format (JSON output) or string (legacy)
+        if isinstance(finding, dict):
+            what = finding.get('what', '')
+            file_path = finding.get('file', '')
+            trigger = f"{file_path}: {what}" if file_path else what
+        else:
+            trigger = str(finding)
+
+        if len(trigger) > 15:  # Skip trivial findings
             candidates.append({
                 "type": "fact",
-                "trigger": finding,
+                "trigger": trigger,
                 "resolution": "",  # Facts don't have resolutions
                 "confidence": "medium",
                 "source": "explorer:findings",
@@ -326,16 +579,24 @@ def extract_planner_candidates(transcript: str) -> List[dict]:
     learned = extract_learned_block(transcript)
 
     for item in learned:
-        mem_type = classify_learning(item)
-        trigger, resolution = parse_trigger_resolution(item)
+        # Handle dict format (JSON output) or legacy parsing
+        if isinstance(item, dict):
+            mem_type = item.get('type', 'decision')
+            trigger = item.get('trigger', '')
+            resolution = item.get('resolution', '')
+        else:
+            # Legacy string format
+            mem_type = classify_learning(str(item))
+            trigger, resolution = parse_trigger_resolution(str(item))
 
-        candidates.append({
-            "type": mem_type,
-            "trigger": trigger,
-            "resolution": resolution,
-            "confidence": "medium",
-            "source": "planner:learned",
-        })
+        if trigger:  # Skip empty entries
+            candidates.append({
+                "type": mem_type,
+                "trigger": trigger,
+                "resolution": resolution,
+                "confidence": "medium",
+                "source": "planner:learned",
+            })
 
     return candidates
 
@@ -445,6 +706,19 @@ def process_hook_input(hook_input: dict) -> dict:
 
     if entry["candidates"]:
         write_to_queue(entry)
+
+    # Write task status for orchestrator polling (if TASK_ID present in prompt)
+    task_id = extract_task_id(transcript)
+    if task_id:
+        outcome, summary = extract_delivered_summary(transcript)
+        write_task_status(task_id, agent_id, outcome, summary)
+
+    # Write explorer results for orchestrator (avoids TaskOutput context flood)
+    agent_short = agent_type.replace("helix:helix-", "")
+    if agent_short == "explorer":
+        findings = extract_explorer_findings(transcript)
+        if findings:
+            write_explorer_results(agent_id, findings)
 
     return {}
 

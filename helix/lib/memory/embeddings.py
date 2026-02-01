@@ -4,12 +4,35 @@ Uses sentence-transformers all-MiniLM-L6-v2 for 384-dim embeddings.
 Falls back gracefully when unavailable.
 """
 
+import os
 import struct
+import sys
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import Optional, Tuple
 
 _model = None
 _loaded = False
+
+
+@contextmanager
+def _suppress_output():
+    """Suppress stdout/stderr during model loading."""
+    stdout_fd = sys.stdout.fileno()
+    stderr_fd = sys.stderr.fileno()
+    saved_stdout = os.dup(stdout_fd)
+    saved_stderr = os.dup(stderr_fd)
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stdout_fd)
+        os.dup2(devnull, stderr_fd)
+        os.close(devnull)
+        yield
+    finally:
+        os.dup2(saved_stdout, stdout_fd)
+        os.dup2(saved_stderr, stderr_fd)
+        os.close(saved_stdout)
+        os.close(saved_stderr)
 
 
 def _load():
@@ -18,8 +41,9 @@ def _load():
     if _loaded:
         return _model
     try:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        with _suppress_output():
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer("all-MiniLM-L6-v2")
     except ImportError:
         _model = None
     _loaded = True
