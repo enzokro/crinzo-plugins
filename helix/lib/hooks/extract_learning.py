@@ -711,6 +711,26 @@ def write_to_queue(entry: dict) -> Path:
     return queue_file
 
 
+def log_extraction_result(agent_id: str, agent_type: str, entry: dict):
+    """Log extraction result for diagnostics.
+
+    Args:
+        agent_id: Agent identifier
+        agent_type: Agent type string
+        entry: Extraction result dict
+    """
+    log_file = get_helix_dir() / "extraction.log"
+    ts = datetime.now(timezone.utc).isoformat()
+    n_candidates = len(entry.get("candidates", []))
+    outcome = entry.get("outcome", "unknown")
+
+    status = "OK" if n_candidates > 0 else "EMPTY"
+    log_line = f"{ts} | {status} | {agent_type} | {agent_id} | candidates={n_candidates} | outcome={outcome}\n"
+
+    with open(log_file, 'a') as f:
+        f.write(log_line)
+
+
 def process_hook_input(hook_input: dict) -> dict:
     """Process SubagentStop hook input.
 
@@ -723,6 +743,8 @@ def process_hook_input(hook_input: dict) -> dict:
     Returns:
         Hook response dict (typically empty, just side effects)
     """
+    import time
+
     agent_type = hook_input.get("agent_type", "")
 
     # Only process helix agents
@@ -749,8 +771,24 @@ def process_hook_input(hook_input: dict) -> dict:
         tool_use_id=tool_use_id,
     )
 
+    # Race condition fix: if builder has outcome but no candidates, retry once
+    # (transcript file may not be fully flushed when hook fires)
+    agent_short = agent_type.replace("helix:helix-", "")
+    if agent_short == "builder" and not entry["candidates"] and entry["outcome"] == "delivered":
+        time.sleep(0.1)  # Brief delay for filesystem sync
+        transcript = Path(transcript_path).read_text()
+        entry = process_transcript(
+            agent_id=agent_id,
+            agent_type=agent_type,
+            transcript=transcript,
+            tool_use_id=tool_use_id,
+        )
+
     if entry["candidates"]:
         write_to_queue(entry)
+
+    # Diagnostic logging
+    log_extraction_result(agent_id, agent_type, entry)
 
     # Write task status for orchestrator polling (if TASK_ID present in prompt)
     task_id = extract_task_id(transcript)
