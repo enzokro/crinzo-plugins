@@ -254,42 +254,63 @@ def extract_learned_field(transcript: str) -> Optional[dict]:
         learned: {"type": "...", "trigger": "...", "resolution": "..."}
 
     Args:
-        transcript: Full agent transcript
+        transcript: Full agent transcript (JSONL format)
 
     Returns:
         Parsed learned dict or None
     """
-    # Find learned: followed by JSON object (handles nested braces)
-    patterns = [
-        r'learned:\s*(\{)',
-        r'"learned":\s*(\{)',
-        r'`learned`:\s*(\{)',
-    ]
+    # Parse JSONL to get unescaped assistant content first
+    # (raw transcript has escaped JSON: {\"type\": ...} which won't parse)
+    for line in reversed(transcript.split('\n')):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            role = entry.get('message', {}).get('role', entry.get('role', ''))
+            if role != 'assistant':
+                continue
 
-    for pattern in patterns:
-        match = re.search(pattern, transcript, re.IGNORECASE)
-        if match:
-            # Find the start of the JSON object
-            start = match.start(1)
-            text = transcript[start:]
+            content = entry.get('message', {}).get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    c.get('text', '') for c in content
+                    if isinstance(c, dict) and c.get('type') == 'text'
+                )
 
-            # Extract balanced JSON object
-            depth = 0
-            end = 0
-            for i, char in enumerate(text):
-                if char == '{':
-                    depth += 1
-                elif char == '}':
-                    depth -= 1
-                    if depth == 0:
-                        end = i + 1
-                        break
+            # Now search unescaped content for learned: pattern
+            content_str = str(content)
+            patterns = [
+                r'learned:\s*(\{)',
+                r'"learned":\s*(\{)',
+                r'`learned`:\s*(\{)',
+            ]
 
-            if end > 0:
-                try:
-                    return json.loads(text[:end])
-                except json.JSONDecodeError:
-                    continue
+            for pattern in patterns:
+                match = re.search(pattern, content_str, re.IGNORECASE)
+                if match:
+                    start = match.start(1)
+                    text = content_str[start:]
+
+                    # Extract balanced JSON object
+                    depth = 0
+                    end = 0
+                    for i, char in enumerate(text):
+                        if char == '{':
+                            depth += 1
+                        elif char == '}':
+                            depth -= 1
+                            if depth == 0:
+                                end = i + 1
+                                break
+
+                    if end > 0:
+                        try:
+                            return json.loads(text[:end])
+                        except json.JSONDecodeError:
+                            continue
+
+        except json.JSONDecodeError:
+            continue
 
     return None
 
@@ -361,59 +382,83 @@ def extract_learned_block(transcript: str) -> List[dict]:
     Falls back to markdown bullets if JSON not found.
 
     Args:
-        transcript: Full agent transcript
+        transcript: Full agent transcript (JSONL format)
 
     Returns:
         List of learned dicts
     """
-    # Try JSON array extraction (preferred format per contract)
-    match = re.search(r'LEARNED:\s*(\[)', transcript, re.IGNORECASE)
-    if match:
-        start = match.start(1)
-        text = transcript[start:]
+    # Parse JSONL to get unescaped assistant content
+    for line in reversed(transcript.split('\n')):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            role = entry.get('message', {}).get('role', entry.get('role', ''))
+            if role != 'assistant':
+                continue
 
-        # Extract balanced JSON array
-        depth = 0
-        end = 0
-        for i, char in enumerate(text):
-            if char == '[':
-                depth += 1
-            elif char == ']':
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
+            content = entry.get('message', {}).get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    c.get('text', '') for c in content
+                    if isinstance(c, dict) and c.get('type') == 'text'
+                )
 
-        if end > 0:
-            try:
-                parsed = json.loads(text[:end])
-                if isinstance(parsed, list):
-                    return parsed
-            except json.JSONDecodeError:
-                pass
+            content_str = str(content)
 
-    # Fallback: markdown bullets (legacy format)
-    learned = []
-    match = re.search(
-        r'(?:###?\s*)?LEARNED\s*[\n:](.+?)(?=(?:###?|PLAN_COMPLETE|$))',
-        transcript,
-        re.IGNORECASE | re.DOTALL
-    )
+            # Try JSON array extraction (preferred format per contract)
+            match = re.search(r'LEARNED:\s*(\[)', content_str, re.IGNORECASE)
+            if match:
+                start = match.start(1)
+                text = content_str[start:]
 
-    if match:
-        section = match.group(1)
-        for line in section.split('\n'):
-            line = line.strip()
-            if line.startswith(('-', '*', '•')):
-                text = line.lstrip('-*• ').strip()
-                trigger, resolution = parse_trigger_resolution(text)
-                learned.append({
-                    "type": classify_learning(text),
-                    "trigger": trigger,
-                    "resolution": resolution
-                })
+                # Extract balanced JSON array
+                depth = 0
+                end = 0
+                for i, char in enumerate(text):
+                    if char == '[':
+                        depth += 1
+                    elif char == ']':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
 
-    return learned
+                if end > 0:
+                    try:
+                        parsed = json.loads(text[:end])
+                        if isinstance(parsed, list):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+
+            # Fallback: markdown bullets (legacy format)
+            match = re.search(
+                r'(?:###?\s*)?LEARNED\s*[\n:](.+?)(?=(?:###?|PLAN_COMPLETE|$))',
+                content_str,
+                re.IGNORECASE | re.DOTALL
+            )
+
+            if match:
+                learned = []
+                section = match.group(1)
+                for ln in section.split('\n'):
+                    ln = ln.strip()
+                    if ln.startswith(('-', '*', '•')):
+                        text = ln.lstrip('-*• ').strip()
+                        trigger, resolution = parse_trigger_resolution(text)
+                        learned.append({
+                            "type": classify_learning(text),
+                            "trigger": trigger,
+                            "resolution": resolution
+                        })
+                if learned:
+                    return learned
+
+        except json.JSONDecodeError:
+            continue
+
+    return []
 
 
 def is_valid_learning(trigger: str, resolution: str) -> bool:
