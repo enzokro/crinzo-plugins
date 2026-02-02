@@ -50,30 +50,42 @@ Opus 4.5 doesn't need training wheels. It reasons well, follows instructions, an
        │
        ▼
 ┌──────────────────────────────────────┐
-│  OBSERVE + LEARN                     │
-│  Learning queue for review           │
-│  Update effectiveness scores         │
-│  Connect knowledge via graph edges   │
+│  LEARN (observer, haiku)             │
+│  Process learning queue              │
+│  Store/discard candidates            │
+│  Detect systemic patterns            │
+│  Create graph edges                  │
 └──────────────────────────────────────┘
 ```
 
-Three specialized agents, each receiving context tuned to their role. Explorers get known facts to skip redundant discovery. Planners get past decisions and conventions for consistency. Builders get failures to avoid, patterns to apply, and confidence scores to weight advice.
+Four specialized agents, each receiving context tuned to their role. Explorers get known facts to skip redundant discovery. Planners get past decisions and conventions for consistency. Builders get failures to avoid, patterns to apply, and confidence scores to weight advice. Observers process the learning queue—storing high-value candidates, discarding low-value ones, and flagging uncertain cases for review.
 
 ## Memory That Learns
 
 Seven memory types, each with purpose-specific scoring:
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| **failure** | What went wrong | "Circular import when adding auth middleware" |
-| **pattern** | What worked | "Use dependency injection for database connections" |
-| **systemic** | Recurring issues | "This codebase has import cycle problems" |
-| **fact** | Codebase structure | "Authentication lives in src/auth/" |
-| **convention** | Project patterns | "All API routes use async handlers" |
-| **decision** | Architectural choices | "Chose PostgreSQL over MongoDB" |
-| **evolution** | Recent changes | "Added user profile endpoints yesterday" |
+| Type | Purpose | Decay Half-Life | Example |
+|------|---------|-----------------|---------|
+| **failure** | What went wrong | 7 days | "Circular import when adding auth middleware" |
+| **pattern** | What worked | 7 days | "Use dependency injection for database connections" |
+| **systemic** | Recurring issues | 14 days | "This codebase has import cycle problems" |
+| **fact** | Codebase structure | 30 days | "Authentication lives in src/auth/" |
+| **convention** | Project patterns | 14 days | "All API routes use async handlers" |
+| **decision** | Architectural choices | 30 days | "Chose PostgreSQL over MongoDB" |
+| **evolution** | Recent changes | 7 days | "Added user profile endpoints yesterday" |
 
 Each type has different decay rates and scoring weights. Facts persist longer (30-day half-life) because codebase structure is stable. Evolution decays fast (7-day half-life) because recent changes matter most when recent.
+
+### Intent-Based Query Routing
+
+The `--intent` flag prioritizes memory types based on query purpose:
+
+| Intent | Priority Types | Use Case |
+|--------|----------------|----------|
+| `why` | failure, systemic | Debugging, root cause analysis |
+| `how` | pattern, convention | Implementation guidance |
+| `what` | fact, decision | Understanding structure |
+| `debug` | failure, pattern | Error resolution |
 
 ### Graph Relationships
 
@@ -95,9 +107,11 @@ Helix uses Claude Code hooks for invisible memory operations:
 
 | Hook | Trigger | Action |
 |------|---------|--------|
+| SessionStart (×2) | Session begins | Initialize database, set up environment |
 | PreToolUse(Task) | Agent spawn | Inject relevant memories into prompt |
 | SubagentStop | Agent completion | Extract learning candidates to queue |
 | PostToolUse(TaskUpdate) | Task outcome | Auto-credit/debit memories |
+| SessionEnd | Session ends | Process remaining queue, auto-store validated candidates |
 
 Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator focuses on judgment; hooks handle mechanics.
 

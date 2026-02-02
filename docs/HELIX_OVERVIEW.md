@@ -15,17 +15,18 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Hook Layer (Invisible)                    │
+│  SessionStart: init db, env   SessionEnd: process queue      │
 │  PreToolUse: inject memory    SubagentStop: extract learning │
 │  PostToolUse: auto-feedback                                  │
 └─────────────────────────────────────────────────────────────┘
         │                      │                      │
         ▼                      ▼                      ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│  Explorer     │    │   Planner     │    │   Builder     │
-│  (haiku)      │    │   (opus)      │    │   (opus)      │
-│  agents/      │    │   agents/     │    │   agents/     │
-│  explorer.md  │    │   planner.md  │    │   builder.md  │
-└───────────────┘    └───────────────┘    └───────────────┘
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│  Explorer  │  │  Planner   │  │  Builder   │  │  Observer  │
+│  (haiku)   │  │  (opus)    │  │  (opus)    │  │  (haiku)   │
+│  agents/   │  │  agents/   │  │  agents/   │  │  agents/   │
+│ explorer.md│  │ planner.md │  │ builder.md │  │ observer.md│
+└────────────┘  └────────────┘  └────────────┘  └────────────┘
         │                      │                      │
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -34,6 +35,7 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 │  lib/hooks/          - Memory injection & learning extraction│
 │  lib/context.py      - Agent-specific context building      │
 │  lib/prompt_parser.py - Structured field extraction         │
+│  lib/observer.py     - Learning extraction from agents      │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -47,13 +49,14 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 
 ## Agents
 
-Three agents with distinct roles:
+Four agents with distinct roles:
 
 | Agent | Model | Purpose | Tools | Context Injection |
 |-------|-------|---------|-------|-------------------|
 | **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | Auto: facts, failures |
 | **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash | Auto: decisions, conventions, evolution |
 | **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate | Auto: all types + lineage |
+| **Observer** | Haiku | Learning queue processing | Read, Grep, Bash | Auto: facts, failures |
 
 ### Explorer (`agents/explorer.md`)
 
@@ -149,9 +152,57 @@ Task update before text output:
 TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", "summary": "..."})
 ```
 
+### Observer (`agents/observer.md`)
+
+Processes the learning queue autonomously. Stores high-value candidates, discards low-value ones, flags uncertain cases.
+
+Input:
+- `QUEUE_DIR`: Directory containing learning candidates
+- `SESSION_OBJECTIVE`: Original user objective for context
+
+State machine: `SCAN -> DECIDE -> CONNECT -> REPORT`
+
+Output:
+```json
+{
+  "status": "success",
+  "queue_dir": "{queue_dir}",
+  "processed": {
+    "stored": [{"name": "memory-name", "type": "pattern", "trigger": "..."}],
+    "discarded": [{"trigger": "...", "reason": "duplicate|irrelevant|low-value"}],
+    "flagged": [{"trigger": "...", "reason": "needs orchestrator review"}]
+  },
+  "edges_created": [{"from": "mem-a", "to": "mem-b", "type": "reinforces"}],
+  "systemic_detected": [{"pattern": "...", "occurrences": 3, "action": "stored as systemic"}]
+}
+```
+
+Decision criteria:
+- **Store**: Specific trigger, actionable resolution, not duplicate
+- **Discard**: Too vague, already covered, ephemeral
+- **Flag**: Contradicts existing memory, high impact but uncertain, affects multiple systems
+
 ## Hook System
 
 Helix uses Claude Code hooks for invisible memory operations.
+
+### SessionStart Hooks
+
+**Files:** `scripts/init.sh`, `scripts/setup-env.sh`
+
+Two hooks run at session start:
+1. **init.sh**: Initializes the SQLite database, creates `.helix/` directory structure, sets up Python venv
+2. **setup-env.sh**: Writes `plugin_root` file for subagents, validates environment
+
+### SessionEnd Hook
+
+**File:** `scripts/hooks/session-end.sh`
+
+Runs when session ends:
+- Counts pending learning queue items
+- Auto-stores medium-confidence candidates that match existing high-effectiveness patterns
+- Cleans up queue files older than 7 days
+- Logs session summary to `.helix/session.log`
 
 ### PreToolUse(Task) Hook
 
@@ -195,6 +246,25 @@ Correlates with injection state via task_id, then cleans up state file.
 |-----------|---------|-----------|
 | `.helix/injection-state/` | Tracks injected memories | Created on inject, deleted after feedback |
 | `.helix/learning-queue/` | Learning candidates | Created on agent stop, deleted after review |
+| `.helix/session.log` | Session event log | Append-only, tracks SessionEnd events |
+
+**Learning queue file format** (`.helix/learning-queue/{agent_id}.json`):
+```json
+{
+  "agent_id": "helix-builder-abc123",
+  "agent_type": "builder",
+  "timestamp": "2024-01-15T10:30:00",
+  "candidates": [
+    {
+      "trigger": "...",
+      "resolution": "...",
+      "type": "pattern",
+      "confidence": "high|medium|low",
+      "source": "builder:task-001"
+    }
+  ]
+}
+```
 
 ## Prompt Parser (`lib/prompt_parser.py`)
 
@@ -232,17 +302,29 @@ Seven memory types serve different purposes:
 
 ### Type-Specific Scoring
 
-Different memory types use different weight profiles:
+Different memory types use different weight profiles (`SCORE_WEIGHTS_BY_TYPE` in core.py):
 
-| Type | Relevance | Effectiveness | Recency |
-|------|-----------|---------------|---------|
-| failure | 0.5 | 0.3 | 0.2 |
-| pattern | 0.5 | 0.3 | 0.2 |
-| systemic | 0.6 | 0.3 | 0.1 |
-| fact | 0.7 | 0.1 | 0.2 |
-| convention | 0.4 | 0.4 | 0.2 |
-| decision | 0.6 | 0.2 | 0.2 |
-| evolution | 0.4 | 0.1 | 0.5 |
+| Type | Relevance | Effectiveness | Recency | Rationale |
+|------|-----------|---------------|---------|-----------|
+| failure | 0.5 | 0.3 | 0.2 | Balance relevance with proven fixes |
+| pattern | 0.5 | 0.3 | 0.2 | Balance relevance with proven success |
+| systemic | 0.6 | 0.3 | 0.1 | Relevance matters; recency less so for recurring issues |
+| fact | 0.7 | 0.1 | 0.2 | Codebase structure—relevance dominant |
+| convention | 0.4 | 0.4 | 0.2 | Validated through use; effectiveness matters |
+| decision | 0.6 | 0.2 | 0.2 | Architectural choices—relevance dominant |
+| evolution | 0.4 | 0.1 | 0.5 | Recent changes—recency dominant |
+
+**Decay Half-Lives** (`DECAY_HALF_LIFE_BY_TYPE` in core.py):
+
+| Type | Half-Life | Rationale |
+|------|-----------|-----------|
+| failure | 7 days | Should fade if not re-encountered |
+| pattern | 7 days | Validated through use |
+| systemic | 14 days | Important recurring issues decay slower |
+| fact | 30 days | Codebase structure is stable |
+| convention | 14 days | Conventions are validated patterns |
+| decision | 30 days | Architectural decisions are long-lived |
+| evolution | 7 days | Recent changes most relevant when recent |
 
 ### Primitives (`lib/memory/core.py`)
 
@@ -358,6 +440,18 @@ Builder context includes:
 - `CONVENTIONS_TO_FOLLOW`: Project standards
 - `RELATED_FACTS`: Context about relevant files
 - `INJECTED_MEMORIES`: List of memory names for feedback tracking
+
+### Confidence Indicators
+
+Memories are formatted with effectiveness hints via `_format_hint()`:
+
+```
+[75%] Circular import when adding middleware -> Use lazy imports
+[unproven] Database timeout on large queries -> Add connection pooling
+```
+
+- `[N%]`: Memory has feedback history; N% is effectiveness (helped / total)
+- `[unproven]`: No feedback yet; memory is theoretical
 
 ### Manual Override
 
@@ -495,11 +589,11 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 # Store
 python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..." --source "..."
 
-# Recall (with graph expansion)
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand
+# Recall (with graph expansion and intent routing)
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --expand-depth 2 --intent how
 
 # Recall grouped by type
-python3 "$HELIX/lib/memory/core.py" recall-by-type "query" --types "fact,convention" --limit 5
+python3 "$HELIX/lib/memory/core.py" recall-by-type "query" --types "fact,convention" --limit 5 --expand
 
 # Get single memory
 python3 "$HELIX/lib/memory/core.py" get "memory-name"
@@ -616,13 +710,14 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 ```
 helix/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin manifest (v1.0.11)
+│   └── plugin.json           # Plugin manifest (v1.0.14)
 ├── .claude/
 │   └── settings.json         # Hook configuration
 ├── agents/
 │   ├── explorer.md           # Parallel reconnaissance (haiku)
 │   ├── planner.md            # Task decomposition (opus)
-│   └── builder.md            # Task execution (opus)
+│   ├── builder.md            # Task execution (opus)
+│   └── observer.md           # Learning queue processing (haiku)
 ├── lib/
 │   ├── __init__.py           # Version: 2.0.0
 │   ├── hooks/                # Hook implementations
@@ -647,18 +742,21 @@ helix/
 │   ├── hooks/                # Hook shell scripts
 │   │   ├── pretool-task.sh
 │   │   ├── subagent-stop.sh
-│   │   └── posttool-taskupdate.sh
+│   │   ├── posttool-taskupdate.sh
+│   │   └── session-end.sh    # SessionEnd hook
 │   ├── setup-env.sh          # SessionStart hook
 │   └── init.sh               # Database initialization
 ├── skills/
 │   ├── helix/
 │   │   ├── SKILL.md          # Main orchestrator
 │   │   └── reference/        # Decision tables
-│   │       ├── feedback-deltas.md
+│   │       ├── agent-lifecycle.md
+│   │       ├── cli-reference.md
 │   │       ├── edge-creation.md
+│   │       ├── exploration-mechanics.md
+│   │       ├── feedback-deltas.md
 │   │       ├── stalled-recovery.md
-│   │       ├── task-granularity.md
-│   │       └── cli-reference.md
+│   │       └── task-granularity.md
 │   ├── helix-query/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
@@ -677,6 +775,7 @@ helix/
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database
     ├── plugin_root           # Plugin path for sub-agents
+    ├── session.log           # Session event log
     ├── injection-state/      # Injection tracking
     └── learning-queue/       # Learning candidates
 ```
