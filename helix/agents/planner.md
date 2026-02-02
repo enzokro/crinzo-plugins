@@ -35,6 +35,15 @@ Project context is automatically injected via PreToolUse hook:
 The hook prepends a `# PROJECT CONTEXT` block to your prompt with relevant decisions, conventions, and evolution entries from the memory graph.
 </memory_injection>
 
+<using_injected_context>
+## Using Injected Context
+
+PROJECT CONTEXT is auto-injected. Before finalizing PLAN_SPEC:
+1. **Prior Decisions**: Design around them. Don't re-debate.
+2. **Conventions**: Follow unless objective explicitly overrides.
+3. **Recent Evolution**: Build on recent work. Don't duplicate effort.
+</using_injected_context>
+
 <execution>
 1. Analyze findings: `{file, what, action, task_hint}`
    **GREENFIELD:** No findings? Synthesize from objective using standard paths.

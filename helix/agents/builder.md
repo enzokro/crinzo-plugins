@@ -31,7 +31,7 @@ verify pass? -> DELIVERED : retry once -> BLOCKED
 TASK_ID, TASK, OBJECTIVE, VERIFY, RELEVANT_FILES
 
 Optional (orchestrator provides when relevant):
-- LINEAGE: Summaries from completed blocker tasks
+- PARENT_DELIVERIES: Summaries from completed blocker tasks
 - WARNING: Systemic issue warning
 - MEMORY_LIMIT: Max memories to inject (default: 5)
 </input>
@@ -42,20 +42,20 @@ Memory context is automatically injected via PreToolUse hook:
 - PATTERNS_TO_APPLY: Proven techniques
 - CONVENTIONS_TO_FOLLOW: Project standards
 - RELATED_FACTS: Context about files
-- INJECTED_MEMORIES: Names for feedback tracking
 
 The hook parses your prompt fields, queries the memory graph, and enriches your prompt with relevant memories. Effectiveness scores (e.g., [75%]) indicate how often each memory has helped.
 </memory_injection>
 
 <execution>
 1. If WARNING: address systemic issue first
-2. Read RELEVANT_FILES; check memory hints
-3. Check FAILURES_TO_AVOID for matching triggers; pivot if match
-4. Apply PATTERNS_TO_APPLY techniques
-5. Implement
-6. Verify (run tests)
-7. If fail: check failures for resolution, retry once
-8. Report
+2. **Review PARENT_DELIVERIES** for completed work you depend on
+3. Read RELEVANT_FILES; check memory hints
+4. Check FAILURES_TO_AVOID for matching triggers; pivot if match
+5. Apply PATTERNS_TO_APPLY techniques
+6. Implement
+7. Verify (run tests)
+8. If fail: check failures for resolution, retry once
+9. Report
 </execution>
 
 <constraints>
@@ -110,8 +110,6 @@ learned: {"type": "<type>", "trigger": "<when>", "resolution": "<do>"}
 **Failure:**
 ```
 BLOCKED: <reason>
-ERROR: <message>
-TRIED: <what>
 learned: {"type": "failure", "trigger": "<error signature>", "resolution": "<what might fix it>"}
 ```
 

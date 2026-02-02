@@ -56,16 +56,8 @@ class TestProcessHookInput:
         result = process_hook_input(hook_input)
         assert result == {}
 
-    @patch("hooks.inject_memory.build_explorer_context")
-    @patch("hooks.inject_memory.store_injection_state")
-    def test_explorer_injection(self, mock_store, mock_build):
-        """Explorer prompts should get memory context."""
-        mock_build.return_value = {
-            "known_facts": ["Fact 1"],
-            "relevant_failures": [],
-            "injected": ["fact-1"],
-        }
-
+    def test_explorer_passes_through(self):
+        """Explorer prompts should pass through unmodified - explorer runs own recall()."""
         hook_input = {
             "tool_name": "Task",
             "tool_input": {
@@ -77,9 +69,8 @@ class TestProcessHookInput:
 
         result = process_hook_input(hook_input)
 
-        assert "updatedInput" in result
-        assert "# MEMORY CONTEXT" in result["updatedInput"]["prompt"]
-        mock_store.assert_called_once()
+        # Explorer injection removed - agent runs its own recall()
+        assert result == {}
 
     @patch("hooks.inject_memory.build_planner_context")
     @patch("hooks.inject_memory.store_injection_state")
@@ -173,23 +164,24 @@ class TestInjectionState:
     """Tests for injection state storage."""
 
     @patch("hooks.inject_memory.get_injection_state_dir")
-    @patch("hooks.inject_memory.build_explorer_context")
+    @patch("hooks.inject_memory.build_planner_context")
     def test_injection_state_stored(self, mock_build, mock_dir):
         """Injection state should be written to file."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_dir.return_value = Path(tmpdir)
             mock_build.return_value = {
-                "known_facts": [],
-                "relevant_failures": [],
+                "decisions": [],
+                "conventions": [],
+                "recent_evolution": [],
                 "injected": ["mem-1", "mem-2"],
             }
 
             hook_input = {
                 "tool_name": "Task",
                 "tool_input": {
-                    "subagent_type": "helix:helix-explorer",
-                    "prompt": "SCOPE: src/",
+                    "subagent_type": "helix:helix-planner",
+                    "prompt": "OBJECTIVE: Test\nEXPLORATION: {}",
                 },
                 "tool_use_id": "test-state-123",
             }
@@ -201,7 +193,7 @@ class TestInjectionState:
             assert state_file.exists()
 
             state = json.loads(state_file.read_text())
-            assert state["agent_type"] == "helix:helix-explorer"
+            assert state["agent_type"] == "helix:helix-planner"
             assert state["injected_memories"] == ["mem-1", "mem-2"]
 
 

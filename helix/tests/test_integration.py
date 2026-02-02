@@ -120,8 +120,9 @@ class TestContextInjection:
         assert len(result["injected"]) > 0
 
         # Prompt should be well-formed
+        # Note: INJECTED_MEMORIES removed from prompt (tracked in injection-state for feedback)
         assert "TASK_ID: task-auth" in result["prompt"]
-        assert "INJECTED_MEMORIES:" in result["prompt"]
+        assert "FAILURES_TO_AVOID:" in result["prompt"]
 
     def test_context_feedback_ranking(self, test_db, mock_embeddings):
         """Higher effectiveness memories rank higher on next recall."""

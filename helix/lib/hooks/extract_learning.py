@@ -22,7 +22,6 @@ Output written to .helix/learning-queue/{agent_id}.json
 """
 
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -340,35 +339,18 @@ def extract_findings_section(transcript: str) -> List[dict]:
     Explorers output JSON with findings array:
         {"findings": [{"file": "...", "what": "...", ...}]}
 
-    Falls back to markdown bullets if JSON not found.
+    Contract mandates JSON. Markdown fallbacks removed - contract violations surface as empty results.
 
     Args:
         transcript: Full agent transcript
 
     Returns:
-        List of finding dicts or strings
+        List of finding dicts (empty if agent violates JSON contract)
     """
-    # Try JSON extraction first (preferred)
     findings_dict = extract_explorer_findings(transcript)
     if findings_dict and 'findings' in findings_dict:
         return findings_dict['findings']
-
-    # Fallback: markdown bullets (legacy format)
-    findings = []
-    match = re.search(
-        r'(?:##\s*)?FINDINGS?\s*[\n:](.+?)(?=(?:##|$))',
-        transcript,
-        re.IGNORECASE | re.DOTALL
-    )
-
-    if match:
-        section = match.group(1)
-        for line in section.split('\n'):
-            line = line.strip()
-            if line.startswith(('-', '*', '•')):
-                findings.append({"what": line.lstrip('-*• ').strip()})
-
-    return findings
+    return []
 
 
 def extract_learned_block(transcript: str) -> List[dict]:
@@ -379,13 +361,13 @@ def extract_learned_block(transcript: str) -> List[dict]:
           {"type": "decision", "trigger": "chose X over Y", "resolution": "because Z"}
         ]
 
-    Falls back to markdown bullets if JSON not found.
+    Contract mandates JSON. Markdown fallbacks removed - contract violations surface as empty results.
 
     Args:
         transcript: Full agent transcript (JSONL format)
 
     Returns:
-        List of learned dicts
+        List of learned dicts (empty if agent violates JSON contract)
     """
     # Parse JSONL to get unescaped assistant content
     for line in reversed(transcript.split('\n')):
@@ -406,7 +388,7 @@ def extract_learned_block(transcript: str) -> List[dict]:
 
             content_str = str(content)
 
-            # Try JSON array extraction (preferred format per contract)
+            # JSON array extraction (per contract)
             match = re.search(r'LEARNED:\s*(\[)', content_str, re.IGNORECASE)
             if match:
                 start = match.start(1)
@@ -431,29 +413,6 @@ def extract_learned_block(transcript: str) -> List[dict]:
                             return parsed
                     except json.JSONDecodeError:
                         pass
-
-            # Fallback: markdown bullets (legacy format)
-            match = re.search(
-                r'(?:###?\s*)?LEARNED\s*[\n:](.+?)(?=(?:###?|PLAN_COMPLETE|$))',
-                content_str,
-                re.IGNORECASE | re.DOTALL
-            )
-
-            if match:
-                learned = []
-                section = match.group(1)
-                for ln in section.split('\n'):
-                    ln = ln.strip()
-                    if ln.startswith(('-', '*', '•')):
-                        text = ln.lstrip('-*• ').strip()
-                        trigger, resolution = parse_trigger_resolution(text)
-                        learned.append({
-                            "type": classify_learning(text),
-                            "trigger": trigger,
-                            "resolution": resolution
-                        })
-                if learned:
-                    return learned
 
         except json.JSONDecodeError:
             continue
@@ -481,73 +440,6 @@ def is_valid_learning(trigger: str, resolution: str) -> bool:
     ]
     combined = trigger + resolution
     return not any(t in combined for t in code_tokens)
-
-
-def classify_learning(text: str) -> str:
-    """Classify a learning candidate by type.
-
-    Args:
-        text: Learning text
-
-    Returns:
-        "pattern", "failure", "convention", "decision", "fact", "evolution"
-    """
-    text_lower = text.lower()
-
-    # Check for explicit type prefixes
-    if text_lower.startswith("decision:"):
-        return "decision"
-    if text_lower.startswith("pattern:"):
-        return "pattern"
-    if text_lower.startswith("convention:"):
-        return "convention"
-    if text_lower.startswith("fact:"):
-        return "fact"
-
-    # Heuristics
-    if any(w in text_lower for w in ["always", "never", "should", "must"]):
-        return "convention"
-    if any(w in text_lower for w in ["failed", "error", "broke", "doesn't work"]):
-        return "failure"
-    if any(w in text_lower for w in ["decided", "chose", "because"]):
-        return "decision"
-    if any(w in text_lower for w in ["when", "use", "apply"]):
-        return "pattern"
-
-    return "pattern"  # Default
-
-
-def parse_trigger_resolution(text: str) -> tuple:
-    """Parse trigger and resolution from learning text.
-
-    Formats:
-        "trigger -> resolution"
-        "When X, do Y"
-        "X: Y"
-
-    Args:
-        text: Learning text
-
-    Returns:
-        (trigger, resolution) tuple
-    """
-    # Try -> separator
-    if " -> " in text:
-        parts = text.split(" -> ", 1)
-        return parts[0].strip(), parts[1].strip()
-
-    # Try : separator
-    if ": " in text:
-        parts = text.split(": ", 1)
-        return parts[0].strip(), parts[1].strip()
-
-    # Try "When X, Y" pattern
-    match = re.match(r"When\s+(.+?),\s+(.+)", text, re.IGNORECASE)
-    if match:
-        return f"When {match.group(1)}", match.group(2)
-
-    # Fallback: text is both trigger and resolution
-    return text, ""
 
 
 def extract_builder_candidates(transcript: str) -> List[dict]:
@@ -614,6 +506,8 @@ def extract_explorer_candidates(transcript: str) -> List[dict]:
 def extract_planner_candidates(transcript: str) -> List[dict]:
     """Extract learning candidates from planner transcript.
 
+    Contract mandates JSON LEARNED blocks. Non-dict items are skipped.
+
     Args:
         transcript: Full planner transcript
 
@@ -624,15 +518,13 @@ def extract_planner_candidates(transcript: str) -> List[dict]:
     learned = extract_learned_block(transcript)
 
     for item in learned:
-        # Handle dict format (JSON output) or legacy parsing
-        if isinstance(item, dict):
-            mem_type = item.get('type', 'decision')
-            trigger = item.get('trigger', '')
-            resolution = item.get('resolution', '')
-        else:
-            # Legacy string format
-            mem_type = classify_learning(str(item))
-            trigger, resolution = parse_trigger_resolution(str(item))
+        # Contract requires dict format - skip non-conformant items
+        if not isinstance(item, dict):
+            continue
+
+        mem_type = item.get('type', 'decision')
+        trigger = item.get('trigger', '')
+        resolution = item.get('resolution', '')
 
         if trigger:  # Skip empty entries
             candidates.append({

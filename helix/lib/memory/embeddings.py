@@ -84,13 +84,3 @@ def cosine(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def similarity(text1: str, text2: str) -> float:
-    """Semantic similarity between texts (0-1).
-
-    Falls back to sequence matching if embeddings unavailable.
-    """
-    e1, e2 = embed(text1), embed(text2)
-    if e1 is None or e2 is None:
-        from difflib import SequenceMatcher
-        return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
-    return cosine(e1, e2)

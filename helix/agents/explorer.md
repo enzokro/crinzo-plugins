@@ -57,7 +57,7 @@ Memory: `python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --exp
   "focus": "{your focus}",
   "status": "success",
   "findings": [
-    {"file": "path/to/file.py", "what": "what it does", "action": "modify", "task_hint": "subtask-slug"}
+    {"file": "path/to/file.py", "what": "what it does"}
   ]
 }
 ```
@@ -67,8 +67,6 @@ Memory: `python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --exp
 - `findings`: Array of objects, each with:
   - `file`: Path to file
   - `what`: One-line description
-  - `action`: One of: modify, create, reference, test
-  - `task_hint`: Short slug for grouping (e.g., "auth-middleware")
 
 **If exploration fails:**
 ```json

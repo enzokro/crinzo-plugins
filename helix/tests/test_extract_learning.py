@@ -15,8 +15,6 @@ from hooks.extract_learning import (
     extract_outcome,
     extract_findings_section,
     extract_learned_block,
-    classify_learning,
-    parse_trigger_resolution,
     extract_builder_candidates,
     extract_explorer_candidates,
     extract_planner_candidates,
@@ -25,23 +23,22 @@ from hooks.extract_learning import (
 
 
 class TestExtractLearnedField:
-    """Tests for extract_learned_field function."""
+    """Tests for extract_learned_field function.
+
+    Expects JSONL transcript format with assistant messages.
+    """
 
     def test_json_format(self):
-        transcript = '''
-Some work happened.
-learned: {"type": "pattern", "trigger": "When X", "resolution": "Do Y"}
-More work.
-'''
+        # JSONL format with assistant message containing learned field
+        transcript = '{"message": {"role": "assistant", "content": "learned: {\\"type\\": \\"pattern\\", \\"trigger\\": \\"When X\\", \\"resolution\\": \\"Do Y\\"}"}}'
         result = extract_learned_field(transcript)
         assert result is not None
         assert result["type"] == "pattern"
         assert result["trigger"] == "When X"
 
     def test_quoted_format(self):
-        transcript = '''
-"learned": {"type": "failure", "trigger": "Error X", "resolution": "Fix Y"}
-'''
+        # JSONL format with quoted learned field
+        transcript = '{"message": {"role": "assistant", "content": "\\"learned\\": {\\"type\\": \\"failure\\", \\"trigger\\": \\"Error X\\", \\"resolution\\": \\"Fix Y\\"}"}}'
         result = extract_learned_field(transcript)
         assert result is not None
         assert result["type"] == "failure"
@@ -73,30 +70,26 @@ class TestExtractOutcome:
 
 
 class TestExtractFindingsSection:
-    """Tests for extract_findings_section function."""
+    """Tests for extract_findings_section function.
 
-    def test_findings_with_bullets(self):
+    Contract mandates JSON output. Markdown fallbacks removed.
+    """
+
+    def test_json_findings(self):
+        # Simulate JSONL transcript with JSON findings in assistant message
+        transcript = '{"message": {"role": "assistant", "content": "{\\"scope\\": \\"src\\", \\"status\\": \\"success\\", \\"findings\\": [{\\"file\\": \\"src/auth.py\\", \\"what\\": \\"auth module\\"}]}"}}'
+        findings = extract_findings_section(transcript)
+        assert len(findings) == 1
+        assert findings[0]["file"] == "src/auth.py"
+
+    def test_markdown_returns_empty(self):
+        # Markdown format is no longer supported - returns empty
         transcript = '''
 ## FINDINGS
 - Found auth module at src/auth.py
-- Database uses PostgreSQL
-- API routes in src/api/
-
-## Next Steps
 '''
         findings = extract_findings_section(transcript)
-        assert len(findings) == 3
-        assert "auth module" in findings[0]
-        assert "PostgreSQL" in findings[1]
-
-    def test_findings_with_asterisks(self):
-        transcript = '''
-FINDINGS:
-* Item one
-* Item two
-'''
-        findings = extract_findings_section(transcript)
-        assert len(findings) == 2
+        assert findings == []
 
     def test_no_findings(self):
         transcript = "Just some text without findings"
@@ -105,18 +98,27 @@ FINDINGS:
 
 
 class TestExtractLearnedBlock:
-    """Tests for extract_learned_block function."""
+    """Tests for extract_learned_block function.
 
-    def test_learned_block(self):
+    Contract mandates JSON array. Markdown fallbacks removed.
+    """
+
+    def test_json_learned_block(self):
+        # Simulate JSONL transcript with JSON LEARNED block in assistant message
+        transcript = '{"message": {"role": "assistant", "content": "LEARNED: [{\\"type\\": \\"decision\\", \\"trigger\\": \\"chose REST\\", \\"resolution\\": \\"simpler\\"}]"}}'
+        learned = extract_learned_block(transcript)
+        assert len(learned) == 1
+        assert learned[0]["type"] == "decision"
+        assert learned[0]["trigger"] == "chose REST"
+
+    def test_markdown_returns_empty(self):
+        # Markdown format is no longer supported - returns empty
         transcript = '''
 ### LEARNED
 - Decision: We chose REST over GraphQL because simpler
-- Pattern: When testing auth, mock the token service
 '''
         learned = extract_learned_block(transcript)
-        assert len(learned) == 2
-        assert "REST over GraphQL" in learned[0]
-        assert "mock the token" in learned[1]
+        assert learned == []
 
     def test_no_learned_block(self):
         transcript = "Plan without learned section"
@@ -124,101 +126,41 @@ class TestExtractLearnedBlock:
         assert learned == []
 
 
-class TestClassifyLearning:
-    """Tests for classify_learning function."""
-
-    def test_explicit_prefix(self):
-        assert classify_learning("Decision: chose X") == "decision"
-        assert classify_learning("Pattern: use X") == "pattern"
-        assert classify_learning("Convention: always X") == "convention"
-        assert classify_learning("Fact: the system X") == "fact"
-
-    def test_heuristics(self):
-        assert classify_learning("Always use TypeScript") == "convention"
-        assert classify_learning("The build failed because") == "failure"
-        assert classify_learning("We decided to use React") == "decision"
-        assert classify_learning("When testing, mock services") == "pattern"
-
-    def test_default(self):
-        assert classify_learning("Some random text") == "pattern"
-
-
-class TestParseTriggerResolution:
-    """Tests for parse_trigger_resolution function."""
-
-    def test_arrow_separator(self):
-        trigger, resolution = parse_trigger_resolution("Error X -> Fix Y")
-        assert trigger == "Error X"
-        assert resolution == "Fix Y"
-
-    def test_colon_separator(self):
-        trigger, resolution = parse_trigger_resolution("Pattern: use mocks")
-        assert trigger == "Pattern"
-        assert resolution == "use mocks"
-
-    def test_when_pattern(self):
-        trigger, resolution = parse_trigger_resolution("When testing auth, mock tokens")
-        assert trigger == "When testing auth"
-        assert resolution == "mock tokens"
-
-    def test_fallback(self):
-        trigger, resolution = parse_trigger_resolution("Just some text")
-        assert trigger == "Just some text"
-        assert resolution == ""
-
-
 class TestExtractCandidates:
     """Tests for extract_*_candidates functions."""
 
     def test_builder_with_learned_field(self):
-        transcript = '''
-learned: {"type": "pattern", "trigger": "When X", "resolution": "Do Y"}
-DELIVERED: Done
-'''
+        # JSONL format with assistant message containing learned field
+        transcript = '{"message": {"role": "assistant", "content": "learned: {\\"type\\": \\"pattern\\", \\"trigger\\": \\"When X\\", \\"resolution\\": \\"Do Y\\"}\\nDELIVERED: Done"}}'
         candidates = extract_builder_candidates(transcript)
         assert len(candidates) >= 1
         structured = [c for c in candidates if c["source"] == "builder:structured"]
         assert len(structured) == 1
         assert structured[0]["type"] == "pattern"
 
-    def test_builder_with_inline_notes(self):
-        transcript = '''
-Learned: When mocking auth services, always isolate the token provider.
-DELIVERED: Done
-'''
-        candidates = extract_builder_candidates(transcript)
-        inline = [c for c in candidates if c["source"] == "builder:inline"]
-        assert len(inline) >= 1
-
-    def test_explorer_findings(self):
-        transcript = '''
-## FINDINGS
-- The auth module uses JWT tokens stored in Redis
-- All API routes go through middleware
-'''
+    def test_explorer_findings_json(self):
+        # JSON format (contract-compliant)
+        transcript = '{"message": {"role": "assistant", "content": "{\\"scope\\": \\"src\\", \\"status\\": \\"success\\", \\"findings\\": [{\\"file\\": \\"src/auth.py\\", \\"what\\": \\"JWT tokens\\"}]}"}}'
         candidates = extract_explorer_candidates(transcript)
-        assert len(candidates) == 2
-        assert all(c["type"] == "fact" for c in candidates)
-        assert all(c["source"] == "explorer:findings" for c in candidates)
+        assert len(candidates) == 1
+        assert candidates[0]["type"] == "fact"
+        assert candidates[0]["source"] == "explorer:findings"
 
-    def test_planner_learned(self):
-        transcript = '''
-### LEARNED
-- Decision: chose SQLite for simplicity
-- Pattern: group related files in same task
-'''
+    def test_planner_learned_json(self):
+        # JSON format (contract-compliant)
+        transcript = '{"message": {"role": "assistant", "content": "LEARNED: [{\\"type\\": \\"decision\\", \\"trigger\\": \\"chose SQLite\\", \\"resolution\\": \\"simplicity\\"}]"}}'
         candidates = extract_planner_candidates(transcript)
-        assert len(candidates) == 2
+        assert len(candidates) == 1
+        assert candidates[0]["type"] == "decision"
 
 
 class TestProcessTranscript:
     """Tests for process_transcript function."""
 
     def test_builder_transcript(self):
-        transcript = '''
-learned: {"type": "pattern", "trigger": "X", "resolution": "Y"}
-DELIVERED: Added feature
-'''
+        # JSONL format with assistant message
+        # Note: DELIVERED must appear in raw string for extract_outcome regex
+        transcript = '{"message": {"role": "assistant", "content": "learned: {\\"type\\": \\"pattern\\", \\"trigger\\": \\"X\\", \\"resolution\\": \\"Y\\"}"}}\n{"message": {"role": "assistant", "content": "DELIVERED: Added feature"}}'
         entry = process_transcript(
             agent_id="agent-123",
             agent_type="helix:helix-builder",
@@ -231,11 +173,8 @@ DELIVERED: Added feature
         assert len(entry["candidates"]) >= 1
 
     def test_explorer_transcript(self):
-        transcript = '''
-## FINDINGS
-- Found the auth service
-{"status": "success"}
-'''
+        # JSON format (contract-compliant)
+        transcript = '{"message": {"role": "assistant", "content": "{\\"scope\\": \\"src\\", \\"status\\": \\"success\\", \\"findings\\": [{\\"file\\": \\"src/auth.py\\", \\"what\\": \\"auth service\\"}]}"}}'
         entry = process_transcript(
             agent_id="agent-456",
             agent_type="helix:helix-explorer",

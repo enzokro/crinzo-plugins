@@ -275,11 +275,13 @@ def process_hook_input(hook_input: dict) -> dict:
         return {}
 
     # Route to appropriate injector
+    # Explorer runs its own recall() - hook injection is redundant
     agent_short = subagent_type.replace("helix:helix-", "")
     task_id = None
 
     if agent_short == "explorer":
-        result = inject_for_explorer(prompt, tool_use_id)
+        # Explorer prompts pass through unmodified - agent runs own recall()
+        return {}
     elif agent_short == "planner":
         result = inject_for_planner(prompt, tool_use_id)
     elif agent_short == "builder":

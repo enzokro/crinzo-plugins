@@ -20,7 +20,6 @@ NEVER use TaskOutput - dumps 70KB+ into context.
 """
 
 import json
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path

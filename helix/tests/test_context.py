@@ -27,7 +27,7 @@ class TestBuildContext:
         assert "VERIFY:" in prompt
         assert "FAILURES_TO_AVOID:" in prompt
         assert "PATTERNS_TO_APPLY:" in prompt
-        assert "INJECTED_MEMORIES:" in prompt
+        # Note: INJECTED_MEMORIES removed from prompt (still tracked in injection-state for feedback)
 
     def test_build_context_deduplicates(self, test_db, mock_embeddings, sample_memories, sample_task_data):
         """Same memory from semantic and file paths appears once."""
@@ -70,11 +70,11 @@ class TestBuildContext:
         prompt = result["prompt"]
 
         # Check all expected fields present
+        # Note: FRAMEWORK removed from prompt (no contract usage)
         assert f"TASK_ID: {sample_task_data['id']}" in prompt
         assert f"TASK: {sample_task_data['subject']}" in prompt
         assert f"OBJECTIVE: {sample_task_data['description']}" in prompt
         assert "VERIFY:" in prompt
-        assert "FRAMEWORK:" in prompt
         assert "RELEVANT_FILES:" in prompt
         assert "Report DELIVERED or BLOCKED" in prompt
 

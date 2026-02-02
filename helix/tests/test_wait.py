@@ -41,14 +41,18 @@ class TestMarkers:
 
 
 class TestDetectCompletion:
-    """Tests for detect_completion function."""
+    """Tests for detect_completion function.
+
+    Note: detect_completion expects JSONL format with message.role = "assistant"
+    """
 
     def test_detect_builder_delivered(self, tmp_path):
         """Detects DELIVERED marker in builder output."""
         from lib.wait import detect_completion
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text('{"type": "tool_call"}\nDELIVERED: Added auth module\n')
+        # JSONL format with assistant message
+        output_file.write_text('{"message": {"role": "assistant", "content": "DELIVERED: Added auth module"}}\n')
 
         result = detect_completion(str(output_file), "builder")
 
@@ -62,7 +66,7 @@ class TestDetectCompletion:
         from lib.wait import detect_completion
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text('{"type": "tool_call"}\nBLOCKED: Tests failed\n')
+        output_file.write_text('{"message": {"role": "assistant", "content": "BLOCKED: Tests failed"}}\n')
 
         result = detect_completion(str(output_file), "builder")
 
@@ -76,7 +80,8 @@ class TestDetectCompletion:
         from lib.wait import detect_completion
 
         output_file = tmp_path / "explorer.jsonl"
-        output_file.write_text('{"scope": "src/", "status": "success", "findings": []}\n')
+        # Explorer outputs JSON with status field in assistant message
+        output_file.write_text('{"message": {"role": "assistant", "content": "{\\"scope\\": \\"src/\\", \\"status\\": \\"success\\", \\"findings\\": []}"}}\n')
 
         result = detect_completion(str(output_file), "explorer")
 
@@ -89,7 +94,7 @@ class TestDetectCompletion:
         from lib.wait import detect_completion
 
         output_file = tmp_path / "planner.jsonl"
-        output_file.write_text('TASK_MAPPING:\n001 -> task-1\nPLAN_COMPLETE: 3 tasks created\n')
+        output_file.write_text('{"message": {"role": "assistant", "content": "PLAN_COMPLETE: 3 tasks created"}}\n')
 
         result = detect_completion(str(output_file), "planner")
 
@@ -138,7 +143,7 @@ class TestWaitForCompletion:
         from lib.wait import wait_for_completion
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text("DELIVERED: Done\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "DELIVERED: Done"}}\n')
 
         result = wait_for_completion(str(output_file), "builder", timeout_sec=1.0, poll_interval=0.1)
 
@@ -180,7 +185,7 @@ class TestGetCompletionContent:
         from lib.wait import get_completion_content
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text("DELIVERED: Added user authentication\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "DELIVERED: Added user authentication"}}\n')
 
         content = get_completion_content(str(output_file), "builder")
 
@@ -193,7 +198,7 @@ class TestGetCompletionContent:
         from lib.wait import get_completion_content
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text("BLOCKED: Database connection failed\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "BLOCKED: Database connection failed"}}\n')
 
         content = get_completion_content(str(output_file), "builder")
 
@@ -206,7 +211,7 @@ class TestGetCompletionContent:
         from lib.wait import get_completion_content
 
         output_file = tmp_path / "planner.jsonl"
-        output_file.write_text("PLAN_COMPLETE: 5 tasks created\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "PLAN_COMPLETE: 5 tasks created"}}\n')
 
         content = get_completion_content(str(output_file), "planner")
 
@@ -219,7 +224,7 @@ class TestGetCompletionContent:
         from lib.wait import get_completion_content
 
         output_file = tmp_path / "planner.jsonl"
-        output_file.write_text("ERROR: TaskCreate not available\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "ERROR: TaskCreate not available"}}\n')
 
         content = get_completion_content(str(output_file), "planner")
 
@@ -308,7 +313,7 @@ class TestCLI:
         import sys
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text("DELIVERED: Done\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "DELIVERED: Done"}}\n')
 
         result = subprocess.run(
             [sys.executable, "-m", "lib.wait", "check",
@@ -351,7 +356,7 @@ class TestCLI:
         import sys
 
         output_file = tmp_path / "builder.jsonl"
-        output_file.write_text("DELIVERED: Added feature\n")
+        output_file.write_text('{"message": {"role": "assistant", "content": "DELIVERED: Added feature"}}\n')
 
         result = subprocess.run(
             [sys.executable, "-m", "lib.wait", "extract",

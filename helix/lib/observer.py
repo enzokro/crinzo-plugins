@@ -15,11 +15,9 @@ from typing import List, Dict, Any, Optional
 
 try:
     from .memory import recall, store, feedback
-    from .memory.embeddings import embed, cosine
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent))
     from memory import recall, store, feedback
-    from memory.embeddings import embed, cosine
 
 
 def observe_explorer(output: dict) -> List[dict]:

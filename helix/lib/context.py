@@ -241,10 +241,6 @@ def build_context(
     if relevant_files:
         prompt_lines.append(f"RELEVANT_FILES: {json.dumps(relevant_files)}")
 
-    framework = metadata.get("framework")
-    if framework:
-        prompt_lines.append(f"FRAMEWORK: {framework}")
-
     # Add memory-derived context
     prompt_lines.append(f"FAILURES_TO_AVOID: {json.dumps(failure_hints)}")
     prompt_lines.append(f"PATTERNS_TO_APPLY: {json.dumps(pattern_hints)}")
@@ -254,8 +250,6 @@ def build_context(
         prompt_lines.append(f"CONVENTIONS_TO_FOLLOW: {json.dumps(convention_hints)}")
     if fact_hints:
         prompt_lines.append(f"RELATED_FACTS: {json.dumps(fact_hints)}")
-
-    prompt_lines.append(f"INJECTED_MEMORIES: {json.dumps(injected)}")
 
     if lineage:
         # Compress lineage: limit to 5 most recent, truncate summaries
