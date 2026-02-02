@@ -246,6 +246,57 @@ def get_injection_state(tool_use_id: str) -> Optional[dict]:
     return None
 
 
+def apply_feedback(injected_memories: List[str], outcome: str) -> bool:
+    """Apply feedback to injected memories based on outcome.
+
+    This closes the feedback attribution loop directly in SubagentStop,
+    making it independent of orchestrator TaskUpdate behavior.
+
+    Args:
+        injected_memories: List of memory names that were injected
+        outcome: "delivered" or "blocked"
+
+    Returns:
+        True if feedback was applied, False otherwise
+    """
+    if not injected_memories or outcome not in ("delivered", "blocked"):
+        return False
+
+    # Determine delta based on outcome
+    delta = 0.5 if outcome == "delivered" else -0.3
+
+    try:
+        # Import here to avoid circular imports
+        from pathlib import Path
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from memory import feedback
+
+        result = feedback(names=injected_memories, delta=delta)
+        return result.get("updated", 0) > 0
+    except Exception:
+        return False
+
+
+def cleanup_injection_state(tool_use_id: str) -> None:
+    """Remove injection state file after feedback is applied.
+
+    Args:
+        tool_use_id: Tool use ID to clean up
+    """
+    if not tool_use_id:
+        return
+
+    state_dir = get_helix_dir() / "injection-state"
+    state_file = state_dir / f"{tool_use_id}.json"
+
+    if state_file.exists():
+        try:
+            state_file.unlink()
+        except Exception:
+            pass
+
+
 def extract_learned_field(transcript: str) -> Optional[dict]:
     """Extract `learned` JSON field from builder output.
 
@@ -603,21 +654,41 @@ def write_to_queue(entry: dict) -> Path:
     return queue_file
 
 
-def log_extraction_result(agent_id: str, agent_type: str, entry: dict):
+def log_extraction_result(
+    agent_id: str,
+    agent_type: str,
+    entry: dict,
+    feedback_applied: Optional[bool] = None
+):
     """Log extraction result for diagnostics.
 
     Args:
         agent_id: Agent identifier
         agent_type: Agent type string
         entry: Extraction result dict
+        feedback_applied: Whether feedback was applied (None if not attempted)
     """
     log_file = get_helix_dir() / "extraction.log"
     ts = datetime.now(timezone.utc).isoformat()
     n_candidates = len(entry.get("candidates", []))
     outcome = entry.get("outcome", "unknown")
+    n_injected = len(entry.get("injected_memories", []))
 
     status = "OK" if n_candidates > 0 else "EMPTY"
-    log_line = f"{ts} | {status} | {agent_type} | {agent_id} | candidates={n_candidates} | outcome={outcome}\n"
+    log_parts = [
+        ts,
+        status,
+        agent_type,
+        agent_id,
+        f"candidates={n_candidates}",
+        f"outcome={outcome}",
+    ]
+
+    # Add feedback info for builders
+    if feedback_applied is not None:
+        log_parts.append(f"feedback={'applied' if feedback_applied else 'skipped'}({n_injected})")
+
+    log_line = " | ".join(log_parts) + "\n"
 
     with open(log_file, 'a') as f:
         f.write(log_line)
@@ -679,8 +750,16 @@ def process_hook_input(hook_input: dict) -> dict:
     if entry["candidates"]:
         write_to_queue(entry)
 
+    # Apply feedback directly for builders (closes loop without depending on TaskUpdate)
+    # This is the primary feedback path - PostToolUse(TaskUpdate) serves as backup
+    feedback_applied = None
+    if agent_short == "builder" and entry["injected_memories"] and entry["outcome"] in ("delivered", "blocked"):
+        feedback_applied = apply_feedback(entry["injected_memories"], entry["outcome"])
+        if feedback_applied and tool_use_id:
+            cleanup_injection_state(tool_use_id)
+
     # Diagnostic logging
-    log_extraction_result(agent_id, agent_type, entry)
+    log_extraction_result(agent_id, agent_type, entry, feedback_applied)
 
     # Write task status for orchestrator polling (if TASK_ID present in prompt)
     task_id = extract_task_id(transcript)
