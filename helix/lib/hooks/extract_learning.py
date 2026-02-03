@@ -736,18 +736,21 @@ def process_hook_input(hook_input: dict) -> dict:
         tool_use_id=tool_use_id,
     )
 
-    # Race condition fix: if builder has outcome but no candidates, retry once
+    # Race condition fix: if builder has outcome but no candidates, retry with backoff
     # (transcript file may not be fully flushed when hook fires)
     agent_short = agent_type.replace("helix:helix-", "")
     if agent_short == "builder" and not entry["candidates"] and entry["outcome"] == "delivered":
-        time.sleep(0.1)  # Brief delay for filesystem sync
-        transcript = Path(transcript_path).read_text()
-        entry = process_transcript(
-            agent_id=agent_id,
-            agent_type=agent_type,
-            transcript=transcript,
-            tool_use_id=tool_use_id,
-        )
+        for delay in [0.15, 0.35]:
+            time.sleep(delay)
+            transcript = Path(transcript_path).read_text()
+            entry = process_transcript(
+                agent_id=agent_id,
+                agent_type=agent_type,
+                transcript=transcript,
+                tool_use_id=tool_use_id,
+            )
+            if entry["candidates"]:
+                break
 
     if entry["candidates"]:
         write_to_queue(entry)
