@@ -950,6 +950,7 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser(description="Helix memory operations")
     p.add_argument("--verbose", "-v", action="store_true", help="Print structured log to stderr")
+    p.add_argument("--db", help="Override database path (explicit targeting)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("store")
@@ -1021,6 +1022,16 @@ if __name__ == "__main__":
     s.add_argument("--source", default="chunked")
 
     args = p.parse_args()
+
+    # Override DB path if specified (enables explicit project targeting)
+    if args.db:
+        import os
+        import db.connection as conn_module
+        resolved = str(Path(args.db).resolve())
+        os.environ["HELIX_DB_PATH"] = resolved
+        conn_module.DB_PATH = resolved
+        conn_module.reset_db()  # Clear cached connection so next call uses new path
+
     r = None
 
     if args.cmd == "store":

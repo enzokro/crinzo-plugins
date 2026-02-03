@@ -39,6 +39,7 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
     echo "export PYTHONPATH='$HELIX_ROOT:$PYTHONPATH'" >> "$CLAUDE_ENV_FILE"
     echo "export HELIX_ROOT='$HELIX_ROOT'" >> "$CLAUDE_ENV_FILE"
     echo "export HELIX_DB_PATH='$HELIX_DB_PATH'" >> "$CLAUDE_ENV_FILE"
+    echo "export HELIX_PROJECT_DIR='$PROJECT_ROOT'" >> "$CLAUDE_ENV_FILE"
 fi
 
 # Quick health check

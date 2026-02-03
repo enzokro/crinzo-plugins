@@ -27,7 +27,9 @@ fi
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // ""')
 case "$SUBAGENT_TYPE" in
     helix:helix-*)
-        # Process with Python
+        # Process with Python - export project dir for consistent .helix path resolution
+        export HELIX_PROJECT_DIR="${HELIX_PROJECT_DIR:-$PWD}"
+        export HELIX_DB_PATH="${HELIX_DB_PATH:-$PWD/.helix/helix.db}"
         echo "$INPUT" | python3 "$HELIX_ROOT/lib/hooks/inject_memory.py"
         ;;
     *)

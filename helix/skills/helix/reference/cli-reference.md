@@ -5,7 +5,8 @@
 ### Core Primitives
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..."
+# Use --db for explicit project targeting (required when running from plugin root)
+python3 "$HELIX/lib/memory/core.py" --db "$HELIX_PROJECT_DIR/.helix/helix.db" store --type failure --trigger "..." --resolution "..."
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --expand-depth 2 --intent why
 python3 "$HELIX/lib/memory/core.py" get "memory-name"
 python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves

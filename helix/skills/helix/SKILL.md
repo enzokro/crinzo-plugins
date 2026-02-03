@@ -285,7 +285,7 @@ Each file contains extracted candidates from completed agents. Hooks automatical
 - LEARNED blocks from planners
 
 **2. For each candidate, decide:**
-- **Store as-is:** `python3 "$HELIX/lib/memory/core.py" store --type {type} --trigger "{trigger}" --resolution "{resolution}"`
+- **Store as-is:** `python3 "$HELIX/lib/memory/core.py" --db "$HELIX_PROJECT_DIR/.helix/helix.db" store --type {type} --trigger "{trigger}" --resolution "{resolution}"`
 - **Modify and store:** adjust trigger/resolution before storing
 - **Discard:** not worth storing (delete from queue)
 
@@ -408,8 +408,8 @@ cat .helix/task-status.jsonl
 # Recall with intent routing and multi-hop expansion
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --intent why --expand-depth 2
 
-# Store a pattern (returns conflicts if contradictions found)
-python3 "$HELIX/lib/memory/core.py" store --type pattern --trigger "..." --resolution "..."
+# Store to project database (always use --db for explicit targeting)
+python3 "$HELIX/lib/memory/core.py" --db "$HELIX_PROJECT_DIR/.helix/helix.db" store --type pattern --trigger "..." --resolution "..."
 
 # Credit memories (usually automatic via hooks)
 python3 "$HELIX/lib/memory/core.py" feedback --names '[...]' --delta 0.5

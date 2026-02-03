@@ -38,8 +38,9 @@ from context import (
 
 
 def get_helix_dir() -> Path:
-    """Get .helix directory, creating if needed."""
-    helix_dir = Path.cwd() / ".helix"
+    """Get .helix directory from project, not cwd during hook execution."""
+    project_dir = os.environ.get("HELIX_PROJECT_DIR") or Path.cwd()
+    helix_dir = Path(project_dir) / ".helix"
     helix_dir.mkdir(exist_ok=True)
     return helix_dir
 
