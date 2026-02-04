@@ -197,3 +197,36 @@ def sample_tasks():
             "metadata": {}
         },
     ]
+
+
+@pytest.fixture
+def sample_tasks_with_blocked():
+    """Task list with a blocked blocker - creates stall scenario.
+
+    task-001: completed (delivered)
+    task-002: completed but BLOCKED (not delivered)
+    task-003: pending, depends on task-002 (cannot run due to blocked blocker)
+    """
+    return [
+        {
+            "id": "task-001",
+            "subject": "001: setup-db",
+            "status": "completed",
+            "blockedBy": [],
+            "metadata": {"helix_outcome": "delivered", "delivered_summary": "Created schema"}
+        },
+        {
+            "id": "task-002",
+            "subject": "002: impl-models",
+            "status": "completed",
+            "blockedBy": ["task-001"],
+            "metadata": {"helix_outcome": "blocked", "blocked_reason": "Schema incompatible"}
+        },
+        {
+            "id": "task-003",
+            "subject": "003: impl-auth",
+            "status": "pending",
+            "blockedBy": ["task-002"],
+            "metadata": {}
+        },
+    ]

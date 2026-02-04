@@ -41,8 +41,8 @@ This file (created by SessionStart hook) contains the plugin root path with `lib
 ## Your Workflow
 
 ```
-EXPLORE → PLAN → BUILD → COMPLETE
-                   ↑        |
+EXPLORE → PLAN → BUILD → LEARN → COMPLETE
+                   ↑               |
                    +--[if stalled: replan | skip | abort]
 ```
 
@@ -221,24 +221,74 @@ while pending tasks exist:
 **On DELIVERED:** `git stash drop` — changes are good.
 **On BLOCKED:** `git stash pop` — revert, reassess.
 
-#### Automatic Learning
+#### Automatic Builder Learning
 
 The SubagentStop hook automatically:
 1. Extracts INSIGHT from builder output (if present)
 2. Stores new insight to memory
 3. Applies feedback to INJECTED insights based on outcome
 
-No manual learning phase required. The feedback loop closes automatically.
+This handles task-level learning. But the orchestrator sees the full picture.
+
+### LEARN
+
+**Goal:** Capture session-level insights that builders cannot see.
+
+Builders see one task. You see the whole session: which plans worked, which stalled, what patterns emerged across tasks, what systemic issues appeared.
+
+**This is not optional.** The builders may or may not emit insights. You must reflect on the session and store what matters.
+
+**Reflection questions:**
+
+1. **Unexpected blockers** - What stopped progress that wasn't obvious from exploration?
+2. **Plan failures** - Did the task decomposition make sense? What should have been split or combined?
+3. **Cross-task patterns** - Did multiple builders hit the same issue? What does that reveal?
+4. **Codebase structure** - What did you learn about how this codebase is organized?
+5. **Sharp edges** - What implicit constraints or quirks did you discover?
+6. **Tool/environment issues** - Did any tools behave unexpectedly? Any CI/build gotchas?
+
+**Store insights directly:**
+
+```bash
+python3 "$HELIX/lib/memory/core.py" store \
+  --content "When modifying the auth module, run both unit AND integration tests - unit tests mock the token service but integration tests catch expiry edge cases" \
+  --tags '["testing", "auth"]'
+```
+
+Or via Python:
+```python
+from lib.memory.core import store
+store(
+    content="The DAG planner underestimates tasks that touch multiple modules; split aggressively when files span lib/ and src/",
+    tags=["planning", "structure"]
+)
+```
+
+**What to store (orchestrator-level):**
+
+- **Systemic patterns**: "Three separate tasks hit import errors from lib/utils - the __init__.py doesn't re-export new modules automatically"
+- **Planning insights**: "Tasks involving database migrations should never run in parallel; they deadlock on schema locks"
+- **Exploration gaps**: "The explorer missed the config/ directory entirely; it's not under src/ but contains critical runtime settings"
+- **Session-specific discoveries**: "This codebase uses monorepo structure but packages aren't linked - each must be built separately"
+
+**Minimum:** At least one insight per session that completed work. Zero insights = loop not closed.
 
 ### COMPLETE
 
-All tasks done. Check health:
+All tasks done and learning captured. Final checks:
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" health
 ```
 
-If `with_feedback: 0` and insights were injected, the loop didn't close properly.
+**Verify the loop closed:**
+
+- `with_feedback > 0` if insights were injected (builders provided outcomes)
+- `total_insights` increased if LEARN phase stored discoveries
+
+If you injected insights and `with_feedback: 0`, something broke. If the session completed work and you stored nothing in LEARN, you wasted knowledge.
+
+**Quality over quantity.** One sharp insight beats ten generic observations.
 
 ---
 
@@ -305,4 +355,8 @@ python3 "$HELIX/lib/memory/core.py" health
 
 You receive accumulated knowledge. You pay back discoveries.
 
-Insights that help get stronger. Insights that mislead get weaker. **Close the loop or your next session suffers.**
+Builders handle task-level learning automatically. **You handle session-level learning manually.** Both are required.
+
+Insights that help get stronger. Insights that mislead get weaker.
+
+**Close the loop or your next session starts dumber than this one ended.**

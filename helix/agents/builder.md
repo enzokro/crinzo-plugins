@@ -105,10 +105,25 @@ BLOCKED: <reason>
 INSIGHT: {"content": "When X fails, avoid Y because Z", "tags": ["failure"]}
 ```
 
-The INSIGHT line is **optional** - only emit when there's something genuinely worth remembering:
-- Non-obvious (not something any developer would know)
-- Reusable (applies beyond this specific task)
-- Actionable (tells future builders what to do)
+The INSIGHT line is **optional but valuable** - emit when you learned something that will compound over time.
+
+**What makes an insight worth storing:**
+
+1. **Sharp edges** - "The auth middleware silently swallows errors from expired tokens; always check `req.authError` explicitly"
+2. **Non-obvious dependencies** - "The `build` command requires `lint` to pass first; CI runs them separately but local dev chains them"
+3. **Codebase quirks** - "Tests in `integration/` need the mock server running; unit tests in `unit/` are isolated"
+4. **Naming conventions with rationale** - "Files in `lib/` use snake_case because the bundler transforms them; `src/` uses camelCase"
+5. **Failure modes** - "When imports fail here, check that the target file exists AND that `__init__.py` exposes it"
+6. **Implicit constraints** - "This function must stay synchronous because the upstream caller doesn't await"
+
+**What is NOT worth storing (noise):**
+
+- Generic dev advice anyone knows: "Write tests before implementing"
+- Trivial task completion: "Added the login button"
+- One-off fixes: "Fixed typo in config.json"
+- Unverified speculation: "I think this might be related to caching"
+
+**Test your insight:** Would this help a developer 3 months from now who has never seen this code? Does it capture knowledge that took you effort to discover?
 
 Format: `{"content": "When X, do Y because Z", "tags": ["optional", "tags"]}`
 

@@ -84,7 +84,16 @@ PLAN_COMPLETE: 2 tasks specified
 INSIGHT: {"content": "When planning X type of feature, structure as Y because Z", "tags": ["architecture"]}
 ```
 
-The `INSIGHT` line is **optional** - only emit when there's a genuinely useful architectural insight worth remembering.
+The `INSIGHT` line is **optional** - emit when you discover something about task decomposition that will help future planning:
+
+**Worth storing:**
+- "Features touching both lib/ and src/ should be split into separate tasks; they have different test requirements"
+- "Database migrations must block all dependent tasks; schema changes can't run in parallel"
+- "This codebase uses implicit initialization; setup tasks must verify __init__.py exports"
+
+**Not worth storing:**
+- Generic planning advice: "Break work into small tasks"
+- Obvious dependencies: "Tests require code to exist"
 
 Error format:
 ```
