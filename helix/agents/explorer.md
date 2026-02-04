@@ -24,17 +24,9 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 
 <input>scope, focus, objective</input>
 
-<memory_injection>
-Memory context is automatically injected via PreToolUse hook:
-- KNOWN_FACTS: Skip re-discovering. Focus on gaps. Flag contradictions.
-- RELEVANT_FAILURES: Watch for triggers during exploration.
-
-The hook prepends a `# MEMORY CONTEXT` block to your prompt with relevant facts and failures from the memory graph.
-</memory_injection>
-
 <execution>
 Directory: `ls -la {scope}/` then `grep -rn "{focus}" {scope}/ --include="*.py" | head -15`
-Memory: `python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5 --expand`
+Memory: `python3 "$HELIX/lib/memory/core.py" recall "$OBJECTIVE" --limit 5`
 </execution>
 
 <constraints>

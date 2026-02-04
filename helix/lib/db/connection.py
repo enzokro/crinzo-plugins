@@ -2,8 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Note: Plan and workspace tables have been removed. Task management is now
-handled by Claude Code's native Task system with metadata.
+Schema v5: Unified insight table replaces memory/memory_edge/memory_file_pattern.
 """
 
 import os
@@ -154,6 +153,47 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    # Migration v5: Create unified insight table, migrate from memory
+    if current_version < 5:
+        try:
+            # Create insight table
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS insight (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    content TEXT NOT NULL,
+                    embedding BLOB,
+                    effectiveness REAL DEFAULT 0.5,
+                    use_count INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    last_used TEXT,
+                    tags TEXT DEFAULT '[]'
+                );
+                CREATE INDEX IF NOT EXISTS idx_insight_name ON insight(name);
+            """)
+
+            # Migrate data from memory table if it exists
+            cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory'")
+            if cursor.fetchone():
+                db.execute("""
+                    INSERT OR IGNORE INTO insight (name, content, embedding, effectiveness, use_count, created_at, last_used, tags)
+                    SELECT
+                        name,
+                        trigger || ' -> ' || resolution,
+                        embedding,
+                        CASE WHEN (helped + failed) > 0 THEN helped / (helped + failed) ELSE 0.5 END,
+                        CAST(helped + failed AS INTEGER),
+                        created_at,
+                        last_used,
+                        '["' || type || '"]'
+                    FROM memory
+                """)
+
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (5, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
 
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
@@ -167,9 +207,22 @@ def init_db(db: sqlite3.Connection = None) -> None:
             applied_at TEXT NOT NULL
         );
 
-        -- Memories: learned failures, patterns, and systemic issues
-        -- Note: No CHECK constraint on type - I control the input
-        -- File patterns stored in normalized memory_file_pattern table
+        -- Unified insight table (v5+)
+        CREATE TABLE IF NOT EXISTS insight (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            content TEXT NOT NULL,
+            embedding BLOB,
+            effectiveness REAL DEFAULT 0.5,
+            use_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_used TEXT,
+            tags TEXT DEFAULT '[]'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_insight_name ON insight(name);
+
+        -- Legacy tables kept for migration (will be dropped in future)
         CREATE TABLE IF NOT EXISTS memory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -187,7 +240,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
         CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type);
         CREATE INDEX IF NOT EXISTS idx_memory_name ON memory(name);
 
-        -- Memory relationships (graph edges)
+        -- Memory relationships (graph edges) - legacy
         CREATE TABLE IF NOT EXISTS memory_edge (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             from_name TEXT NOT NULL,
@@ -202,7 +255,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
         CREATE INDEX IF NOT EXISTS idx_edge_to ON memory_edge(to_name);
         CREATE INDEX IF NOT EXISTS idx_edge_rel ON memory_edge(rel_type);
 
-        -- Normalized file patterns for efficient lookup
+        -- Normalized file patterns - legacy
         CREATE TABLE IF NOT EXISTS memory_file_pattern (
             memory_name TEXT NOT NULL,
             pattern TEXT NOT NULL,

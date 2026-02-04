@@ -26,24 +26,6 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 
 <input>objective, exploration</input>
 
-<memory_injection>
-Project context is automatically injected via PreToolUse hook:
-- **Decisions**: Don't re-debate.
-- **Conventions**: Follow.
-- **Evolution**: Build on, don't duplicate.
-
-The hook prepends a `# PROJECT CONTEXT` block to your prompt with relevant decisions, conventions, and evolution entries from the memory graph.
-</memory_injection>
-
-<using_injected_context>
-## Using Injected Context
-
-PROJECT CONTEXT is auto-injected. Before finalizing PLAN_SPEC:
-1. **Prior Decisions**: Design around them. Don't re-debate.
-2. **Conventions**: Follow unless objective explicitly overrides.
-3. **Recent Evolution**: Build on recent work. Don't duplicate effort.
-</using_injected_context>
-
 <execution>
 1. Analyze findings: `{file, what, action, task_hint}`
    **GREENFIELD:** No findings? Synthesize from objective using standard paths.
@@ -99,13 +81,10 @@ PLAN_SPEC:
 ]
 
 PLAN_COMPLETE: 2 tasks specified
-
-LEARNED: [
-  {"type": "decision", "trigger": "chose X over Y", "resolution": "because Z"}
-]
+INSIGHT: {"content": "When planning X type of feature, structure as Y because Z", "tags": ["architecture"]}
 ```
 
-The `LEARNED:` block is REQUIRED. Include architectural decisions, dependency rationale, and patterns discovered during planning.
+The `INSIGHT` line is **optional** - only emit when there's a genuinely useful architectural insight worth remembering.
 
 Error format:
 ```

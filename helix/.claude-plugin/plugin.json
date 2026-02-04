@@ -1,7 +1,7 @@
 {
   "name": "helix",
-  "version": "1.0.14",
-  "description": "Self-learning orchestrator with semantic memory graph. Explore → Plan → Build with feedback-based learning.",
+  "version": "2.0.0",
+  "description": "Self-learning orchestrator with unified insight memory. Explore → Plan → Build with feedback-based learning.",
   "author": { "name": "crinzo" },
   "hooks": {
     "SessionStart": [
@@ -33,17 +33,6 @@
         ]
       }
     ],
-    "PreToolUse": [
-      {
-        "matcher": "Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pretool-task.sh"
-          }
-        ]
-      }
-    ],
     "SubagentStop": [
       {
         "matcher": "helix:helix-.*",
@@ -51,17 +40,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/subagent-stop.sh"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "TaskUpdate",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/posttool-taskupdate.sh"
           }
         ]
       }
