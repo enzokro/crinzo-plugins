@@ -27,9 +27,11 @@ fi
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.tool_input.subagent_type // ""')
 case "$SUBAGENT_TYPE" in
     helix:helix-*)
-        # Process with Python - export project dir for consistent .helix path resolution
-        export HELIX_PROJECT_DIR="${HELIX_PROJECT_DIR:-$PWD}"
-        export HELIX_DB_PATH="${HELIX_DB_PATH:-$PWD/.helix/helix.db}"
+        # Process with Python - let Python's ancestor search find the right .helix/
+        # Only export if already set (inherited from CLAUDE_ENV_FILE)
+        # Otherwise, Python's _get_default_db_path() walks up to find nearest .helix/
+        [ -n "${HELIX_PROJECT_DIR:-}" ] && export HELIX_PROJECT_DIR
+        [ -n "${HELIX_DB_PATH:-}" ] && export HELIX_DB_PATH
         echo "$INPUT" | python3 "$HELIX_ROOT/lib/hooks/inject_memory.py"
         ;;
     *)

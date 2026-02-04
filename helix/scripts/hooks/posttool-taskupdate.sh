@@ -35,10 +35,24 @@ if [ -z "$TASK_ID" ]; then
     exit 0
 fi
 
-# Find injection state for this task
-HELIX_DIR="${PWD}/.helix"
-INJECTION_DIR="$HELIX_DIR/injection-state"
+# Find injection state using ancestor search (consistent with Python hooks)
+# Walk up from cwd to find nearest .helix/ directory
+HELIX_DIR=""
+SEARCH_DIR="$PWD"
+while [ "$SEARCH_DIR" != "/" ]; do
+    if [ -d "$SEARCH_DIR/.helix" ]; then
+        HELIX_DIR="$SEARCH_DIR/.helix"
+        break
+    fi
+    SEARCH_DIR=$(dirname "$SEARCH_DIR")
+done
 
+if [ -z "$HELIX_DIR" ]; then
+    echo "{}"
+    exit 0
+fi
+
+INJECTION_DIR="$HELIX_DIR/injection-state"
 if [ ! -d "$INJECTION_DIR" ]; then
     echo "{}"
     exit 0

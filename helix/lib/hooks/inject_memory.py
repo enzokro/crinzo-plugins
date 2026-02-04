@@ -38,9 +38,27 @@ from context import (
 
 
 def get_helix_dir() -> Path:
-    """Get .helix directory from project, not cwd during hook execution."""
-    project_dir = os.environ.get("HELIX_PROJECT_DIR") or Path.cwd()
-    helix_dir = Path(project_dir) / ".helix"
+    """Get .helix directory using ancestor search (consistent with db.connection).
+
+    Walks up from cwd to find nearest .helix/ directory. This ensures
+    injection-state files are written to the same location as the DB.
+    """
+    # Check env var first (if inherited from CLAUDE_ENV_FILE)
+    project_dir = os.environ.get("HELIX_PROJECT_DIR")
+    if project_dir:
+        helix_dir = Path(project_dir) / ".helix"
+        helix_dir.mkdir(exist_ok=True)
+        return helix_dir
+
+    # Ancestor search (mirrors db.connection._get_default_db_path)
+    cwd = Path.cwd()
+    for parent in [cwd] + list(cwd.parents):
+        helix_dir = parent / ".helix"
+        if helix_dir.exists() and helix_dir.is_dir():
+            return helix_dir
+
+    # Fallback: create in cwd (greenfield case)
+    helix_dir = cwd / ".helix"
     helix_dir.mkdir(exist_ok=True)
     return helix_dir
 

@@ -25,6 +25,8 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 <state_machine>
 INIT -> READ -> IMPLEMENT -> VERIFY -> REPORT
 verify pass? -> DELIVERED : retry once -> BLOCKED
+
+**VERIFY is mandatory. Do not skip it.**
 </state_machine>
 
 <input>
@@ -37,13 +39,13 @@ Optional (orchestrator provides when relevant):
 </input>
 
 <memory_injection>
-Memory context is automatically injected via PreToolUse hook:
+Memory context is injected by the orchestrator before spawning you:
 - FAILURES_TO_AVOID: Error patterns with resolutions
 - PATTERNS_TO_APPLY: Proven techniques
 - CONVENTIONS_TO_FOLLOW: Project standards
 - RELATED_FACTS: Context about files
 
-The hook parses your prompt fields, queries the memory graph, and enriches your prompt with relevant memories. Effectiveness scores (e.g., [75%]) indicate how often each memory has helped.
+Effectiveness scores (e.g., [75%]) indicate how often each memory has helped. Higher scores = more trustworthy advice.
 </memory_injection>
 
 <execution>
@@ -53,9 +55,13 @@ The hook parses your prompt fields, queries the memory graph, and enriches your 
 4. Check FAILURES_TO_AVOID for matching triggers; pivot if match
 5. Apply PATTERNS_TO_APPLY techniques
 6. Implement
-7. Verify (run tests)
-8. If fail: check failures for resolution, retry once
-9. Report
+7. **VERIFY (mandatory):**
+   - For new files: `stat <file>` to confirm exists
+   - For edits: `grep -n "<key pattern>" <file>` to confirm change present
+   - For tests: `npm test` or equivalent; check actual output
+   - **If verification fails, you MUST report BLOCKED**
+8. If test fail: check failures for resolution, retry once
+9. Report only after verification passes
 </execution>
 
 <constraints>
@@ -63,10 +69,16 @@ The hook parses your prompt fields, queries the memory graph, and enriches your 
 - Output MUST be status block with `learned:` line (see `<learn>` section)
 - Format: `DELIVERED:` or `BLOCKED:` followed by `learned:` JSON on next line
 - ZERO narration. Work silently: Read -> Implement -> Verify -> Status
-- Never claim DELIVERED without passing tests
+- **NEVER claim DELIVERED without verification evidence** (see execution step 7)
 - Use parent_deliveries context from completed blockers
 - **NEVER use TaskOutput** - it loads 70KB+ execution traces
 - **NEVER call TaskUpdate** - subagents cannot use Task* tools; orchestrator handles status
+
+**VERIFICATION BEFORE DELIVERED (MANDATORY):**
+- For file creation: Run `stat` or `ls -la` on the file you created
+- For file edits: Run `grep` to confirm your changes are present
+- For tests: Check that test output shows actual test runs, not "No tests found"
+- If you cannot verify, report BLOCKED with reason
 
 **COMPLETION SIGNAL:** `DELIVERED:` or `BLOCKED:` with `learned:` line (orchestrator parses both)
 </constraints>

@@ -87,7 +87,7 @@ OBJECTIVE: {objective}</parameter>
    ```
 
    Track expected count: `EXPLORER_COUNT=N`
-   Memory context is automatically injected via hook.
+   Explorers run their own recall() internally.
 
 3. **Wait for results** (SubagentStop hook writes findings to files):
    ```bash
@@ -130,7 +130,11 @@ EXPLORATION: {findings_json}</parameter>
    ```
 
    **No `run_in_background`.** Task returns synchronously with planner output.
-   Project context (decisions, conventions, evolution) is automatically injected via hook.
+   **Inject planner context before spawning:**
+   ```bash
+   PLANNER_CTX=$(python3 "$HELIX/lib/context.py" build-planner-context --objective "$OBJECTIVE")
+   # Prepend to prompt: $(echo "$PLANNER_CTX" | jq -r '.decisions, .conventions, .recent_evolution')
+   ```
 
 2. **Parse PLAN_SPEC from returned result:**
    The Task tool returns the planner's output directly. Extract the JSON array after `PLAN_SPEC:`.
@@ -169,6 +173,30 @@ See `reference/task-granularity.md` for sizing heuristics.
 
 **Goal:** Execute tasks, learn from each outcome.
 
+#### Memory Injection (REQUIRED before spawning builders)
+
+**Hooks don't fire for subagents.** Orchestrator MUST inject memory context directly:
+
+```bash
+# Ensure injection-state directory exists
+mkdir -p .helix/injection-state
+
+# Build context with memory injection
+TASK_DATA='{"id": "'$TASK_ID'", "subject": "'$TASK_SUBJECT'", "description": "'$TASK_DESC'", "metadata": {"verify": "'$VERIFY'", "relevant_files": '$RELEVANT_FILES'}}'
+CONTEXT=$(python3 "$HELIX/lib/context.py" build-context --task-data "$TASK_DATA")
+BUILDER_PROMPT=$(echo "$CONTEXT" | jq -r '.prompt')
+INJECTED=$(echo "$CONTEXT" | jq -c '.injected')
+
+# Store injection state for feedback attribution
+echo "{\"task_id\": \"$TASK_ID\", \"injected_memories\": $INJECTED}" > ".helix/injection-state/task-$TASK_ID.json"
+```
+
+The `build-context` command queries memory for:
+- FAILURES_TO_AVOID: Error patterns with resolutions
+- PATTERNS_TO_APPLY: Proven techniques
+- CONVENTIONS_TO_FOLLOW: Project standards
+- RELATED_FACTS: Context about files
+
 #### Single Task (Foreground)
 
 For sequential execution or single tasks:
@@ -176,15 +204,13 @@ For sequential execution or single tasks:
 ```xml
 <invoke name="Task">
   <parameter name="subagent_type">helix:helix-builder</parameter>
-  <parameter name="prompt">TASK_ID: {task.id}
-TASK: {task.subject}
-OBJECTIVE: {task.description}
-VERIFY: {task.metadata.verify}
-RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
+  <parameter name="prompt">{BUILDER_PROMPT}</parameter>
   <parameter name="max_turns">25</parameter>
   <parameter name="description">Build task {id}</parameter>
 </invoke>
 ```
+
+**Note:** Use the `BUILDER_PROMPT` from injection step, NOT a manually constructed prompt.
 
 **Processing foreground result:**
 1. Task tool returns synchronously with builder output
@@ -201,16 +227,24 @@ RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
 
 #### Parallel Tasks (Background)
 
-For concurrent execution of independent tasks:
+For concurrent execution of independent tasks, **inject memory for each task first**:
+
+```bash
+# For each ready task, build context
+for TASK_ID in $READY_TASKS; do
+  TASK_DATA='{"id": "'$TASK_ID'", ...}'  # Construct from task data
+  CONTEXT=$(python3 "$HELIX/lib/context.py" build-context --task-data "$TASK_DATA")
+  BUILDER_PROMPT_$TASK_ID=$(echo "$CONTEXT" | jq -r '.prompt')
+  echo "{\"task_id\": \"$TASK_ID\", \"injected_memories\": $(echo "$CONTEXT" | jq -c '.injected')}" > ".helix/injection-state/task-$TASK_ID.json"
+done
+```
+
+Then spawn builders with injected prompts:
 
 ```xml
 <invoke name="Task">
   <parameter name="subagent_type">helix:helix-builder</parameter>
-  <parameter name="prompt">TASK_ID: {task.id}
-TASK: {task.subject}
-OBJECTIVE: {task.description}
-VERIFY: {task.metadata.verify}
-RELEVANT_FILES: {task.metadata.relevant_files}</parameter>
+  <parameter name="prompt">{BUILDER_PROMPT_N}</parameter>
   <parameter name="max_turns">25</parameter>
   <parameter name="run_in_background">true</parameter>
   <parameter name="description">Build task {id}</parameter>
@@ -256,7 +290,7 @@ while pending tasks exist:
     6. Review learning queue (see LEARN)
 ```
 
-Memory context is automatically injected via hook. To include lineage/warnings:
+**Memory injection is orchestrator's responsibility** (see "Memory Injection" section above). To include lineage/warnings:
 ```
 LINEAGE: [{"seq": "001", "slug": "impl-auth", "delivered": "Added OAuth2 flow"}]
 WARNING: Similar auth failures in past 7 days - check token handling
@@ -332,7 +366,7 @@ If `with_feedback: 0` and memories were injected, then you didn't close the loop
 | helix-planner | opus | **Foreground** | Task returns PLAN_SPEC directly |
 | helix-builder | opus | Foreground/Background | Foreground: parse returned result. Background: `.helix/task-status.jsonl` |
 
-Memory context is injected automatically via PreToolUse hook. Results are extracted automatically via SubagentStop hook.
+**Memory injection is orchestrator's responsibility** (hooks don't fire for subagents). Results are extracted automatically via SubagentStop hook.
 
 Contracts in `agents/*.md`.
 
@@ -429,19 +463,19 @@ Full CLI: `reference/cli-reference.md`
 
 ## Hook Architecture
 
-Hooks handle mechanical context-building and result extraction invisibly:
+**IMPORTANT:** PreToolUse hooks don't fire for nested agents (subagents). Memory injection is orchestrator's responsibility.
 
-| Hook | Trigger | Action |
-|------|---------|--------|
-| PreToolUse(Task) | helix agent spawn | Inject memory context into prompt |
-| SubagentStop | helix agent completion | Extract learning candidates; write explorer/builder results to files |
-| PostToolUse(TaskUpdate) | Task outcome reported | Auto-credit/debit injected memories |
+| Hook | Trigger | Action | Status |
+|------|---------|--------|--------|
+| PreToolUse(Task) | helix agent spawn | (Would inject memory) | **BROKEN for subagents** |
+| SubagentStop | helix agent completion | Extract learning candidates; write results | Works |
+| PostToolUse(TaskUpdate) | Task outcome reported | Auto-credit/debit injected memories | Works (if injection-state exists) |
 
 **SubagentStop writes:**
 - Explorer: `.helix/explorer-results/{agent_id}.json` (~500 bytes)
 - Builder: `.helix/task-status.jsonl` (~100 bytes per entry)
 
-**Disable injection:** Add `NO_INJECT: true` to prompt.
+**Memory injection:** Use `build-context` CLI before spawning builders (see BUILD section).
 **Override feedback:** Call `feedback` directly with custom delta.
 
 ---
