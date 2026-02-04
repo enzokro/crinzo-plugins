@@ -1,8 +1,8 @@
 """Integration tests - end-to-end flows.
 
 Tests critical paths that span multiple modules:
-- Store -> Recall -> Inject -> Verify -> Feedback cycle
-- Context building with real memories
+- Store -> Recall -> Feedback cycle
+- Context injection with real insights
 - Orchestration flows
 """
 
@@ -12,140 +12,102 @@ import pytest
 class TestFeedbackLoop:
     """Tests for the complete learning feedback loop."""
 
-    def test_store_inject_feedback_cycle(self, test_db, mock_embeddings):
-        """Complete cycle: store -> recall -> inject -> verify -> feedback."""
+    def test_store_recall_feedback_cycle(self, test_db, mock_embeddings):
+        """Complete cycle: store -> recall -> feedback."""
         from lib.memory.core import store, recall, get, feedback
-        from lib.context import build_context
 
-        # 1. Store a failure memory
+        # 1. Store an insight
         store_result = store(
-            trigger="Test failure when mocking external payment API gateway",
-            resolution="Use dependency injection, mock at service boundary",
-            type="failure"
+            content="When testing payment API, use dependency injection and mock at service boundary because it improves isolation",
+            tags=["testing", "mocking"]
         )
         assert store_result["status"] == "added"
-        memory_name = store_result["name"]
+        insight_name = store_result["name"]
 
         # 2. Recall should find it
         recalled = recall("payment API testing mocks", limit=5)
         names = [r["name"] for r in recalled]
-        assert memory_name in names
+        assert insight_name in names
 
-        # 3. Build context includes it
-        task_data = {
-            "id": "task-test",
-            "subject": "001: fix-payment-tests",
-            "description": "Fix failing payment API tests",
-            "metadata": {"verify": "pytest tests/", "relevant_files": []}
-        }
-        context = build_context(task_data, memory_limit=5)
-        assert memory_name in context["injected"]
-
-        # 4. Simulate verify pass -> feedback
-        result = feedback(context["injected"], 0.5)
+        # 3. Simulate verify pass -> feedback
+        result = feedback([insight_name], "delivered")
         assert result["updated"] >= 1
 
-        # 5. Memory effectiveness increased
-        mem = get(memory_name)
-        assert mem["helped"] == 0.5
-        assert mem["effectiveness"] > 0.5
+        # 4. Insight effectiveness increased
+        insight = get(insight_name)
+        assert insight["effectiveness"] > 0.5
 
     def test_effectiveness_increases_on_success(self, test_db, mock_embeddings):
-        """Verify pass increases effectiveness over multiple uses."""
+        """Delivered outcome increases effectiveness over multiple uses."""
         from lib.memory.core import store, get, feedback
 
         result = store(
-            trigger="Authentication token expiry handling in middleware layer",
-            resolution="Check exp claim, refresh before expiry, handle 401 gracefully",
-            type="failure"
+            content="When handling auth token expiry, check exp claim and refresh before expiry to handle gracefully"
         )
         name = result["name"]
 
         # Initial effectiveness is 0.5 (neutral)
-        mem = get(name)
-        assert mem["effectiveness"] == 0.5
+        insight = get(name)
+        assert insight["effectiveness"] == 0.5
 
         # Two successful uses
-        feedback([name], 0.5)
-        feedback([name], 0.5)
+        feedback([name], "delivered")
+        feedback([name], "delivered")
 
-        mem = get(name)
-        # helped = 1.0, failed = 0 -> effectiveness = 1.0
-        assert mem["helped"] == 1.0
-        assert mem["effectiveness"] == 1.0
+        insight = get(name)
+        # EMA: 0.5 -> 0.55 -> 0.595
+        assert insight["effectiveness"] > 0.5
 
     def test_effectiveness_decreases_on_failure(self, test_db, mock_embeddings):
-        """Verify fail decreases effectiveness for pruning."""
+        """Blocked outcome decreases effectiveness."""
         from lib.memory.core import store, get, feedback
 
         result = store(
-            trigger="Cache invalidation strategy for distributed session store",
-            resolution="Use TTL with event-based invalidation, eventual consistency",
-            type="failure"
+            content="When caching sessions, use TTL with event-based invalidation for eventual consistency"
         )
         name = result["name"]
 
         # Mix of success and failure
-        feedback([name], 0.5)   # +0.5 helped
-        feedback([name], -0.5)  # +0.5 failed
-        feedback([name], -0.5)  # +0.5 failed
+        feedback([name], "delivered")
+        feedback([name], "blocked")
+        feedback([name], "blocked")
 
-        mem = get(name)
-        # helped = 0.5, failed = 1.0 -> effectiveness = 0.5 / 1.5 = 0.333
-        assert mem["helped"] == 0.5
-        assert mem["failed"] == 1.0
-        assert mem["effectiveness"] < 0.5
+        insight = get(name)
+        # EMA after delivered, blocked, blocked should be < 0.5
+        assert insight["effectiveness"] < 0.5
 
 
 class TestContextInjection:
-    """Tests for context building with real memories."""
+    """Tests for context building with real insights."""
 
-    def test_context_with_real_memories(self, test_db, mock_embeddings, sample_memories):
-        """build_context returns actual memories from store."""
-        from lib.context import build_context
+    def test_inject_context_with_real_insights(self, test_db, mock_embeddings, sample_insights):
+        """inject_context returns actual insights from store."""
+        from lib.injection import inject_context
 
-        task_data = {
-            "id": "task-auth",
-            "subject": "001: implement-authentication",
-            "description": "Implement user authentication with secure token handling",
-            "metadata": {
-                "verify": "pytest tests/test_auth.py",
-                "relevant_files": ["src/auth/jwt.py"]
-            }
-        }
+        result = inject_context("user authentication with secure token handling", limit=5)
 
-        result = build_context(task_data, memory_limit=5)
-
-        # Should have injected some memories from sample_memories
-        assert len(result["injected"]) > 0
-
-        # Prompt should be well-formed
-        # Note: INJECTED_MEMORIES removed from prompt (tracked in injection-state for feedback)
-        assert "TASK_ID: task-auth" in result["prompt"]
-        assert "FAILURES_TO_AVOID:" in result["prompt"]
+        # Should have found some relevant insights
+        assert len(result["names"]) > 0
+        assert len(result["insights"]) > 0
 
     def test_context_feedback_ranking(self, test_db, mock_embeddings):
-        """Higher effectiveness memories rank higher on next recall."""
+        """Higher effectiveness insights rank higher on next recall."""
         from lib.memory.core import store, recall, feedback
 
-        # Store two similar memories
+        # Store two similar insights
         r1 = store(
-            trigger="Database connection pool exhaustion under high load conditions",
-            resolution="Increase pool size, add connection timeout, monitor metrics",
-            type="failure"
+            content="When database connections exhaust under load, increase pool size and add connection timeout"
         )
         r2 = store(
-            trigger="Database connection leaks when exceptions occur in transaction",
-            resolution="Use context manager, ensure cleanup in finally block",
-            type="failure"
+            content="When database connections leak during exceptions, use context manager and ensure cleanup in finally"
         )
 
         # Give r1 positive feedback
-        feedback([r1["name"]], 0.5)
-        feedback([r1["name"]], 0.5)
+        feedback([r1["name"]], "delivered")
+        feedback([r1["name"]], "delivered")
 
         # Give r2 negative feedback
-        feedback([r2["name"]], -0.5)
+        feedback([r2["name"]], "blocked")
 
         # Recall should rank r1 higher
         results = recall("database connection issues", limit=5)
@@ -201,45 +163,3 @@ class TestOrchestrationFlow:
 
         assert is_stalled is True
         assert "t3" in str(info["blocked_by_blocked"])
-
-
-class TestSystemicMemories:
-    """Tests for systemic memory type (replaces OrchestratorMeta)."""
-
-    def test_systemic_memory_stored_and_recalled(self, test_db, mock_embeddings):
-        """Systemic type memories can be stored and recalled."""
-        from lib.memory.core import store, recall
-
-        # Store systemic memory (what orchestrator does on 3x same failure)
-        result = store(
-            trigger="Repeated: Import errors in authentication module",
-            resolution="UNRESOLVED",
-            type="systemic"
-        )
-        assert result["status"] == "added"
-
-        # Recall should find it
-        results = recall("import errors authentication", limit=5)
-        names = [r["name"] for r in results]
-        types = [r["type"] for r in results]
-
-        assert result["name"] in names
-        assert "systemic" in types
-
-    def test_warning_passed_to_context(self, test_db, mock_embeddings):
-        """Warning string injected into context appears in prompt."""
-        from lib.context import build_context
-
-        task_data = {
-            "id": "t4",
-            "subject": "004: fix-imports",
-            "description": "Fix import structure",
-            "metadata": {"verify": "pytest"}
-        }
-
-        warning = "Systemic issue detected: import_error (seen 3x). Address this first."
-        context = build_context(task_data, warning=warning)
-
-        # Warning should appear in prompt
-        assert "WARNING:" in context["prompt"]
-        assert "import_error" in context["prompt"]
