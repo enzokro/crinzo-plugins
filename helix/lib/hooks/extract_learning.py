@@ -736,21 +736,27 @@ def process_hook_input(hook_input: dict) -> dict:
         tool_use_id=tool_use_id,
     )
 
-    # Race condition fix: if builder has outcome but no candidates, retry with backoff
-    # (transcript file may not be fully flushed when hook fires)
+    # Race condition fix: transcript may not be fully flushed when hook fires
+    # Retry if: outcome unknown (markers not flushed) OR delivered but no candidates (LEARNED not flushed)
     agent_short = agent_type.replace("helix:helix-", "")
-    if agent_short == "builder" and not entry["candidates"] and entry["outcome"] == "delivered":
-        for delay in [0.15, 0.35]:
-            time.sleep(delay)
-            transcript = Path(transcript_path).read_text()
-            entry = process_transcript(
-                agent_id=agent_id,
-                agent_type=agent_type,
-                transcript=transcript,
-                tool_use_id=tool_use_id,
-            )
-            if entry["candidates"]:
-                break
+    if agent_short == "builder":
+        needs_retry = (
+            entry["outcome"] == "unknown" or
+            (entry["outcome"] == "delivered" and not entry["candidates"])
+        )
+        if needs_retry:
+            for delay in [0.15, 0.35, 0.75]:
+                time.sleep(delay)
+                transcript = Path(transcript_path).read_text()
+                entry = process_transcript(
+                    agent_id=agent_id,
+                    agent_type=agent_type,
+                    transcript=transcript,
+                    tool_use_id=tool_use_id,
+                )
+                # Stop if definitive result: blocked (no candidates expected) or delivered with candidates
+                if entry["outcome"] != "unknown" and (entry["outcome"] == "blocked" or entry["candidates"]):
+                    break
 
     if entry["candidates"]:
         write_to_queue(entry)
@@ -773,7 +779,6 @@ def process_hook_input(hook_input: dict) -> dict:
         write_task_status(task_id, agent_id, outcome, summary)
 
     # Write explorer results for orchestrator (avoids TaskOutput context flood)
-    agent_short = agent_type.replace("helix:helix-", "")
     if agent_short == "explorer":
         findings = extract_explorer_findings(transcript)
         if findings:
