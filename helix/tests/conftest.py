@@ -1,6 +1,6 @@
 """Shared fixtures for helix test suite.
 
-Design principles (from FTL patterns):
+Design principles:
 - Database isolation: Fresh DB per test via fixture
 - Module reloading: Reset singleton connections
 - Sample data factories: Reusable test data
@@ -44,51 +44,41 @@ def test_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def sample_memories(test_db):
-    """Pre-populated memories for recall tests.
+def sample_insights(test_db, mock_embeddings):
+    """Pre-populated insights for recall tests.
 
-    Creates a mix of failure and pattern memories with varying
-    effectiveness for testing recall ranking.
+    Creates a mix of insights with varying effectiveness
+    for testing recall ranking.
     """
     from lib.memory.core import store
 
-    memories = [
+    insights = [
         {
-            "trigger": "Import error when using relative imports in src/auth/jwt.py",
-            "resolution": "Use absolute imports from package root: from auth.jwt import create_token",
-            "type": "failure",
-            "source": "test_fixture"
+            "content": "When importing fails in Python, check sys.path first because module resolution depends on it",
+            "tags": ["python", "debugging"]
         },
         {
-            "trigger": "Database connection timeout in production environment",
-            "resolution": "Add retry logic with exponential backoff, check connection pool settings",
-            "type": "failure",
-            "source": "test_fixture"
+            "content": "When database connection times out, add retry with exponential backoff because transient failures are common",
+            "tags": ["database", "reliability"]
         },
         {
-            "trigger": "Task: implement user authentication endpoint",
-            "resolution": "Use JWT tokens, store refresh tokens in httponly cookies, validate on each request",
-            "type": "pattern",
-            "source": "test_fixture"
+            "content": "When implementing auth, use JWT with refresh tokens stored in httponly cookies for security",
+            "tags": ["auth", "security"]
         },
         {
-            "trigger": "Test failures when mocking external APIs for payment service",
-            "resolution": "Use dependency injection pattern, mock at service boundary not HTTP level",
-            "type": "failure",
-            "source": "test_fixture"
+            "content": "When mocking external APIs, mock at service boundary not HTTP level for better isolation",
+            "tags": ["testing", "mocking"]
         },
         {
-            "trigger": "Task: optimize database queries for dashboard metrics",
-            "resolution": "Add composite indexes, use query batching, implement caching layer",
-            "type": "pattern",
-            "source": "test_fixture"
+            "content": "When optimizing queries, add composite indexes and use query batching for performance",
+            "tags": ["database", "performance"]
         },
     ]
 
     stored = []
-    for m in memories:
-        result = store(**m)
-        stored.append({**m, "name": result["name"], "status": result["status"]})
+    for i in insights:
+        result = store(**i)
+        stored.append({**i, "name": result["name"], "status": result["status"]})
 
     return stored
 
@@ -147,7 +137,7 @@ def mock_embeddings(monkeypatch):
 def meta_dir(tmp_path, monkeypatch):
     """Isolated .helix directory for meta state.
 
-    Provides clean directory for OrchestratorMeta persistence tests.
+    Provides clean directory for state persistence tests.
     """
     helix_dir = tmp_path / ".helix"
     helix_dir.mkdir()
@@ -204,34 +194,6 @@ def sample_tasks():
             "subject": "004: impl-api",
             "status": "pending",
             "blockedBy": ["task-003"],
-            "metadata": {}
-        },
-    ]
-
-
-@pytest.fixture
-def sample_tasks_with_blocked():
-    """Task list with blocked tasks for stall detection tests."""
-    return [
-        {
-            "id": "task-001",
-            "subject": "001: setup-db",
-            "status": "completed",
-            "blockedBy": [],
-            "metadata": {"helix_outcome": "delivered"}
-        },
-        {
-            "id": "task-002",
-            "subject": "002: impl-models",
-            "status": "completed",
-            "blockedBy": ["task-001"],
-            "metadata": {"helix_outcome": "blocked", "blocked_reason": "schema conflict"}
-        },
-        {
-            "id": "task-003",
-            "subject": "003: impl-auth",
-            "status": "pending",
-            "blockedBy": ["task-002"],
             "metadata": {}
         },
     ]

@@ -1,7 +1,7 @@
-"""Tests for memory/core.py - store, recall, feedback.
+"""Tests for memory/core.py - unified insight storage.
 
 Critical path: The memory feedback loop is the core learning mechanism.
-These tests verify store/recall/feedback work correctly.
+These tests verify store/recall/feedback work correctly with the new unified API.
 """
 
 import pytest
@@ -9,17 +9,15 @@ from datetime import datetime, timedelta
 
 
 class TestStore:
-    """Tests for memory storage and validation."""
+    """Tests for insight storage and validation."""
 
-    def test_store_valid_failure(self, test_db, mock_embeddings):
-        """Store failure memory successfully."""
+    def test_store_valid_insight(self, test_db, mock_embeddings):
+        """Store insight successfully."""
         from lib.memory.core import store, get
 
         result = store(
-            trigger="Import error when using relative imports in auth module",
-            resolution="Use absolute imports from package root",
-            type="failure",
-            source="test"
+            content="When debugging Python imports, check sys.path first because module resolution depends on it",
+            tags=["python", "debugging"]
         )
 
         assert result["status"] == "added"
@@ -27,116 +25,63 @@ class TestStore:
         assert result["reason"] == ""
 
         # Verify persisted
-        mem = get(result["name"])
-        assert mem is not None
-        assert mem["type"] == "failure"
-        assert "relative imports" in mem["trigger"]
+        insight = get(result["name"])
+        assert insight is not None
+        assert "sys.path" in insight["content"]
+        assert "python" in insight["tags"]
 
-    def test_store_valid_pattern(self, test_db, mock_embeddings):
-        """Store pattern memory successfully."""
-        from lib.memory.core import store, get
-
-        result = store(
-            trigger="Task: implement user authentication with OAuth",
-            resolution="Use OAuth2 PKCE flow for SPAs, store tokens securely",
-            type="pattern",
-            source="chunked"
-        )
-
-        assert result["status"] == "added"
-
-        mem = get(result["name"])
-        assert mem["type"] == "pattern"
-
-    def test_store_rejects_short_trigger(self, test_db):
-        """Reject triggers shorter than 10 characters."""
+    def test_store_rejects_short_content(self, test_db):
+        """Reject content shorter than 20 characters."""
         from lib.memory.core import store
 
-        result = store(
-            trigger="short",
-            resolution="This is a valid resolution",
-            type="failure"
-        )
+        result = store(content="too short")
 
         assert result["status"] == "rejected"
         assert "too short" in result["reason"]
 
-    def test_store_rejects_empty_resolution(self, test_db):
-        """Reject empty resolutions."""
-        from lib.memory.core import store
-
-        result = store(
-            trigger="This is a valid trigger with enough characters",
-            resolution="   ",  # Whitespace only
-            type="failure"
-        )
-
-        assert result["status"] == "rejected"
-        assert "empty" in result["reason"]
-
-    def test_store_rejects_invalid_type(self, test_db):
-        """Reject invalid memory types."""
-        from lib.memory.core import store
-
-        result = store(
-            trigger="This is a valid trigger with enough characters",
-            resolution="This is a valid resolution",
-            type="invalid_type"
-        )
-
-        assert result["status"] == "rejected"
-        assert "type" in result["reason"]
-
     def test_store_deduplicates_similar(self, test_db, mock_embeddings):
-        """Similar memories (cosine >= 0.85) are merged, not duplicated."""
+        """Similar insights (cosine >= 0.85) are merged, not duplicated."""
         from lib.memory.core import store
 
-        # Store first memory
+        # Store first insight
         result1 = store(
-            trigger="Import error when using relative imports in src/auth module",
-            resolution="Use absolute imports from package root",
-            type="failure"
+            content="When debugging Python imports, check sys.path first because module resolution depends on it"
         )
         assert result1["status"] == "added"
 
-        # Attempt to store nearly identical memory
-        # Note: With deterministic embeddings, exact same text = identical embedding
+        # Attempt to store nearly identical insight
         result2 = store(
-            trigger="Import error when using relative imports in src/auth module",
-            resolution="Use absolute imports from package root instead",
-            type="failure"
+            content="When debugging Python imports, check sys.path first because module resolution depends on it"
         )
 
         assert result2["status"] == "merged"
         assert result2["name"] == result1["name"]
 
-    def test_store_creates_file_patterns(self, test_db, mock_embeddings):
-        """File patterns are extracted and stored in normalized table."""
-        from lib.memory.core import store
+    def test_store_with_tags(self, test_db, mock_embeddings):
+        """Tags are stored correctly."""
+        from lib.memory.core import store, get
 
         result = store(
-            trigger="Test failure in tests/test_auth.py when mocking JWT validation",
-            resolution="Mock at src/auth/jwt.py service boundary, not HTTP level",
-            type="failure"
+            content="When implementing auth, use JWT with short expiry because it limits damage from stolen tokens",
+            tags=["security", "auth", "jwt"]
         )
 
-        assert result["status"] == "added"
-        # File patterns stored in normalized table
-        db = test_db
-        rows = db.execute(
-            "SELECT pattern FROM memory_file_pattern WHERE memory_name=?",
-            (result["name"],)
-        ).fetchall()
-        patterns = [r["pattern"] for r in rows]
-        assert any("test_auth.py" in p or "jwt.py" in p for p in patterns)
+        insight = get(result["name"])
+        assert "security" in insight["tags"]
+        assert "auth" in insight["tags"]
 
 
 class TestRecall:
-    """Tests for memory recall and ranking."""
+    """Tests for insight recall and ranking."""
 
-    def test_recall_ranks_by_score(self, test_db, mock_embeddings, sample_memories):
-        """Recall returns memories ranked by composite score."""
-        from lib.memory.core import recall
+    def test_recall_ranks_by_score(self, test_db, mock_embeddings):
+        """Recall returns insights ranked by composite score."""
+        from lib.memory.core import store, recall
+
+        # Store some insights
+        store(content="When implementing auth, use JWT with refresh tokens for better security")
+        store(content="When debugging Python imports, check sys.path first")
+        store(content="When writing tests, mock at service boundaries not HTTP level")
 
         results = recall("authentication and JWT implementation", limit=5)
 
@@ -151,500 +96,179 @@ class TestRecall:
         scores = [r["_score"] for r in results]
         assert scores == sorted(scores, reverse=True)
 
-    def test_recall_filters_by_type(self, test_db, mock_embeddings, sample_memories):
-        """Recall respects type filter."""
-        from lib.memory.core import recall
-
-        failures = recall("authentication", type="failure", limit=10)
-        patterns = recall("authentication", type="pattern", limit=10)
-
-        for f in failures:
-            assert f["type"] == "failure"
-
-        for p in patterns:
-            assert p["type"] == "pattern"
-
     def test_recall_filters_by_effectiveness(self, test_db, mock_embeddings):
         """Recall respects min_effectiveness threshold."""
         from lib.memory.core import store, recall, feedback
 
-        # Store memory and give it feedback
+        # Store insight and give it feedback
         result = store(
-            trigger="Syntax error when using async/await without proper error handling",
-            resolution="Wrap async calls in try/catch, use .catch() for promises",
-            type="failure"
+            content="When handling async errors, always wrap in try/catch because unhandled rejections crash Node"
         )
 
-        # Give positive feedback to increase effectiveness above 0.5
-        feedback([result["name"]], 0.5)
-        feedback([result["name"]], 0.5)
+        # Give positive feedback to increase effectiveness
+        feedback([result["name"]], "delivered")
+        feedback([result["name"]], "delivered")
 
         # Should appear with low threshold
         results_low = recall("async error handling", min_effectiveness=0.0, limit=5)
         names_low = [r["name"] for r in results_low]
 
-        # Should appear with medium threshold (effectiveness now > 0.5)
-        results_mid = recall("async error handling", min_effectiveness=0.6, limit=5)
-        names_mid = [r["name"] for r in results_mid]
-
-        # The memory should be in low threshold results
+        # The insight should be in results
         assert result["name"] in names_low
-
-    def test_recall_by_file_patterns(self, test_db, mock_embeddings):
-        """Recall by file patterns finds memories matching paths."""
-        from lib.memory.core import store, recall_by_file_patterns
-
-        # Store memory with file reference
-        store(
-            trigger="Test failure in tests/test_payment.py when processing refunds",
-            resolution="Mock payment gateway response, not HTTP client",
-            type="failure"
-        )
-
-        # Query by file pattern
-        results = recall_by_file_patterns(["tests/test_payment.py"], limit=5)
-
-        # Should find the memory
-        assert len(results) >= 1
-        found = any("payment" in r["trigger"].lower() for r in results)
-        assert found
 
 
 class TestFeedback:
     """Tests for feedback loop - THE critical mechanism."""
 
-    def test_feedback_success_credits_memories(self, test_db, mock_embeddings):
-        """Positive delta credits memories with helped."""
+    def test_feedback_delivered_increases_effectiveness(self, test_db, mock_embeddings):
+        """Delivered outcome increases effectiveness."""
         from lib.memory.core import store, get, feedback
 
-        # Store memory
         result = store(
-            trigger="Connection timeout when calling external API in ci environment",
-            resolution="Increase timeout, add retry with backoff",
-            type="failure"
+            content="When connection times out, increase timeout and add retry with exponential backoff"
         )
         name = result["name"]
 
         # Check initial state
-        mem_before = get(name)
-        assert mem_before["helped"] == 0
-        assert mem_before["failed"] == 0
+        insight_before = get(name)
+        assert insight_before["effectiveness"] == 0.5  # Neutral start
+        assert insight_before["use_count"] == 0
 
         # Give positive feedback
-        fb_result = feedback([name], 0.5)
+        fb_result = feedback([name], "delivered")
 
         assert fb_result["updated"] == 1
-        assert fb_result["delta"] == 0.5
+        assert fb_result["outcome"] == "delivered"
 
-        # Check memory was credited
-        mem_after = get(name)
-        assert mem_after["helped"] == 0.5
-        assert mem_after["failed"] == 0
-        assert mem_after["last_used"] is not None
+        # Check effectiveness increased
+        insight_after = get(name)
+        assert insight_after["effectiveness"] > insight_before["effectiveness"]
+        assert insight_after["use_count"] == 1
+        assert insight_after["last_used"] is not None
 
-    def test_feedback_failure_penalizes_memories(self, test_db, mock_embeddings):
-        """Negative delta increases failed count for pruning capability."""
+    def test_feedback_blocked_decreases_effectiveness(self, test_db, mock_embeddings):
+        """Blocked outcome decreases effectiveness."""
         from lib.memory.core import store, get, feedback
 
         result = store(
-            trigger="Memory leak when using closures in event handlers incorrectly",
-            resolution="Remove event listeners on unmount, use WeakMap for caching",
-            type="failure"
+            content="When memory leaks occur, check for unclosed event listeners"
         )
         name = result["name"]
 
+        insight_before = get(name)
+
         # Give negative feedback
-        fb_result = feedback([name], -0.5)
+        fb_result = feedback([name], "blocked")
 
         assert fb_result["updated"] == 1
 
-        mem = get(name)
-        assert mem["helped"] == 0
-        assert mem["failed"] == 0.5  # Failure recorded for pruning
+        insight_after = get(name)
+        assert insight_after["effectiveness"] < insight_before["effectiveness"]
+        assert insight_after["use_count"] == 1
 
-    def test_feedback_skips_unknown_memories(self, test_db, mock_embeddings):
-        """Non-existent memory names are silently skipped."""
+    def test_feedback_skips_unknown_insights(self, test_db, mock_embeddings):
+        """Non-existent insight names are silently skipped."""
         from lib.memory.core import feedback
 
-        fb_result = feedback(["nonexistent-memory-name", "also-does-not-exist"], 0.5)
+        fb_result = feedback(["nonexistent-insight-name", "also-does-not-exist"], "delivered")
 
         assert fb_result["updated"] == 0
 
-    def test_feedback_updates_last_used(self, test_db, mock_embeddings):
-        """Feedback updates last_used timestamp for recency scoring."""
-        from lib.memory.core import store, get, feedback
-        import time
+    def test_feedback_rejects_invalid_outcome(self, test_db, mock_embeddings):
+        """Invalid outcome strings are rejected."""
+        from lib.memory.core import store, feedback
 
-        result = store(
-            trigger="Race condition when multiple requests update same resource concurrently",
-            resolution="Use optimistic locking with version field",
-            type="failure"
-        )
-        name = result["name"]
+        result = store(content="When testing async code, use proper async test utilities")
 
-        mem_before = get(name)
-        before_last_used = mem_before["last_used"]
+        fb_result = feedback([result["name"]], "invalid")
 
-        time.sleep(0.01)  # Small delay to ensure different timestamp
-
-        feedback([name], 0.5)
-
-        mem_after = get(name)
-        assert mem_after["last_used"] != before_last_used
-        assert mem_after["last_used"] > (before_last_used or "")
+        assert fb_result["updated"] == 0
+        assert "error" in fb_result
 
 
-class TestEdges:
-    """Tests for graph edge operations - knowledge connections."""
+class TestDecay:
+    """Tests for decay mechanism."""
 
-    def test_edge_creates_relationship(self, test_db, mock_embeddings, sample_memories):
-        """Test basic edge creation between memories."""
-        from lib.memory.core import edge, edges
-
-        # Get two memory names from fixtures
-        mem_names = [m["name"] for m in sample_memories]
-        assert len(mem_names) >= 2
-
-        # Create edge
-        result = edge(mem_names[0], mem_names[1], "solves", weight=1.0)
-        assert result["from"] == mem_names[0]
-        assert result["to"] == mem_names[1]
-        assert result["rel_type"] == "solves"
-
-        # Query edges
-        found = edges(name=mem_names[0])
-        assert len(found) == 1
-        assert found[0]["to_name"] == mem_names[1]
-        assert found[0]["rel_type"] == "solves"
-
-    def test_edge_weight_accumulates(self, test_db, mock_embeddings, sample_memories):
-        """Test that repeated edge calls add weight (strengthening)."""
-        from lib.memory.core import edge, edges
-
-        mem_names = [m["name"] for m in sample_memories]
-
-        # Create initial edge
-        edge(mem_names[0], mem_names[1], "co_occurs", weight=1.0)
-
-        # Strengthen by calling again
-        edge(mem_names[0], mem_names[1], "co_occurs", weight=0.5)
-
-        # Check accumulated weight
-        found = edges(name=mem_names[0], rel_type="co_occurs")
-        assert len(found) == 1
-        assert found[0]["weight"] == 1.5  # 1.0 + 0.5
-
-    def test_graph_expansion_in_recall(self, test_db, mock_embeddings):
-        """Test that expand=True surfaces connected memories."""
-        from lib.memory.core import store, edge, recall
-
-        # Create a failure
-        failure = store(
-            trigger="JWT token expiration causing 401 errors in production",
-            resolution="Implement token refresh flow before API calls",
-            type="failure"
-        )
-
-        # Create a solution pattern
-        solution = store(
-            trigger="Task: handle authentication token lifecycle",
-            resolution="Use refresh tokens stored in httponly cookies, auto-refresh before expiry",
-            type="pattern"
-        )
-
-        # Connect them: pattern solves failure
-        edge(solution["name"], failure["name"], "solves", weight=1.0)
-
-        # Recall with expansion should find solution via edge
-        results = recall("token expiration problems", expand=True, limit=10)
-        names = [r["name"] for r in results]
-
-        # Both should appear - failure directly, solution via edge
-        assert failure["name"] in names
-        # The solution may or may not appear depending on semantic similarity
-        # but if it appears, it should have _via_edge marker
-        for r in results:
-            if r["name"] == solution["name"] and r.get("_via_edge"):
-                assert True
-                break
-
-    def test_edge_weight_affects_score(self, test_db, mock_embeddings):
-        """Test that higher edge weights boost recall scores."""
-        from lib.memory.core import store, edge, recall
-
-        # Create base failure
-        base = store(
-            trigger="Database connection pool exhaustion under load",
-            resolution="Increase pool size, add connection timeout",
-            type="failure"
-        )
-
-        # Create two solution patterns
-        strong_solution = store(
-            trigger="Task: implement database connection pooling",
-            resolution="Use PgBouncer, configure max connections per worker",
-            type="pattern"
-        )
-
-        weak_solution = store(
-            trigger="Task: optimize database query performance",
-            resolution="Add indexes, use query caching",
-            type="pattern"
-        )
-
-        # Connect with different weights
-        edge(strong_solution["name"], base["name"], "solves", weight=3.0)
-        edge(weak_solution["name"], base["name"], "solves", weight=0.5)
-
-        # Recall with expansion
-        results = recall("database connection problems", expand=True, limit=10)
-
-        # Find positions of both solutions (if they appear via edge)
-        strong_idx = None
-        weak_idx = None
-        for i, r in enumerate(results):
-            if r["name"] == strong_solution["name"]:
-                strong_idx = i
-            if r["name"] == weak_solution["name"]:
-                weak_idx = i
-
-        # If both appear, strong should rank higher (lower index)
-        if strong_idx is not None and weak_idx is not None:
-            assert strong_idx < weak_idx, "Strong edge weight should rank higher"
-
-
-class TestSimilarRecent:
-    """Tests for similar_recent() function - code-assisted systemic detection."""
-
-    def test_similar_recent_finds_recent_similar(self, test_db, mock_embeddings):
-        """Finds memories with similar triggers created recently."""
-        from lib.memory.core import store, similar_recent
-
-        # Create several related failures
-        store(
-            trigger="Import error when loading user authentication module",
-            resolution="Check module path and dependencies",
-            type="failure"
-        )
-        store(
-            trigger="Import error when loading payment processing service",
-            resolution="Verify package installation",
-            type="failure"
-        )
-        store(
-            trigger="Import error when initializing config parser",
-            resolution="Install missing yaml library",
-            type="failure"
-        )
-
-        # Query for similar
-        results = similar_recent("Import error when loading", threshold=0.5, days=7)
-
-        # Should find the related failures
-        assert len(results) >= 2
-        for r in results:
-            assert "_similarity" in r
-            assert r["_similarity"] >= 0.5
-
-    def test_similar_recent_filters_by_type(self, test_db, mock_embeddings):
-        """Type filter restricts results to specified type."""
-        from lib.memory.core import store, similar_recent
-
-        store(
-            trigger="Connection timeout in API client calls",
-            resolution="Increase timeout value",
-            type="failure"
-        )
-        store(
-            trigger="Connection timeout pattern - use retries",
-            resolution="Implement exponential backoff",
-            type="pattern"
-        )
-
-        # Query only failures
-        results = similar_recent("Connection timeout", threshold=0.3, days=7, type="failure")
-
-        # All results should be failures
-        for r in results:
-            assert r["type"] == "failure"
-
-    def test_similar_recent_respects_days_window(self, test_db, mock_embeddings):
-        """Only returns memories within the specified time window."""
-        from lib.memory.core import store, similar_recent, get_db, write_lock
+    def test_decay_affects_unused_insights(self, test_db, mock_embeddings):
+        """Decay moves unused insights toward neutral effectiveness."""
+        from lib.memory.core import store, get, feedback, decay, get_db, write_lock
         from datetime import datetime, timedelta
 
-        # Create a failure
-        result = store(
-            trigger="Memory allocation failure in image processing pipeline",
-            resolution="Reduce batch size",
-            type="failure"
-        )
+        # Store insight and give it feedback
+        result = store(content="When X happens, do Y because Z - this is test content")
+        feedback([result["name"]], "delivered")
+        feedback([result["name"]], "delivered")
 
-        # Manually backdate it to 30 days ago
+        insight_before = get(result["name"])
+        assert insight_before["effectiveness"] > 0.5
+
+        # Manually backdate last_used
         db = get_db()
-        old_date = (datetime.now() - timedelta(days=30)).isoformat()
+        old_date = (datetime.now() - timedelta(days=60)).isoformat()
         with write_lock():
-            db.execute("UPDATE memory SET created_at=? WHERE name=?", (old_date, result["name"]))
+            db.execute("UPDATE insight SET last_used=? WHERE name=?", (old_date, result["name"]))
             db.commit()
 
-        # Query with 7-day window should not find it
-        results = similar_recent("Memory allocation failure", threshold=0.3, days=7)
-        names = [r["name"] for r in results]
-        assert result["name"] not in names
+        # Run decay
+        decay_result = decay(unused_days=30)
+        assert decay_result["decayed"] >= 1
 
-        # Query with 60-day window should find it
-        results = similar_recent("Memory allocation failure", threshold=0.3, days=60)
-        names = [r["name"] for r in results]
-        assert result["name"] in names
-
-    def test_similar_recent_systemic_detection_pattern(self, test_db, mock_embeddings):
-        """Demonstrates systemic detection: 3+ similar failures = escalate."""
-        from lib.memory.core import store, similar_recent
-
-        # Simulate repeated failures with distinct triggers to avoid deduplication
-        store(
-            trigger="Database connection refused error in user service at startup",
-            resolution="Check database server status and restart if needed",
-            type="failure"
-        )
-        store(
-            trigger="Database connection refused error in payment service during checkout",
-            resolution="Verify connection pool settings",
-            type="failure"
-        )
-        store(
-            trigger="Database connection refused error in analytics service overnight batch",
-            resolution="Check scheduled maintenance window",
-            type="failure"
-        )
-
-        # Before storing another, check for systemic pattern
-        existing = similar_recent(
-            "Database connection refused error",
-            threshold=0.5,  # Lower threshold to catch related but distinct triggers
-            days=7,
-            type="failure"
-        )
-
-        # If len >= 2, escalate to systemic (as per SKILL.md)
-        assert len(existing) >= 2, "Should detect recurring pattern"
+        # Effectiveness should have moved toward 0.5
+        insight_after = get(result["name"])
+        assert insight_after["effectiveness"] < insight_before["effectiveness"]
 
 
-class TestSuggestEdges:
-    """Tests for suggest_edges() function - edge creation prompts."""
+class TestPrune:
+    """Tests for pruning low-performing insights."""
 
-    def test_suggest_edges_finds_similar_memories(self, test_db, mock_embeddings):
-        """Suggests edges to semantically similar memories."""
-        from lib.memory.core import store, suggest_edges
+    def test_prune_removes_low_effectiveness(self, test_db, mock_embeddings):
+        """Prune removes insights below effectiveness threshold."""
+        from lib.memory.core import store, get, feedback, prune
 
-        # Create several related memories
-        failure = store(
-            trigger="CORS error when frontend calls backend API",
-            resolution="Configure CORS headers on server",
-            type="failure"
-        )
-        pattern = store(
-            trigger="Task: implement proper CORS configuration",
-            resolution="Set Access-Control-Allow-Origin headers for allowed domains",
-            type="pattern"
-        )
+        # Store insight and make it fail repeatedly
+        result = store(content="When A happens, do B - but this advice is bad")
 
-        # Get suggestions for the failure
-        suggestions = suggest_edges(failure["name"])
+        # Give negative feedback many times to drive effectiveness down
+        # EMA: new_eff = old * 0.9 + 0 * 0.1, so need ~15 to get below 0.25
+        for _ in range(15):
+            feedback([result["name"]], "blocked")
 
-        # Should suggest pattern as potential solver
-        assert len(suggestions) >= 1
-        suggestion_targets = [s["to"] for s in suggestions] + [s["from"] for s in suggestions]
-        assert pattern["name"] in suggestion_targets or len(suggestions) == 0  # May vary with mock embeddings
+        insight = get(result["name"])
+        assert insight["effectiveness"] < 0.25
+        assert insight["use_count"] >= 3
 
-    def test_suggest_edges_determines_rel_type(self, test_db, mock_embeddings):
-        """Suggests appropriate relationship types based on memory types."""
-        from lib.memory.core import store, suggest_edges
+        # Run prune
+        prune_result = prune(min_effectiveness=0.25, min_uses=3)
+        assert result["name"] in prune_result["removed"]
 
-        # Create a failure
-        failure = store(
-            trigger="Authentication failure due to expired JWT token",
-            resolution="Implement token refresh mechanism",
-            type="failure"
-        )
-        # Create a pattern that could solve it
-        pattern = store(
-            trigger="Task: handle JWT token expiration gracefully",
-            resolution="Use refresh tokens, check expiry before requests",
-            type="pattern"
-        )
+        # Insight should be gone
+        assert get(result["name"]) is None
 
-        suggestions = suggest_edges(pattern["name"])
 
-        # If pattern->failure suggestion exists, rel_type should be "solves"
-        for s in suggestions:
-            if s["to"] == failure["name"] and s["from"] == pattern["name"]:
-                assert s["rel_type"] == "solves"
-                break
+class TestHealth:
+    """Tests for health check."""
 
-    def test_suggest_edges_includes_confidence(self, test_db, mock_embeddings):
-        """All suggestions include confidence score."""
-        from lib.memory.core import store, suggest_edges
+    def test_health_reports_status(self, test_db, mock_embeddings):
+        """Health returns system status."""
+        from lib.memory.core import store, feedback, health
 
-        store(
-            trigger="Rate limiting exceeded when calling external API",
-            resolution="Implement request throttling",
-            type="failure"
-        )
-        result = store(
-            trigger="Rate limit errors from third-party services",
-            resolution="Add backoff and retry logic",
-            type="failure"
-        )
+        # Store and provide feedback
+        result = store(content="When testing, mock at boundaries because it reduces coupling")
+        feedback([result["name"]], "delivered")
 
-        suggestions = suggest_edges(result["name"])
+        h = health()
 
-        for s in suggestions:
-            assert "confidence" in s
-            assert 0 <= s["confidence"] <= 1
-            assert "reason" in s
+        assert h["status"] in ("HEALTHY", "NEEDS_ATTENTION")
+        assert h["total_insights"] >= 1
+        assert h["with_feedback"] >= 1
+        assert "effectiveness" in h
+        assert isinstance(h["by_tag"], dict)
 
-    def test_suggest_edges_excludes_existing(self, test_db, mock_embeddings):
-        """Does not suggest edges that already exist."""
-        from lib.memory.core import store, edge, suggest_edges
+    def test_health_reports_no_insights(self, test_db):
+        """Health reports when no insights exist."""
+        from lib.memory.core import health
 
-        mem1 = store(
-            trigger="Null pointer exception in user service handler",
-            resolution="Add null checks before dereferencing",
-            type="failure"
-        )
-        mem2 = store(
-            trigger="Null reference error in user data processing",
-            resolution="Use optional chaining or null coalescing",
-            type="failure"
-        )
+        h = health()
 
-        # Create edge manually
-        edge(mem1["name"], mem2["name"], "similar", weight=1.0)
-
-        # Suggestions should not include this existing edge
-        suggestions = suggest_edges(mem1["name"])
-        for s in suggestions:
-            if s["from"] == mem1["name"] and s["to"] == mem2["name"]:
-                assert s["rel_type"] != "similar", "Should not suggest existing edge"
-
-    def test_suggest_edges_respects_limit(self, test_db, mock_embeddings):
-        """Limit parameter caps number of suggestions."""
-        from lib.memory.core import store, suggest_edges
-
-        # Create many related memories
-        for i in range(10):
-            store(
-                trigger=f"API endpoint failure scenario {i}",
-                resolution=f"Handle error case {i}",
-                type="failure"
-            )
-
-        result = store(
-            trigger="API endpoint failure scenario base",
-            resolution="Handle error case base",
-            type="failure"
-        )
-
-        suggestions = suggest_edges(result["name"], limit=3)
-        assert len(suggestions) <= 3
+        assert h["status"] == "NEEDS_ATTENTION"
+        assert "No insights" in h["issues"][0]
