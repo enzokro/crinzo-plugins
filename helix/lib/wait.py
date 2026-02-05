@@ -309,6 +309,84 @@ def wait_for_explorer_results(
     }
 
 
+def wait_for_builder_results(
+    task_ids: List[str],
+    helix_dir: Optional[str] = None,
+    timeout_sec: float = 300.0,
+    poll_interval: float = 2.0
+) -> dict:
+    """Wait for builder task completions in task-status.jsonl.
+
+    SubagentStop hook writes builder outcomes to .helix/task-status.jsonl.
+    This function waits until all specified task_ids have entries.
+
+    Args:
+        task_ids: List of task IDs to wait for
+        helix_dir: Path to .helix directory (defaults to cwd/.helix)
+        timeout_sec: Maximum wait time in seconds
+        poll_interval: Seconds between polls
+
+    Returns:
+        Dict with completed tasks grouped by outcome
+    """
+    if helix_dir:
+        status_file = Path(helix_dir) / "task-status.jsonl"
+    else:
+        status_file = Path.cwd() / ".helix" / "task-status.jsonl"
+
+    task_set = set(task_ids)
+    start = time.time()
+
+    while time.time() - start < timeout_sec:
+        if status_file.exists():
+            found = {}
+            for line in status_file.read_text().splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    tid = entry.get("task_id")
+                    if tid in task_set:
+                        found[tid] = entry
+                except json.JSONDecodeError:
+                    continue
+
+            if task_set <= set(found.keys()):
+                # All tasks found
+                delivered = [e for e in found.values() if e.get("outcome") == "delivered"]
+                blocked = [e for e in found.values() if e.get("outcome") == "blocked"]
+                return {
+                    "completed": True,
+                    "count": len(found),
+                    "delivered": delivered,
+                    "blocked": blocked,
+                    "all_delivered": len(blocked) == 0
+                }
+
+        time.sleep(poll_interval)
+
+    # Timeout - return partial results
+    partial = {}
+    if status_file.exists():
+        for line in status_file.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+                tid = entry.get("task_id")
+                if tid in task_set:
+                    partial[tid] = entry
+            except json.JSONDecodeError:
+                pass
+
+    missing = task_set - set(partial.keys())
+    return {
+        "completed": False,
+        "timed_out": True,
+        "found": list(partial.values()),
+        "missing": list(missing),
+        "expected": list(task_ids)
+    }
+
+
 # CLI interface
 if __name__ == "__main__":
     import argparse
@@ -348,6 +426,15 @@ if __name__ == "__main__":
     p_explorers.add_argument("--helix-dir", help="Path to .helix directory (default: cwd/.helix)")
     p_explorers.add_argument("--timeout", type=float, default=300.0, help="Timeout in seconds")
     p_explorers.add_argument("--poll-interval", type=float, default=2.0, help="Poll interval in seconds")
+
+    # wait-for-builders command - wait for builder task completions
+    p_builders = subparsers.add_parser("wait-for-builders",
+                                        help="Wait for builder task completions in task-status.jsonl")
+    p_builders.add_argument("--task-ids", required=True,
+                             help="Comma-separated list of task IDs to wait for")
+    p_builders.add_argument("--helix-dir", help="Path to .helix directory (default: cwd/.helix)")
+    p_builders.add_argument("--timeout", type=float, default=300.0, help="Timeout in seconds")
+    p_builders.add_argument("--poll-interval", type=float, default=2.0, help="Poll interval in seconds")
 
     args = parser.parse_args()
 
