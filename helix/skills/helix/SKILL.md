@@ -201,10 +201,11 @@ The `INJECTED` line enables feedback attribution when the builder completes.
 </invoke>
 ```
 
-Poll `.helix/task-status.jsonl` for completion:
+Wait for builder completions (SubagentStop hook writes outcomes to file):
 ```bash
-cat .helix/task-status.jsonl 2>/dev/null
+python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
 ```
+Returns JSON with `completed`, `delivered`, `blocked`, `all_delivered`, and partial results on timeout.
 
 #### Build Loop
 
@@ -321,6 +322,12 @@ Contracts in `agents/*.md`.
 ## Quick Reference
 
 ```bash
+# Wait for explorers
+python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
+
+# Wait for parallel builders
+python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
+
 # Recall insights
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5
 
