@@ -2,47 +2,5 @@
   "name": "helix",
   "version": "2.0.0",
   "description": "Self-learning orchestrator with unified insight memory. Explore → Plan → Build with feedback-based learning.",
-  "author": { "name": "crinzo" },
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh",
-            "timeout": 120
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/setup-env.sh"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/session_end.py"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "helix:helix-.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/extract_learning.py"
-          }
-        ]
-      }
-    ]
-  }
+  "author": { "name": "crinzo" }
 }
