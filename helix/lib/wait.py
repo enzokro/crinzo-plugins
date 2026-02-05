@@ -483,3 +483,13 @@ if __name__ == "__main__":
             poll_interval=args.poll_interval
         )
         print(json.dumps(result))
+
+    elif args.cmd == "wait-for-builders":
+        task_ids = [t.strip() for t in args.task_ids.split(",")]
+        result = wait_for_builder_results(
+            task_ids=task_ids,
+            helix_dir=args.helix_dir,
+            timeout_sec=args.timeout,
+            poll_interval=args.poll_interval
+        )
+        print(json.dumps(result))
