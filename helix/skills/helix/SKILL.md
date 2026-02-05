@@ -79,10 +79,9 @@ OBJECTIVE: {objective}</parameter>
 
 3. **Wait for results** (SubagentStop hook writes findings to files):
    ```bash
-   while [ $(ls .helix/explorer-results/*.json 2>/dev/null | wc -l) -lt $EXPLORER_COUNT ]; do
-     sleep 2
-   done
+   python3 "$HELIX/lib/wait.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
    ```
+   Returns JSON with `completed`, `findings`, and partial results on timeout.
 
 4. **Merge findings:**
    ```bash
@@ -152,9 +151,9 @@ context = inject_context(task_objective, limit=5)
 # context = {"insights": ["[75%] When X...", ...], "names": ["insight-name-1", ...]}
 ```
 
-Or via CLI:
+Or via CLI (pass task_id to write injection state for audit):
 ```bash
-python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5)))"
+python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
 ```
 
 Include in builder prompt:

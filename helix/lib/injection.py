@@ -4,15 +4,23 @@ Single injection function replaces 4-query context builder.
 """
 
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 
-def inject_context(objective: str, limit: int = 5) -> dict:
+def get_helix_dir() -> Path:
+    """Get .helix directory path."""
+    return Path.cwd() / ".helix"
+
+
+def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None) -> dict:
     """Build memory context for any agent.
 
     Args:
         objective: Task objective for semantic search
         limit: Maximum insights to inject
+        task_id: Optional task ID; if provided, writes injection state for audit
 
     Returns: {
         "insights": ["[75%] When X, do Y", ...],
@@ -34,9 +42,23 @@ def inject_context(objective: str, limit: int = 5) -> dict:
             insights.append(f"[{eff_pct}%] {content}")
             names.append(m.get("name", ""))
 
+    names = [n for n in names if n]
+
+    # Write injection state for audit trail (foreground agents don't trigger SubagentStop)
+    if task_id and names:
+        state_dir = get_helix_dir() / "injection-state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_file = state_dir / f"{task_id}.json"
+        state_file.write_text(json.dumps({
+            "task_id": task_id,
+            "query": objective,
+            "names": names,
+            "ts": datetime.now(timezone.utc).isoformat()
+        }))
+
     return {
         "insights": insights,
-        "names": [n for n in names if n]
+        "names": names
     }
 
 

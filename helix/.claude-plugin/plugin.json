@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-end.sh"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/session_end.py"
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/subagent-stop.sh"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/extract_learning.py"
           }
         ]
       }
