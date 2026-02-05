@@ -14,49 +14,46 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
         │                      │                      │
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Hook Layer (Invisible)                    │
-│  SessionStart: init db, env   SessionEnd: process queue      │
-│  PreToolUse: inject memory    SubagentStop: extract learning │
-│  PostToolUse: auto-feedback                                  │
+│                    Hook Layer (Python)                      │
+│  SessionStart: init venv/db  SubagentStop: extract & feedback│
+│  SessionEnd: log summary                                     │
 └─────────────────────────────────────────────────────────────┘
         │                      │                      │
         ▼                      ▼                      ▼
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│  Explorer  │  │  Planner   │  │  Builder   │  │  Observer  │
-│  (haiku)   │  │  (opus)    │  │  (opus)    │  │  (haiku)   │
-│  agents/   │  │  agents/   │  │  agents/   │  │  agents/   │
-│ explorer.md│  │ planner.md │  │ builder.md │  │ observer.md│
-└────────────┘  └────────────┘  └────────────┘  └────────────┘
+┌────────────┐         ┌────────────┐         ┌────────────┐
+│  Explorer  │         │  Planner   │         │  Builder   │
+│  (haiku)   │         │  (opus)    │         │  (opus)    │
+│  agents/   │         │  agents/   │         │  agents/   │
+│ explorer.md│         │ planner.md │         │ builder.md │
+└────────────┘         └────────────┘         └────────────┘
         │                      │                      │
         ▼                      ▼                      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Utilities                          │
-│  lib/memory/core.py  - 9 core + 4 maintenance primitives    │
-│  lib/hooks/          - Memory injection & learning extraction│
-│  lib/context.py      - Agent-specific context building      │
-│  lib/prompt_parser.py - Structured field extraction         │
-│  lib/observer.py     - Learning extraction from agents      │
+│  lib/memory/core.py  - 6 core primitives (store, recall, etc)│
+│  lib/injection.py    - Insight injection for agents          │
+│  lib/extraction.py   - Learning extraction from transcripts  │
+│  lib/prompt_parser.py - Structured field extraction          │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    .helix/helix.db (SQLite)                 │
-│  memory, memory_edge, memory_file_pattern                   │
+│  insight table with embeddings, effectiveness, tags          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Key principle**: Hooks separate judgment from mechanics. Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator retains judgment: what to store, when to override feedback, what candidates to keep
+**Key principle**: Hooks separate judgment from mechanics. Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator retains judgment: what to store, when to override feedback, what candidates to keep.
 
 ## Agents
 
-Four agents with distinct roles:
+Three agents with distinct roles:
 
 | Agent | Model | Purpose | Tools | Context Injection |
 |-------|-------|---------|-------|-------------------|
-| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | Auto: facts, failures |
-| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash | Auto: decisions, conventions, evolution |
-| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash, TaskUpdate | Auto: all types + lineage |
-| **Observer** | Haiku | Learning queue processing | Read, Grep, Bash | Auto: facts, failures |
+| **Explorer** | Haiku | Parallel reconnaissance | Read, Grep, Glob, Bash | Auto: relevant insights |
+| **Planner** | Opus | Task decomposition | Read, Grep, Glob, Bash | Auto: relevant insights |
+| **Builder** | Opus | Task execution | Read, Write, Edit, Grep, Glob, Bash | Auto: insights + INJECTED names |
 
 ### Explorer (`agents/explorer.md`)
 
@@ -66,8 +63,6 @@ Input:
 - `scope`: Directory path or "memory"
 - `focus`: What to find within scope
 - `objective`: User goal for context
-- `known_facts`: Facts already known (skip re-discovery)
-- `relevant_failures`: Failures to watch for
 
 Output (JSON):
 ```json
@@ -84,10 +79,11 @@ Output (JSON):
     }
   ],
   "framework": {"detected": "FastAPI", "confidence": "HIGH", "evidence": "..."},
-  "patterns_observed": ["dependency injection", "..."],
-  "memories": [{"name": "...", "trigger": "...", "why": "..."}]
+  "patterns_observed": ["dependency injection", "..."]
 }
 ```
+
+Explorer results written to `.helix/explorer-results/{agent_id}.json` by SubagentStop hook.
 
 ### Planner (`agents/planner.md`)
 
@@ -96,13 +92,12 @@ Decomposes objective into task DAG using Claude Code's native Task system.
 Input:
 - `objective`: What to build
 - `exploration`: Merged explorer findings
-- `project_context`: {decisions, conventions, recent_evolution}
 
 Output:
 ```
-TASK_MAPPING:
-001 -> task-abc123
-002 -> task-def456
+PLAN_SPEC:
+001: task-abc123 | Setup authentication service
+002: task-def456 | Add login routes | blocks: [001]
 
 PLAN_COMPLETE: 2 tasks
 ```
@@ -112,29 +107,17 @@ Or clarification request:
 {"decision": "CLARIFY", "questions": ["..."]}
 ```
 
-Task metadata structure:
-```json
-{
-  "seq": "001",
-  "relevant_files": ["src/api/routes.py", "src/models/user.py"]
-}
-```
-
 ### Builder (`agents/builder.md`)
 
 Executes a single task. Reports DELIVERED or BLOCKED.
 
 Input:
-- `task_id`: Unique task identifier
-- `objective`: What to build
-- `verify`: Command to prove success
-- `relevant_files`: Files to read first
-- `failures_to_avoid`: Memory hints (with confidence: `[75%]` or `[unproven]`)
-- `patterns_to_apply`: Memory hints
-- `conventions_to_follow`: Project-specific conventions
-- `related_facts`: Facts about relevant files
-- `parent_deliveries`: Context from completed blockers
-- `warning`: Systemic issue to address first
+- `TASK_ID`: Unique task identifier
+- `TASK`: What to build
+- `OBJECTIVE`: Overall objective for context
+- `VERIFY`: Command to prove success
+- `INSIGHTS`: Injected context with effectiveness scores
+- `INJECTED`: List of insight names for feedback tracking
 
 Output:
 ```
@@ -147,124 +130,58 @@ TRIED: <what attempted>
 ERROR: <message>
 ```
 
-Task update before text output:
+Optional insight output:
 ```
-TaskUpdate(taskId="...", status="completed", metadata={"helix_outcome": "delivered"|"blocked", "summary": "..."})
+INSIGHT: {"content": "When X, do Y because Z", "tags": ["pattern"]}
 ```
-
-### Observer (`agents/observer.md`)
-
-Processes the learning queue autonomously. Stores high-value candidates, discards low-value ones, flags uncertain cases.
-
-Input:
-- `QUEUE_DIR`: Directory containing learning candidates
-- `SESSION_OBJECTIVE`: Original user objective for context
-
-State machine: `SCAN -> DECIDE -> CONNECT -> REPORT`
-
-Output:
-```json
-{
-  "status": "success",
-  "queue_dir": "{queue_dir}",
-  "processed": {
-    "stored": [{"name": "memory-name", "type": "pattern", "trigger": "..."}],
-    "discarded": [{"trigger": "...", "reason": "duplicate|irrelevant|low-value"}],
-    "flagged": [{"trigger": "...", "reason": "needs orchestrator review"}]
-  },
-  "edges_created": [{"from": "mem-a", "to": "mem-b", "type": "reinforces"}],
-  "systemic_detected": [{"pattern": "...", "occurrences": 3, "action": "stored as systemic"}]
-}
-```
-
-Decision criteria:
-- **Store**: Specific trigger, actionable resolution, not duplicate
-- **Discard**: Too vague, already covered, ephemeral
-- **Flag**: Contradicts existing memory, high impact but uncertain, affects multiple systems
 
 ## Hook System
 
-Helix uses Claude Code hooks for invisible memory operations.
+Helix uses Claude Code hooks (Python) for invisible learning operations.
 
 ### SessionStart Hooks
 
 **Files:** `scripts/init.sh`, `scripts/setup-env.sh`
 
 Two hooks run at session start:
-1. **init.sh**: Initializes the SQLite database, creates `.helix/` directory structure, sets up Python venv
-2. **setup-env.sh**: Writes `plugin_root` file for subagents, validates environment
-
-### SessionEnd Hook
-
-**File:** `scripts/hooks/session-end.sh`
-
-Runs when session ends:
-- Counts pending learning queue items
-- Auto-stores medium-confidence candidates that match existing high-effectiveness patterns
-- Cleans up queue files older than 7 days
-- Logs session summary to `.helix/session.log`
-
-### PreToolUse(Task) Hook
-
-**Files:** `scripts/hooks/pretool-task.sh` → `lib/hooks/inject_memory.py`
-
-Intercepts Task tool calls for helix agents. Parses prompt fields, queries memory graph, enriches prompt with relevant context.
-
-| Agent | Context Block | Memory Types |
-|-------|---------------|--------------|
-| Explorer | `# MEMORY CONTEXT` | facts, failures |
-| Planner | `# PROJECT CONTEXT` | decisions, conventions, evolution |
-| Builder | Structured fields | all types via semantic + file search |
-
-**Control:** Add `NO_INJECT: true` to prompt to skip injection.
+1. **init.sh**: Initializes the SQLite database, creates `.helix/` directory structure, sets up Python venv, installs dependencies
+2. **setup-env.sh**: Writes `plugin_root` file for subagents, sets PYTHONPATH/HELIX_DB_PATH in CLAUDE_ENV_FILE, runs health check
 
 ### SubagentStop Hook
 
-**Files:** `scripts/hooks/subagent-stop.sh` → `lib/hooks/extract_learning.py`
+**File:** `lib/hooks/extract_learning.py`
 
-Parses agent transcripts for learning markers. Writes candidates to `.helix/learning-queue/`.
+Triggered when any `helix:helix-*` agent completes. Processes transcripts for:
 
-| Agent | Marker | Memory Types |
-|-------|--------|--------------|
-| Builder | `learned` metadata field | pattern, failure, convention |
-| Explorer | FINDINGS section | fact |
-| Planner | LEARNED block | decision |
+1. **Insight extraction**: Looks for `INSIGHT: {"content": "...", "tags": [...]}` or derives from DELIVERED/BLOCKED
+2. **Outcome detection**: Parses DELIVERED/BLOCKED markers
+3. **Feedback application**: Updates effectiveness of injected insights via EMA
+4. **Result persistence**: Writes explorer findings to `.helix/explorer-results/`, task status to `.helix/task-status.jsonl`
 
-### PostToolUse(TaskUpdate) Hook
+**Feedback formula (EMA):**
+```
+new_effectiveness = old_effectiveness × 0.9 + outcome_value × 0.1
+outcome_value = 1.0 (delivered) | 0.0 (blocked)
+```
 
-**File:** `scripts/hooks/posttool-taskupdate.sh`
+### SessionEnd Hook
 
-Detects `helix_outcome` in TaskUpdate metadata. Auto-credits/debits injected memories:
-- **delivered**: +0.5 to `helped`
-- **blocked**: -0.3 to `failed`
+**File:** `lib/hooks/session_end.py`
 
-Correlates with injection state via task_id, then cleans up state file.
+Runs when session ends:
+- Counts pending learning queue items
+- Logs session summary to `.helix/session.log`
+- Cleans up queue files older than 7 days
 
 ### State Files
 
-| Directory | Purpose | Lifecycle |
-|-----------|---------|-----------|
-| `.helix/injection-state/` | Tracks injected memories | Created on inject, deleted after feedback |
-| `.helix/learning-queue/` | Learning candidates | Created on agent stop, deleted after review |
-| `.helix/session.log` | Session event log | Append-only, tracks SessionEnd events |
-
-**Learning queue file format** (`.helix/learning-queue/{agent_id}.json`):
-```json
-{
-  "agent_id": "helix-builder-abc123",
-  "agent_type": "builder",
-  "timestamp": "2024-01-15T10:30:00",
-  "candidates": [
-    {
-      "trigger": "...",
-      "resolution": "...",
-      "type": "pattern",
-      "confidence": "high|medium|low",
-      "source": "builder:task-001"
-    }
-  ]
-}
-```
+| File/Directory | Purpose | Lifecycle |
+|----------------|---------|-----------|
+| `.helix/injection-state/` | Tracks injected insights per task | Created on inject, used for audit |
+| `.helix/explorer-results/` | Explorer findings by agent ID | Created on SubagentStop |
+| `.helix/task-status.jsonl` | Task outcomes for orchestrator | Append-only, JSONL format |
+| `.helix/session.log` | Session event log | Append-only |
+| `.helix/extraction.log` | Learning extraction diagnostics | Append-only |
 
 ## Prompt Parser (`lib/prompt_parser.py`)
 
@@ -273,7 +190,7 @@ Parses structured fields from Task prompts for hook injection.
 **Recognized Fields:**
 - Explorer: `SCOPE`, `FOCUS`, `OBJECTIVE`
 - Planner: `OBJECTIVE`, `EXPLORATION`
-- Builder: `TASK_ID`, `TASK`, `OBJECTIVE`, `VERIFY`, `RELEVANT_FILES`, `LINEAGE`, `WARNING`, `MEMORY_LIMIT`
+- Builder: `TASK_ID`, `TASK`, `OBJECTIVE`, `VERIFY`, `INSIGHTS`, `INJECTED`
 - Control: `NO_INJECT` (skip injection if "true")
 
 **Functions:**
@@ -286,252 +203,120 @@ extract_*_params(prompt)       # → agent-specific parameters
 
 ## Memory System
 
-### Types
+### Insight Model
 
-Seven memory types serve different purposes:
+Single `insight` table stores all learned knowledge:
 
-| Type | Purpose | When Stored | Decay Half-Life |
-|------|---------|-------------|-----------------|
-| **failure** | What went wrong and how to fix it | Builder blocks with generalizable cause | 7 days |
-| **pattern** | Successful approach to apply | Success required non-obvious discovery | 7 days |
-| **systemic** | Recurring issue (3+ occurrences) | Same failure pattern detected 3+ times | 14 days |
-| **fact** | Codebase structure and relationships | Explorer finds high-confidence structure | 30 days |
-| **convention** | Validated patterns for this project | Builder applies pattern successfully | 14 days |
-| **decision** | Architectural choices already made | Planner makes explicit design choice | 30 days |
-| **evolution** | What changed recently | Task completes with file changes | 7 days |
+| Field | Type | Description |
+|-------|------|-------------|
+| name | TEXT | Unique kebab-case identifier |
+| content | TEXT | "When X, do Y because Z" format |
+| embedding | BLOB | 384-dim all-MiniLM-L6-v2 |
+| effectiveness | REAL | 0.0-1.0, starts at 0.5 (neutral) |
+| use_count | INTEGER | Number of times used in feedback |
+| tags | TEXT | JSON array for categorization |
+| created_at | TEXT | ISO timestamp |
+| last_used | TEXT | ISO timestamp of last feedback |
 
-### Type-Specific Scoring
-
-Different memory types use different weight profiles (`SCORE_WEIGHTS_BY_TYPE` in core.py):
-
-| Type | Relevance | Effectiveness | Recency | Rationale |
-|------|-----------|---------------|---------|-----------|
-| failure | 0.5 | 0.3 | 0.2 | Balance relevance with proven fixes |
-| pattern | 0.5 | 0.3 | 0.2 | Balance relevance with proven success |
-| systemic | 0.6 | 0.3 | 0.1 | Relevance matters; recency less so for recurring issues |
-| fact | 0.7 | 0.1 | 0.2 | Codebase structure—relevance dominant |
-| convention | 0.4 | 0.4 | 0.2 | Validated through use; effectiveness matters |
-| decision | 0.6 | 0.2 | 0.2 | Architectural choices—relevance dominant |
-| evolution | 0.4 | 0.1 | 0.5 | Recent changes—recency dominant |
-
-**Decay Half-Lives** (`DECAY_HALF_LIFE_BY_TYPE` in core.py):
-
-| Type | Half-Life | Rationale |
-|------|-----------|-----------|
-| failure | 7 days | Should fade if not re-encountered |
-| pattern | 7 days | Validated through use |
-| systemic | 14 days | Important recurring issues decay slower |
-| fact | 30 days | Codebase structure is stable |
-| convention | 14 days | Conventions are validated patterns |
-| decision | 30 days | Architectural decisions are long-lived |
-| evolution | 7 days | Recent changes most relevant when recent |
+**Semantic deduplication:** New insights are compared against existing embeddings. If cosine similarity ≥ 0.85, the existing insight gets a use_count bump instead of creating a duplicate.
 
 ### Primitives (`lib/memory/core.py`)
 
-**9 Core Primitives:**
+**6 Core Primitives:**
 ```python
-store(trigger, resolution, type, source)  # → {"status": "added"|"merged", "name": "..."}
-recall(query, type, limit, expand)        # → [memories with _score, _relevance, _recency]
-recall_by_type(query, types, limit)       # → {type: [memories]} grouped by type
-get(name)                                  # → single memory dict
-edge(from_name, to_name, rel_type, weight) # → create/strengthen relationship
-edges(name, rel_type)                      # → query relationships
-feedback(names, delta)                     # → update scores
-decay(unused_days, min_uses)              # → halve scores on dormant memories
-prune(min_effectiveness, min_uses)        # → remove low performers
-health()                                   # → system status
-```
-
-**2 Code-Assisted (surfaces facts, orchestrator decides):**
-```python
-similar_recent(trigger, threshold, days, type)  # → systemic detection candidates
-suggest_edges(memory_name, limit)               # → edge creation candidates
-```
-
-**3 Maintenance Functions:**
-```python
-decay_edges(unused_days)        # → decay unused edge weights
-consolidate(similarity_threshold)  # → merge highly similar memories
-chunk(task, outcome, approach)  # → SOAR-pattern extraction
+store(content, tags)              # → {"status": "added"|"merged", "name": "..."}
+recall(query, limit, min_eff)     # → [insights with _score, _relevance, _recency]
+get(name)                         # → single insight dict
+feedback(names, outcome)          # → update effectiveness via EMA
+decay(unused_days)                # → decay dormant insights toward 0.5
+prune(min_eff, min_uses)          # → remove low performers
+health()                          # → system status
 ```
 
 ### Scoring Formula
 
 ```
-score = (relevance_weight × relevance) + (effectiveness_weight × effectiveness) + (recency_weight × recency)
+score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
 
-relevance = cosine_similarity(query_embedding, memory_embedding)
-effectiveness = helped / (helped + failed)  # default 0.5 if no feedback
-recency = 2^(-days_since_use / half_life)   # type-specific half-life
+relevance = cosine_similarity(query_embedding, insight_embedding)
+effectiveness = 0.0-1.0 (stored directly, updated via EMA)
+recency = 2^(-days_since_use / 14)
 ```
 
-### Intent-Aware Query Routing
+**Score weights** (`SCORE_WEIGHTS` in core.py):
+```python
+{'relevance': 0.5, 'effectiveness': 0.3, 'recency': 0.2}
+```
 
-The `recall` command supports `--intent` for type boosting:
-
-| Intent | Priority Types | Use Case |
-|--------|---------------|----------|
-| `why` | failure, systemic | Debugging, root cause |
-| `how` | pattern, convention | Implementation guidance |
-| `what` | fact, decision | Understanding structure |
-| `debug` | failure, pattern | Error resolution |
-
-Builder context uses `intent="how"` to boost patterns and conventions.
-
-### Graph System
-
-Edge types:
-- **solves**: Pattern's resolution solved a failure
-- **co_occurs**: Both memories helped same task
-- **causes**: Failure A led to discovering failure B
-- **similar**: Conceptual overlap worth preserving
-
-Graph expansion (`--expand` flag) surfaces solutions connected to relevant failures. Edge weights boost scores of graph-discovered memories.
-
-## Observer System (`lib/observer.py`)
-
-Extracts learnings from agent outputs. Orchestrator reviews candidates and decides storage.
-
-### Observer Functions
+### Feedback via EMA
 
 ```python
-observe_explorer(output)                    # → candidates (type=fact, convention)
-observe_planner(tasks, exploration)         # → candidates (type=decision)
-observe_builder(task, result, files_changed) # → candidates (type=evolution, convention, failure)
-observe_session(objective, tasks, outcomes)  # → session summary (type=evolution)
-
-should_store(candidate, min_confidence)     # → bool
-store_candidates(candidates, min_confidence) # → {stored: [...], skipped: [...]}
+new_effectiveness = old_effectiveness * 0.9 + outcome_value * 0.1
+outcome_value = 1.0 if outcome == "delivered" else 0.0
 ```
 
-### Confidence Levels
+- Starts at 0.5 (neutral)
+- Moves toward 1.0 with repeated success
+- Moves toward 0.0 with repeated failure
+- EMA smoothing prevents single outliers from dominating
 
-Candidates include `_confidence` field: high, medium, low
+### Decay and Pruning
 
-- **high**: We know this happened (task delivered, explicit error)
-- **medium**: Strong evidence (pattern detected, decision made)
-- **low**: Needs validation through use (observed pattern)
+**Decay** (`decay(unused_days=30)`):
+- Affects insights not used in `unused_days`
+- Moves effectiveness toward 0.5 by 10%: `eff = eff * 0.9 + 0.5 * 0.1`
 
-## Context Building (`lib/context.py`)
+**Prune** (`prune(min_effectiveness=0.25, min_uses=3)`):
+- Removes insights with effectiveness < threshold
+- Only affects insights with at least `min_uses` to ensure fair evaluation
 
-Context is automatically injected via PreToolUse hook. The orchestrator does not call context.py directly.
+## Injection System (`lib/injection.py`)
 
-### Explorer Context
-```python
-build_explorer_context(objective, scope, limit=5)
-# Returns: {"known_facts": [...], "relevant_failures": [...], "injected": [...]}
-```
-
-### Planner Context
-```python
-build_planner_context(objective, limit=5)
-# Returns: {"decisions": [...], "conventions": [...], "recent_evolution": [...], "injected": [...]}
-```
-
-### Builder Context
-```python
-build_context(task_data, lineage=None, memory_limit=5, warning=None)
-# Returns: {"prompt": "...", "injected": ["memory-name-1", ...]}
-```
-
-Builder context includes:
-- `FAILURES_TO_AVOID`: Error patterns with `[effectiveness%]` scores
-- `PATTERNS_TO_APPLY`: Proven techniques
-- `CONVENTIONS_TO_FOLLOW`: Project standards
-- `RELATED_FACTS`: Context about relevant files
-- `INJECTED_MEMORIES`: List of memory names for feedback tracking
-
-### Confidence Indicators
-
-Memories are formatted with effectiveness hints via `_format_hint()`:
-
-```
-[75%] Circular import when adding middleware -> Use lazy imports
-[unproven] Database timeout on large queries -> Add connection pooling
-```
-
-- `[N%]`: Memory has feedback history; N% is effectiveness (helped / total)
-- `[unproven]`: No feedback yet; memory is theoretical
-
-### Manual Override
-
-Add `NO_INJECT: true` to prompt to skip automatic injection and call context.py directly:
-```bash
-python3 "$HELIX/lib/context.py" build-context --task-data '...' --lineage '...'
-```
-
-### Lineage Protocol
-
-Parent deliveries passed to builders:
-```json
-[
-  {"seq": "001", "slug": "setup-auth", "delivered": "Created AuthService with JWT support"},
-  {"seq": "002", "slug": "add-routes", "delivered": "Added /login and /logout endpoints"}
-]
-```
-
-### Warning Injection
-
-Systemic issues placed at prompt start (priority):
-```
-WARNING: Repeated circular import failures in this codebase. Check imports before adding new dependencies.
-```
-
-## Task System
-
-### Dual Status Model
-
-**Native `status`** controls DAG execution: pending → in_progress → completed
-**Helix `helix_outcome`** captures semantic result: delivered | blocked | skipped
-
-| status | helix_outcome | Meaning |
-|--------|---------------|---------|
-| completed | delivered | Success, memory credit |
-| completed | blocked | Finished but didn't achieve goal |
-| completed | skipped | Intentionally bypassed (stall recovery) |
-| pending | - | Not yet started |
-| in_progress | - | Builder executing |
-
-### Task State Derivation (`lib/tasks.py`)
+Single injection function builds context for any agent:
 
 ```python
-helix_task_state(task)
+inject_context(objective, limit=5, task_id=None)
 # Returns: {
-#   "executable": bool,      # pending and unblocked
-#   "finished": bool,        # status=completed
-#   "successful": bool,      # finished AND helix_outcome=delivered
-#   "outcome": str,          # delivered|blocked|skipped|pending|in_progress
-#   "blocks_dependents": bool # finished AND not delivered
+#   "insights": ["[75%] When X, do Y", ...],
+#   "names": ["insight-name-1", ...]
 # }
 ```
 
-### DAG Utilities (`lib/dag_utils.py`)
-
+**Functions:**
 ```python
-detect_cycles(dependencies)     # → List of cycles found
-get_completed_task_ids(tasks)   # → IDs with helix_outcome="delivered"
-get_blocked_task_ids(tasks)     # → IDs with helix_outcome="blocked"
-get_ready_tasks(tasks)          # → IDs ready for execution
-check_stalled(tasks)            # → (is_stalled, stall_info)
-clear_checkpoints()             # → Clear all checkpoints
+inject_context(objective, limit, task_id)  # Core injection
+format_prompt(task_id, task, objective, verify, insights, injected_names)  # Builder prompt
+build_agent_prompt(task_data)              # Complete prompt from task dict
 ```
 
-## Automatic Feedback Attribution
+**Injection state tracking:**
+When `task_id` is provided, writes injection state to `.helix/injection-state/{task_id}.json` for audit trail.
 
-Hooks create a closed learning loop:
+## Extraction System (`lib/extraction.py`)
 
-1. **PreToolUse(Task)**: Inject memories, store injection state
-2. **Agent executes**: Uses enriched context
-3. **Builder reports**: TaskUpdate with `helix_outcome`
-4. **PostToolUse(TaskUpdate)**: Auto-credit/debit based on outcome
+Single extraction function parses any agent transcript:
 
-**Feedback deltas:**
-| Outcome | Delta | Effect |
-|---------|-------|--------|
-| delivered | +0.5 | Increases `helped` |
-| blocked | -0.3 | Increases `failed` |
+```python
+process_completion(transcript, agent_type)
+# Returns: {
+#   "insight": {"content": "...", "tags": [...]} | None,
+#   "outcome": "delivered" | "blocked" | "unknown",
+#   "injected": ["name1", "name2"]
+# }
+```
 
-**Override:** Call `feedback` directly with custom delta to override automatic attribution.
+**Functions:**
+```python
+extract_insight(transcript)         # → {"content": "...", "tags": [...]} | None
+extract_outcome(transcript)         # → "delivered" | "blocked" | "unknown"
+extract_injected_names(transcript)  # → ["name1", "name2"]
+process_completion(transcript, agent_type)  # Combined extraction
+```
+
+**Insight extraction priority:**
+1. Explicit: `INSIGHT: {"content": "...", "tags": [...]}`
+2. Derived from DELIVERED with task context
+3. Derived from BLOCKED with error context
 
 ## Database Schema
 
@@ -544,39 +329,20 @@ CREATE TABLE schema_version (
     applied_at TEXT NOT NULL
 );
 
--- Memories: learned failures, patterns, facts, conventions, decisions, evolution
-CREATE TABLE memory (
+-- Insight storage
+CREATE TABLE insight (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL,                -- failure, pattern, systemic, fact, convention, decision, evolution
-    trigger TEXT NOT NULL,
-    resolution TEXT NOT NULL,
-    helped REAL DEFAULT 0,
-    failed REAL DEFAULT 0,
+    content TEXT NOT NULL,
     embedding BLOB,                    -- 384-dim all-MiniLM-L6-v2
-    source TEXT DEFAULT '',
+    effectiveness REAL DEFAULT 0.5,    -- 0.0-1.0
+    use_count INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_used TEXT
+    last_used TEXT,
+    tags TEXT DEFAULT '[]'             -- JSON array
 );
 
--- Memory relationships (graph edges)
-CREATE TABLE memory_edge (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_name TEXT NOT NULL,
-    to_name TEXT NOT NULL,
-    rel_type TEXT NOT NULL,            -- solves, co_occurs, similar, causes
-    weight REAL DEFAULT 1.0,
-    created_at TEXT NOT NULL,
-    UNIQUE(from_name, to_name, rel_type)
-);
-
--- Normalized file patterns for efficient lookup
-CREATE TABLE memory_file_pattern (
-    memory_name TEXT NOT NULL,
-    pattern TEXT NOT NULL,
-    PRIMARY KEY (memory_name, pattern),
-    FOREIGN KEY (memory_name) REFERENCES memory(name) ON DELETE CASCADE
-);
+CREATE INDEX idx_insight_name ON insight(name);
 ```
 
 ## CLI Reference
@@ -586,86 +352,26 @@ CREATE TABLE memory_file_pattern (
 ```bash
 HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 
-# Store
-python3 "$HELIX/lib/memory/core.py" store --type failure --trigger "..." --resolution "..." --source "..."
+# Store insight
+python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern"]'
 
-# Recall (with graph expansion and intent routing)
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --expand-depth 2 --intent how
+# Recall by semantic similarity
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --min-effectiveness 0.3
 
-# Recall grouped by type
-python3 "$HELIX/lib/memory/core.py" recall-by-type "query" --types "fact,convention" --limit 5 --expand
+# Get single insight
+python3 "$HELIX/lib/memory/core.py" get "insight-name"
 
-# Get single memory
-python3 "$HELIX/lib/memory/core.py" get "memory-name"
+# Apply feedback
+python3 "$HELIX/lib/memory/core.py" feedback --names '["insight-1", "insight-2"]' --outcome delivered
 
-# Create edge
-python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves --weight 1.0
+# Decay dormant insights
+python3 "$HELIX/lib/memory/core.py" decay --days 30
 
-# Query edges
-python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
-python3 "$HELIX/lib/memory/core.py" edges --rel solves
-
-# Feedback
-python3 "$HELIX/lib/memory/core.py" feedback --names '["mem1", "mem2"]' --delta 0.5
-
-# Decay
-python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
-python3 "$HELIX/lib/memory/core.py" decay-edges --days 60
-
-# Prune
+# Prune low performers
 python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 
-# Consolidate
-python3 "$HELIX/lib/memory/core.py" consolidate
-
-# Health
+# Health check
 python3 "$HELIX/lib/memory/core.py" health
-
-# SOAR chunking
-python3 "$HELIX/lib/memory/core.py" chunk --task "..." --outcome "success..." --approach "..."
-
-# Code-assisted (surfaces facts, orchestrator decides)
-python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7 --type failure
-python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
-```
-
-### Observer Operations
-
-```bash
-# Extract facts from explorer output
-python3 "$HELIX/lib/observer.py" explorer --output '{...}' --store --min-confidence medium
-
-# Extract decisions from planner
-python3 "$HELIX/lib/observer.py" planner --tasks '[...]' --exploration '{...}' --store
-
-# Extract evolution/conventions from builder
-python3 "$HELIX/lib/observer.py" builder --task '{...}' --result '{...}' --files-changed '[...]' --store
-
-# Create session summary
-python3 "$HELIX/lib/observer.py" session --objective "..." --tasks '[...]' --outcomes '{...}' --store
-```
-
-### Context Operations
-
-```bash
-# Explorer context
-python3 "$HELIX/lib/context.py" build-explorer-context --objective "..." --scope "src/api"
-
-# Planner context
-python3 "$HELIX/lib/context.py" build-planner-context --objective "..."
-
-# Builder context
-python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
-
-# Build lineage from completed tasks
-python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
-```
-
-### Task Operations
-
-```bash
-# Derive task state
-python3 "$HELIX/lib/tasks.py" task-state '{"status": "completed", "metadata": {"helix_outcome": "delivered"}}'
 ```
 
 ### DAG Operations
@@ -685,8 +391,8 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 
 | Command | Purpose |
 |---------|---------|
-| `/helix <objective>` | Full pipeline: explore → plan → build → observe |
-| `/helix-query <text>` | Search memory by meaning (with graph expansion) |
+| `/helix <objective>` | Full pipeline: explore → plan → build → learn → complete |
+| `/helix-query <text>` | Search insights by meaning |
 | `/helix-stats` | Memory health metrics |
 
 ## Configuration
@@ -695,68 +401,55 @@ python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
 |----------|---------|---------|
 | `HELIX_DB_PATH` | Custom database location | `.helix/helix.db` |
 | `HELIX_PLUGIN_ROOT` | Plugin root path | Read from `.helix/plugin_root` |
-| `HELIX_EMBEDDING_CACHE` | Embedding cache size | 2000 |
+| `HELIX_PROJECT_DIR` | Project root for hooks | Current working directory |
 
 ## Constants
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `DECAY_HALF_LIFE_DAYS` | 7 (default) | Base recency score half-life |
+| `SCORE_WEIGHTS` | {relevance: 0.5, effectiveness: 0.3, recency: 0.2} | Recall scoring weights |
+| `DECAY_HALF_LIFE` | 14 days | Recency score half-life |
 | `DUPLICATE_THRESHOLD` | 0.85 | Semantic deduplication threshold |
-| `VALID_TYPES` | failure, pattern, systemic, fact, convention, decision, evolution | Allowed memory types |
 
 ## File Structure
 
 ```
 helix/
 ├── .claude-plugin/
-│   └── plugin.json           # Plugin manifest (v1.0.14)
-├── .claude/
-│   └── settings.json         # Hook configuration
+│   └── plugin.json           # Plugin manifest
+├── hooks/
+│   └── hooks.json            # Hook configuration
 ├── agents/
 │   ├── explorer.md           # Parallel reconnaissance (haiku)
 │   ├── planner.md            # Task decomposition (opus)
-│   ├── builder.md            # Task execution (opus)
-│   └── observer.md           # Learning queue processing (haiku)
+│   └── builder.md            # Task execution (opus)
 ├── lib/
 │   ├── __init__.py           # Version: 2.0.0
-│   ├── hooks/                # Hook implementations
+│   ├── hooks/                # Hook implementations (Python)
 │   │   ├── __init__.py
-│   │   ├── inject_memory.py  # Memory injection
-│   │   └── extract_learning.py # Learning extraction
+│   │   ├── inject_memory.py  # Injection utilities
+│   │   ├── extract_learning.py # SubagentStop extraction + feedback
+│   │   └── session_end.py    # SessionEnd logging + cleanup
 │   ├── memory/
 │   │   ├── __init__.py       # Clean exports
-│   │   ├── core.py           # 9 core + 4 maintenance primitives
+│   │   ├── core.py           # 6 primitives (store, recall, get, feedback, decay, prune, health)
 │   │   └── embeddings.py     # all-MiniLM-L6-v2
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── connection.py     # SQLite singleton, WAL, write_lock
-│   │   └── schema.py         # Memory, MemoryEdge dataclasses
-│   ├── context.py            # Agent-specific context building
+│   │   └── schema.py         # Dataclass definitions
+│   ├── injection.py          # Insight injection (inject_context, format_prompt)
+│   ├── extraction.py         # Learning extraction (extract_insight, extract_outcome)
 │   ├── prompt_parser.py      # Prompt field parsing
-│   ├── observer.py           # Learning extraction from agents
-│   ├── tasks.py              # Task state derivation
 │   ├── dag_utils.py          # Cycle detection, stall detection
-│   └── wait.py
+│   └── wait.py               # Polling utilities
 ├── scripts/
-│   ├── hooks/                # Hook shell scripts
-│   │   ├── pretool-task.sh
-│   │   ├── subagent-stop.sh
-│   │   ├── posttool-taskupdate.sh
-│   │   └── session-end.sh    # SessionEnd hook
-│   ├── setup-env.sh          # SessionStart hook
-│   └── init.sh               # Database initialization
+│   ├── init.sh               # SessionStart: venv/db initialization
+│   ├── setup-env.sh          # SessionStart: environment setup
+│   └── cleanup-state.sh      # Manual state cleanup
 ├── skills/
 │   ├── helix/
-│   │   ├── SKILL.md          # Main orchestrator
-│   │   └── reference/        # Decision tables
-│   │       ├── agent-lifecycle.md
-│   │       ├── cli-reference.md
-│   │       ├── edge-creation.md
-│   │       ├── exploration-mechanics.md
-│   │       ├── feedback-deltas.md
-│   │       ├── stalled-recovery.md
-│   │       └── task-granularity.md
+│   │   └── SKILL.md          # Main orchestrator
 │   ├── helix-query/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
@@ -764,20 +457,21 @@ helix/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_memory_core.py
-│   ├── test_context.py
-│   ├── test_tasks.py
-│   ├── test_dag_utils.py
-│   ├── test_observer.py
-│   ├── test_inject_memory.py
+│   ├── test_injection.py
+│   ├── test_extraction.py
 │   ├── test_extract_learning.py
+│   ├── test_integration.py
+│   ├── test_dag_utils.py
 │   ├── test_prompt_parser.py
-│   └── test_integration.py
+│   └── test_wait.py
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database
     ├── plugin_root           # Plugin path for sub-agents
     ├── session.log           # Session event log
-    ├── injection-state/      # Injection tracking
-    └── learning-queue/       # Learning candidates
+    ├── extraction.log        # Extraction diagnostics
+    ├── injection-state/      # Injection tracking by task_id
+    ├── explorer-results/     # Explorer findings by agent_id
+    └── task-status.jsonl     # Task outcomes (JSONL)
 ```
 
 ## What Helix Is Not

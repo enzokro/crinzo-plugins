@@ -6,12 +6,12 @@ A self-learning orchestrator for Claude Code. Memory that earns its place throug
 
 Most agent memory systems accumulate knowledge indefinitely—storing everything, hoping relevance will emerge. This creates noise that drowns signal.
 
-Helix inverts this: **memories must prove their worth**. Every memory tracks `helped` and `failed` counts. Verification outcomes update these scores automatically. Memories that consistently help rise in ranking; ineffective ones decay and eventually prune. The system learns what actually works, not what seemed important at storage time.
+Helix inverts this: **memories must prove their worth**. Every insight tracks an effectiveness score (0-1) that updates via EMA on each use. Insights that consistently help rise in ranking; ineffective ones decay toward neutral and eventually prune. The system learns what actually works, not what seemed important at storage time.
 
 ```
-Memory injected (auto) → Builder executes → Outcome reported → Feedback applied (auto)
-       ↑                                                              ↓
-       └──────────────── Future recalls rank by proven effectiveness ─┘
+Insight injected → Builder executes → Outcome reported → Feedback applied (EMA)
+       ↑                                                         ↓
+       └─────────── Future recalls rank by proven effectiveness ─┘
 ```
 
 This closes the learning loop. The agent improves through use, not accumulation.
@@ -31,7 +31,7 @@ Opus 4.5 doesn't need training wheels. It reasons well, follows instructions, an
 ┌──────────────────────────────────────┐
 │  EXPLORE (parallel, haiku)           │
 │  Swarm maps codebase structure       │
-│  Memory auto-injected via hook       │
+│  Insights auto-injected via hook     │
 └──────────────────────────────────────┘
        │
        ▼
@@ -44,88 +44,75 @@ Opus 4.5 doesn't need training wheels. It reasons well, follows instructions, an
        ▼
 ┌──────────────────────────────────────┐
 │  BUILD (parallel, opus)              │
-│  Execute tasks with memory context   │
+│  Execute tasks with insight context  │
 │  Auto-feedback on task outcome       │
 └──────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────┐
-│  LEARN (observer, haiku)             │
-│  Process learning queue              │
-│  Store/discard candidates            │
-│  Detect systemic patterns            │
-│  Create graph edges                  │
+│  LEARN                               │
+│  SubagentStop extracts insights      │
+│  Applies EMA feedback to injected    │
+└──────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  COMPLETE                            │
+│  Verify learning loop closed         │
+│  Report session summary              │
 └──────────────────────────────────────┘
 ```
 
-Four specialized agents, each receiving context tuned to their role. Explorers get known facts to skip redundant discovery. Planners get past decisions and conventions for consistency. Builders get failures to avoid, patterns to apply, and confidence scores to weight advice. Observers process the learning queue—storing high-value candidates, discarding low-value ones, and flagging uncertain cases for review.
+Three specialized agents, each receiving context tuned to their role. Explorers discover codebase structure. Planners decompose objectives into tasks. Builders execute tasks and report outcomes. Learning extraction and feedback attribution happen automatically via hooks.
 
 ## Memory That Learns
 
-Seven memory types, each with purpose-specific scoring:
-
-| Type | Purpose | Decay Half-Life | Example |
-|------|---------|-----------------|---------|
-| **failure** | What went wrong | 7 days | "Circular import when adding auth middleware" |
-| **pattern** | What worked | 7 days | "Use dependency injection for database connections" |
-| **systemic** | Recurring issues | 14 days | "This codebase has import cycle problems" |
-| **fact** | Codebase structure | 30 days | "Authentication lives in src/auth/" |
-| **convention** | Project patterns | 14 days | "All API routes use async handlers" |
-| **decision** | Architectural choices | 30 days | "Chose PostgreSQL over MongoDB" |
-| **evolution** | Recent changes | 7 days | "Added user profile endpoints yesterday" |
-
-Each type has different decay rates and scoring weights. Facts persist longer (30-day half-life) because codebase structure is stable. Evolution decays fast (7-day half-life) because recent changes matter most when recent.
-
-### Intent-Based Query Routing
-
-The `--intent` flag prioritizes memory types based on query purpose:
-
-| Intent | Priority Types | Use Case |
-|--------|----------------|----------|
-| `why` | failure, systemic | Debugging, root cause analysis |
-| `how` | pattern, convention | Implementation guidance |
-| `what` | fact, decision | Understanding structure |
-| `debug` | failure, pattern | Error resolution |
-
-### Graph Relationships
-
-Memories connect: patterns **solve** failures, issues **co-occur**, failures **cause** other failures. Graph expansion surfaces solutions when you encounter related problems.
+Unified insight model with semantic deduplication:
 
 ```
-failure: "Import cycle in auth module"
-    ↑
-    solves
-    ↓
-pattern: "Use lazy imports for circular dependencies"
+store("When X, do Y because Z", tags=["pattern"])
+  → Check semantic similarity (threshold: 0.85)
+  → Merge if duplicate, add if new
+  → Initial effectiveness: 0.5 (neutral)
 ```
 
-When you query about authentication and hit the failure, graph expansion brings the solution along.
+**Scoring formula:**
+```
+score = (0.5 × relevance) + (0.3 × effectiveness) + (0.2 × recency)
+recency = 2^(-days_since_use / 14)
+```
+
+**EMA feedback:**
+```
+new_effectiveness = old × 0.9 + outcome_value × 0.1
+outcome_value = 1.0 (delivered) | 0.0 (blocked)
+```
+
+Insights start neutral (0.5), move toward 1.0 with success, toward 0.0 with failure. After enough uses, low performers get pruned.
 
 ## Hook Architecture
 
-Helix uses Claude Code hooks for invisible memory operations:
+Helix uses Claude Code hooks for invisible learning operations:
 
 | Hook | Trigger | Action |
 |------|---------|--------|
-| SessionStart (×2) | Session begins | Initialize database, set up environment |
-| PreToolUse(Task) | Agent spawn | Inject relevant memories into prompt |
-| SubagentStop | Agent completion | Extract learning candidates to queue |
-| PostToolUse(TaskUpdate) | Task outcome | Auto-credit/debit memories |
-| SessionEnd | Session ends | Process remaining queue, auto-store validated candidates |
+| SessionStart (×2) | Session begins | Initialize venv/database, set up environment |
+| SubagentStop | Agent completion | Extract insights, apply EMA feedback |
+| SessionEnd | Session ends | Log session summary, cleanup old queue files |
 
-Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator focuses on judgment; hooks handle mechanics.
+Memory injection happens in the orchestrator (SKILL.md) and via inject_memory.py hook. Learning extraction and feedback attribution happen automatically in extract_learning.py. The orchestrator focuses on judgment; hooks handle mechanics.
 
 ### Confidence Indicators
 
-Builders see effectiveness scores on injected memories:
+Builders see effectiveness scores on injected insights:
 
 ```
-FAILURES_TO_AVOID:
-  [75%] Circular import when adding middleware -> Use lazy imports
-  [unproven] Database timeout on large queries -> Add connection pooling
+INSIGHTS (from past experience):
+  - [75%] When adding middleware, check for circular imports first
+  - [50%] Database connections should use pooling for high-traffic endpoints
 ```
 
-`[75%]` means this memory helped 75% of the time. Builders weight advice accordingly.
+`[75%]` means this insight has demonstrated 75% effectiveness. `[50%]` is neutral—no feedback yet. Builders weight advice accordingly.
 
 ## Installation
 
@@ -165,7 +152,7 @@ Query memory directly:
 
 | Principle | Meaning |
 |-----------|---------|
-| **Feedback closes the loop** | Verification outcomes update memory effectiveness |
+| **Feedback closes the loop** | Outcome updates effectiveness via EMA |
 | **Blocking is success** | Unknown errors create learning data, not token burn |
 | **Bounded scope** | Relevant files are explicit and auditable |
 | **Present over future** | Implement current requests, not anticipated needs |
@@ -176,7 +163,8 @@ Query memory directly:
 Everything stays on your machine:
 - SQLite database at `.helix/helix.db`
 - Injection state at `.helix/injection-state/`
-- Learning queue at `.helix/learning-queue/`
+- Explorer results at `.helix/explorer-results/`
+- Task status at `.helix/task-status.jsonl`
 - No external API keys for memory services
 - No data leaving your system
 - No usage fees
