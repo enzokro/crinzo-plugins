@@ -1,44 +1,73 @@
-# Edge Creation Rules
+# Edge Creation
 
-## Edge Type Decision Table
+## Schema
 
-| Situation | Edge Type | Direction | Weight |
-|-----------|-----------|-----------|--------|
-| Pattern's resolution explicitly solved a failure | `solves` | pattern -> failure | 1.0 |
-| Two memories both helped same task | `co_occurs` | bidirectional | 0.5 each |
-| Failure A led to discovering failure B | `causes` | A -> B | 1.0 |
-| Memories have similar triggers (I note this) | `similar` | bidirectional | 0.5 each |
-| Pattern supersedes older, less effective pattern | `similar` | new -> old | 1.0 |
+Edges connect related insights in the `memory_edge` table:
+
+```sql
+CREATE TABLE memory_edge (
+    id INTEGER PRIMARY KEY,
+    from_name TEXT NOT NULL,  -- Source insight name
+    to_name TEXT NOT NULL,    -- Target insight name
+    rel_type TEXT NOT NULL,   -- Relationship type
+    weight REAL DEFAULT 1.0,  -- Strength (max 10.0)
+    created_at TEXT NOT NULL,
+    UNIQUE(from_name, to_name, rel_type)
+);
+```
+
+## Edge Types
+
+| Type | Meaning | Example |
+|------|---------|---------|
+| `similar` | Conceptually related insights | Two debugging patterns for same issue |
+| `solves` | One insight addresses another | Pattern solves a failure |
+| `causes` | One insight leads to another | Debugging reveals root cause |
+| `co_occurs` | Often used together | Build patterns that pair well |
+
+## Creating Edges via SQL
+
+```bash
+sqlite3 .helix/helix.db "INSERT INTO memory_edge (from_name, to_name, rel_type, weight, created_at)
+VALUES ('pattern-name', 'failure-name', 'solves', 1.0, datetime('now'))"
+```
+
+## Creating Edges via Python
+
+```python
+from lib.db.connection import get_db, write_lock
+
+conn = get_db()
+with write_lock():
+    conn.execute(
+        "INSERT OR IGNORE INTO memory_edge (from_name, to_name, rel_type, weight, created_at) VALUES (?, ?, ?, 1.0, datetime('now'))",
+        (from_name, to_name, rel_type)
+    )
+    conn.commit()
+```
+
+## Querying Edges
+
+```bash
+# All edges from an insight
+sqlite3 .helix/helix.db "SELECT to_name, rel_type, weight FROM memory_edge WHERE from_name = 'insight-name'"
+
+# All edges to an insight
+sqlite3 .helix/helix.db "SELECT from_name, rel_type, weight FROM memory_edge WHERE to_name = 'insight-name'"
+
+# Edges by type
+sqlite3 .helix/helix.db "SELECT from_name, to_name, weight FROM memory_edge WHERE rel_type = 'solves'"
+```
 
 ## When to Create Edges
 
-- **solves**: Builder explicitly avoided a known failure using injected pattern
-- **co_occurs**: Multiple injected memories all contributed to success
-- **causes**: Debugging one failure revealed another deeper failure
-- **similar**: Code suggests high similarity OR I notice conceptual overlap
+- **similar**: Two insights address the same domain or problem space
+- **solves**: A pattern insight directly addresses a debugging insight
+- **causes**: Investigating one issue revealed another
+- **co_occurs**: Multiple insights were injected together and both helped
 
-## Code-Assisted Discovery
+## Weight Mechanics
 
-After storing a memory, query for suggestions:
-
-```bash
-python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
-```
-
-Returns `[{from, to, rel_type, reason, confidence}]`. Review each suggestion and create edges with judgment:
-
-```bash
-python3 "$HELIX/lib/memory/core.py" edge \
-    --from "pattern-name" \
-    --to "failure-name" \
-    --rel solves \
-    --weight 1.0
-```
-
-Graph expansion surfaces solutions via edges on next recall.
-
-## Edge Weight Mechanics
-
-- Weights accumulate on repeated edge creation (capped at 10.0)
-- Temporal sorting prefers recent edges during expansion
-- Use `decay-edges` to halve weights on dormant relationships
+- Default weight: 1.0
+- Repeated edge creation increments weight (capped at 10.0)
+- Higher weight = stronger relationship

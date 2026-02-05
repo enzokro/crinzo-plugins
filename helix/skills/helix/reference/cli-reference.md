@@ -1,92 +1,98 @@
 # CLI Reference
 
-## Memory (9 Core + 2 Code-Assisted)
-
-### Core Primitives
+## Memory (6 Core Primitives)
 
 ```bash
-# Use --db for explicit project targeting (required when running from plugin root)
-python3 "$HELIX/lib/memory/core.py" --db "$HELIX_PROJECT_DIR/.helix/helix.db" store --type failure --trigger "..." --resolution "..."
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --expand --expand-depth 2 --intent why
-python3 "$HELIX/lib/memory/core.py" get "memory-name"
-python3 "$HELIX/lib/memory/core.py" edge --from "pattern" --to "failure" --rel solves
-python3 "$HELIX/lib/memory/core.py" edges --name "memory-name"
-python3 "$HELIX/lib/memory/core.py" feedback --names '["mem1", "mem2"]' --delta 0.5
-python3 "$HELIX/lib/memory/core.py" decay --days 30 --min-uses 2
+HELIX="$(cat .helix/plugin_root)"
+
+# Store insight (returns {"status": "added"|"merged", "name": str})
+python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern", "typescript"]'
+
+# Recall by semantic similarity (returns list with _relevance, _recency, _score)
+python3 "$HELIX/lib/memory/core.py" recall "query text" --limit 5 --min-effectiveness 0.3
+
+# Get specific insight by name
+python3 "$HELIX/lib/memory/core.py" get "insight-name"
+
+# Apply feedback after task completion (outcome: delivered|blocked)
+python3 "$HELIX/lib/memory/core.py" feedback --names '["insight1", "insight2"]' --outcome delivered
+
+# Decay dormant insights toward neutral (0.5) effectiveness
+python3 "$HELIX/lib/memory/core.py" decay --days 30
+
+# Prune consistently unhelpful insights
 python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
+
+# Check system health
 python3 "$HELIX/lib/memory/core.py" health
 ```
 
-### Recall Options
+## Schema (insight table)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| name | TEXT | Unique slug identifier |
+| content | TEXT | Full insight text |
+| embedding | BLOB | 384-dim all-MiniLM-L6-v2 vector |
+| effectiveness | REAL | 0-1 score, updated via feedback |
+| use_count | INT | Times injected and received feedback |
+| created_at | TEXT | ISO timestamp |
+| last_used | TEXT | ISO timestamp of last feedback |
+| tags | TEXT | JSON array of tags |
+
+## Scoring Formula
+
+```
+score = (0.5 * relevance) + (0.3 * effectiveness) + (0.2 * recency)
+recency = 2^(-days_since_use / 14)
+```
+
+## Recall Options
 
 | Option | Description |
 |--------|-------------|
-| `--expand` | Include graph neighbors via edges |
-| `--expand-depth N` | Hops for graph expansion (default 1) |
-| `--intent` | Route by query intent: `why` (failures/systemic), `how` (patterns/conventions), `what` (facts/decisions), `debug` (failures/patterns) |
+| `--limit N` | Maximum results (default 5) |
+| `--min-effectiveness F` | Filter below threshold (default 0.0) |
 
-### store() Conflict Detection
+## Feedback Mechanics
 
-`store()` now detects memories with similar triggers but conflicting resolutions. Returns `conflicts` array when found—review before accepting.
-
-### Code-Assisted (surfaces facts, I decide)
-
-```bash
-python3 "$HELIX/lib/memory/core.py" similar-recent "trigger" --threshold 0.7 --days 7
-python3 "$HELIX/lib/memory/core.py" suggest-edges "memory-name" --limit 5
-```
-
-### Maintenance (periodic)
-
-```bash
-python3 "$HELIX/lib/memory/core.py" decay-edges --days 60
-python3 "$HELIX/lib/memory/core.py" consolidate
-python3 "$HELIX/lib/memory/core.py" chunk --task "objective" --outcome "success" --approach "what worked"
-```
-
-## Tasks
-
-```bash
-python3 "$HELIX/lib/tasks.py" parse-output "$output"
-```
-
-## Context
-
-```bash
-python3 "$HELIX/lib/context.py" build-lineage --completed-tasks '[...]'
-python3 "$HELIX/lib/context.py" build-context --task-data '{...}' --lineage '[...]'
-```
-
-## DAG Utilities
-
-```bash
-python3 "$HELIX/lib/dag_utils.py" clear
-python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'
-python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '[...]'
-```
+- `delivered` → effectiveness moves toward 1.0 (EMA: `eff * 0.9 + 1.0 * 0.1`)
+- `blocked` → effectiveness moves toward 0.0 (EMA: `eff * 0.9 + 0.0 * 0.1`)
+- `use_count` increments on each feedback call
 
 ## Wait Utilities
 
 Zero-context completion polling. **Never use TaskOutput**—use these instead.
 
 ```bash
-# Instant check (no waiting)
-python3 "$HELIX/lib/wait.py" check --output-file "$FILE" --agent-type builder
+# Wait for parallel builders (polls task-status.jsonl)
+python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "1,2,3" --timeout 180
 
-# Wait with timeout (default 300s)
-python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder --timeout 300
-
-# Extract structured content from completed output
-python3 "$HELIX/lib/wait.py" extract --output-file "$FILE" --agent-type explorer
-
-# Get last JSON block (for explorer findings)
-python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"
+# Wait for parallel explorers (polls explorer-results/)
+python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
 ```
 
-### Agent Types & Markers
+### Agent Output Locations
 
-| Agent | Markers | Result Location |
-|-------|---------|-----------------|
-| builder | `DELIVERED:`, `BLOCKED:` | TaskGet metadata |
-| explorer | `"status":` | Last JSON in output_file |
-| planner | `PLAN_COMPLETE:`, `ERROR:` | PLAN_SPEC JSON in returned result |
+| Agent | Mode | Output Location |
+|-------|------|-----------------|
+| builder | background | `.helix/task-status.jsonl` |
+| explorer | background | `.helix/explorer-results/{agent_id}.json` |
+| planner | foreground | Task returns directly |
+
+## Injection
+
+```bash
+# Get insights for a task (writes injection-state/{task_id}.json)
+python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('task objective', 5, 'task_id')))"
+```
+
+Returns: `{"insights": ["[75%] When X...", ...], "names": ["insight-name-1", ...]}`
+
+## Verbose Mode
+
+All commands support `--verbose` for structured stderr logging:
+
+```bash
+python3 "$HELIX/lib/memory/core.py" --verbose health
+```

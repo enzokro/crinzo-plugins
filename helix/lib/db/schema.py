@@ -1,8 +1,8 @@
 """Data models for Helix.
 
 Core entities:
-- Memory: Learned failures, patterns, and systemic issues
-- MemoryEdge: Relationships between memories (graph structure)
+- Insight: Learned knowledge with effectiveness tracking
+- MemoryEdge: Relationships between insights (graph structure)
 
 Note: Plan, Task, and Workspace are handled by Claude Code's native
 Task system with metadata. See SKILL.md for the architecture.
@@ -14,65 +14,53 @@ from datetime import datetime
 
 
 @dataclass
-class Memory:
+class Insight:
     """A learned piece of knowledge.
 
-    Types:
-    - failure: Something that went wrong and how to fix it
-    - pattern: A successful approach to apply
-    - systemic: A recurring issue (3+ occurrences)
+    Content format: "When X, do Y because Z"
 
-    Memories earn their place through demonstrated usefulness.
-    The feedback loop tracks helped/failed to rank by effectiveness.
+    Insights earn their place through demonstrated usefulness.
+    The feedback loop tracks effectiveness via use_count and EMA updates.
 
     NOTE: This dataclass documents the schema but is not instantiated.
     Storage uses raw SQL; retrieval uses _to_dict() in core.py.
     """
-    name: str
-    type: str  # "failure", "pattern", or "systemic"
-    trigger: str  # When does this apply?
-    resolution: str  # What do you do about it?
+    name: str  # Unique kebab-case slug
+    content: str  # Full insight text
 
-    # Effectiveness tracking (the learning signal)
-    helped: float = 0
-    failed: float = 0
+    # Effectiveness tracking (0-1 scale, EMA updated)
+    effectiveness: float = 0.5  # Starts neutral
+    use_count: int = 0  # Times injected and received feedback
 
     # Semantic search (384-dim all-MiniLM-L6-v2)
     embedding: Optional[bytes] = None
 
-    # Metadata
-    source: str = ""  # Where this came from
+    # Tags for categorization (JSON array)
+    tags: str = "[]"
+
+    # Timestamps
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_used: Optional[str] = None
-    file_patterns: Optional[str] = None  # JSON list of extracted file paths
 
     # Auto-generated
     id: Optional[int] = None
 
-    @property
-    def effectiveness(self) -> float:
-        """How often does this memory actually help?"""
-        total = self.helped + self.failed
-        if total == 0:
-            return 0.5  # Neutral until proven
-        return self.helped / total
-
-    @property
-    def total_uses(self) -> float:
-        return self.helped + self.failed
-
 
 @dataclass
 class MemoryEdge:
-    """Relationship between two memories.
+    """Relationship between two insights.
 
     Enables graph traversal for related knowledge.
-    Types: solves, co_occurs, similar, causes
+    Types: similar, solves, causes, co_occurs
     """
     from_name: str
     to_name: str
-    rel_type: str  # solves, co_occurs, similar, causes
-    weight: float = 1.0
+    rel_type: str  # similar, solves, causes, co_occurs
+    weight: float = 1.0  # Capped at 10.0
 
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     id: Optional[int] = None
+
+
+# Legacy alias for backwards compatibility
+Memory = Insight

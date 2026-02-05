@@ -1,35 +1,47 @@
-# Feedback Delta Tables
+# Feedback Mechanics
 
-## Base Deltas (Orchestrator Judgment)
+## How Feedback Works
 
-| Situation | Delta | Rationale |
-|-----------|-------|-----------|
-| Clear success, memory was relevant | +0.7 | Strong signal |
-| Success, memory was tangential | +0.3 | Weak signal |
-| Success, no memories used | 0 | No feedback |
-| Failure, memory may have misled | -0.5 | Moderate penalty |
-| Failure, memory was irrelevant | -0.2 | Light penalty |
-
-## Memory Relevance Classification
-
-| Condition | Classification | Delta Multiplier |
-|-----------|---------------|------------------|
-| Memory trigger matches task objective (cosine > 0.7) | **Relevant** | 1.0x |
-| Memory's failure type matches task's error | **Relevant** | 1.0x |
-| Memory mentions same files as task | **Tangential** | 0.5x |
-| Memory mentions same framework | **Tangential** | 0.5x |
-| Memory was injected but unrelated to outcome | **Irrelevant** | 0.3x |
-
-## Formula
-
-```
-final_delta = base_delta x multiplier
-```
+When `feedback(names, outcome)` is called:
+- `outcome="delivered"` → effectiveness moves toward 1.0
+- `outcome="blocked"` → effectiveness moves toward 0.0
+- Uses EMA update: `new_eff = old_eff * 0.9 + outcome_value * 0.1`
+- `use_count` increments, `last_used` updates
 
 ## CLI
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" feedback \
-    --names '["memory-name-1", "memory-name-2"]' \
-    --delta 0.5
+    --names '["insight-name-1", "insight-name-2"]' \
+    --outcome delivered
 ```
+
+## Effectiveness Range
+
+| Effectiveness | Interpretation |
+|---------------|----------------|
+| 0.0 - 0.25 | Consistently unhelpful, candidate for pruning |
+| 0.25 - 0.5 | Mixed results or new insight |
+| 0.5 | Neutral (default for new insights) |
+| 0.5 - 0.75 | Generally helpful |
+| 0.75 - 1.0 | Consistently helpful |
+
+## Convergence
+
+With EMA (exponential moving average) at 0.9/0.1:
+- 10 consecutive `delivered` → effectiveness ~0.65
+- 20 consecutive `delivered` → effectiveness ~0.88
+- Mixed results oscillate around 0.5
+
+## When Feedback is Applied
+
+1. Builder completes with `DELIVERED:` or `BLOCKED:` marker
+2. SubagentStop hook reads injection-state/{task_id}.json for injected names
+3. Hook calls `feedback(names, outcome)` automatically
+
+## Debugging Feedback Issues
+
+If `with_feedback` count doesn't increase:
+1. Check injection-state/{task_id}.json exists with `names` array
+2. Check task-status.jsonl has matching task_id with valid outcome
+3. Verify SubagentStop hook is running (check hooks configuration)
