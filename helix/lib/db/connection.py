@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v5: Unified insight table replaces memory/memory_edge/memory_file_pattern.
+Schema v6: Added causal_hits tracking for causal feedback filtering.
 """
 
 import os
@@ -194,6 +194,15 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    # Migration v6: Add causal_hits column for causal feedback tracking
+    if current_version < 6:
+        try:
+            db.execute("ALTER TABLE insight ADD COLUMN causal_hits INTEGER DEFAULT 0")
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (6, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
 
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
@@ -207,7 +216,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             applied_at TEXT NOT NULL
         );
 
-        -- Unified insight table (v5+)
+        -- Unified insight table (v6+)
         CREATE TABLE IF NOT EXISTS insight (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -215,6 +224,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             embedding BLOB,
             effectiveness REAL DEFAULT 0.5,
             use_count INTEGER DEFAULT 0,
+            causal_hits INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             last_used TEXT,
             tags TEXT DEFAULT '[]'

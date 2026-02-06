@@ -4,13 +4,12 @@
 # Removes:
 # - injection-state files older than 24 hours
 # - hook-trace files older than 7 days
-# - old learning-queue files already processed
 #
 # Called from setup-env.sh on session start
 
 set -euo pipefail
 
-HELIX_DIR="${PWD}/.helix"
+HELIX_DIR="${HELIX_PROJECT_DIR:-.}/.helix"
 
 # Skip if no .helix directory
 if [ ! -d "$HELIX_DIR" ]; then
@@ -35,16 +34,6 @@ if [ -d "$TRACE_DIR" ]; then
     COUNT=$(find "$TRACE_DIR" -type f -mtime +7 2>/dev/null | wc -l | tr -d ' ')
     if [ "$COUNT" -gt 0 ]; then
         find "$TRACE_DIR" -type f -mtime +7 -delete 2>/dev/null || true
-        CLEANED=$((CLEANED + COUNT))
-    fi
-fi
-
-# Clean processed learning-queue files (older than 30 days)
-QUEUE_DIR="$HELIX_DIR/learning-queue"
-if [ -d "$QUEUE_DIR" ]; then
-    COUNT=$(find "$QUEUE_DIR" -type f -mtime +30 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$COUNT" -gt 0 ]; then
-        find "$QUEUE_DIR" -type f -mtime +30 -delete 2>/dev/null || true
         CLEANED=$((CLEANED + COUNT))
     fi
 fi

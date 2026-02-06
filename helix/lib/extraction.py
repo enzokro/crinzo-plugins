@@ -31,24 +31,24 @@ def extract_insight(transcript: str) -> Optional[dict]:
             pass
 
     # Fallback: derive from DELIVERED/BLOCKED with context
-    delivered = re.search(r'DELIVERED:\s*(.+?)(?:\n|$)', transcript, re.IGNORECASE)
-    blocked = re.search(r'BLOCKED:\s*(.+?)(?:\n|$)', transcript, re.IGNORECASE)
+    delivered_matches = re.findall(r'DELIVERED:\s*(.+)', transcript, re.IGNORECASE)
+    blocked_matches = re.findall(r'BLOCKED:\s*(.+)', transcript, re.IGNORECASE)
 
-    if delivered:
-        summary = delivered.group(1).strip()
+    if delivered_matches:
+        summary = delivered_matches[-1].strip()
         # Look for task context
-        task_match = re.search(r'(?:TASK|OBJECTIVE):\s*(.+?)(?:\n|$)', transcript, re.IGNORECASE)
-        task = task_match.group(1).strip() if task_match else ""
+        task_matches = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
+        task = task_matches[-1].strip() if task_matches else ""
         if task and summary:
             return {
                 "content": f"For '{task[:100]}': {summary[:200]}",
                 "tags": ["derived", "success"]
             }
 
-    if blocked:
-        reason = blocked.group(1).strip()
-        task_match = re.search(r'(?:TASK|OBJECTIVE):\s*(.+?)(?:\n|$)', transcript, re.IGNORECASE)
-        task = task_match.group(1).strip() if task_match else ""
+    if blocked_matches:
+        reason = blocked_matches[-1].strip()
+        task_matches = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
+        task = task_matches[-1].strip() if task_matches else ""
         if reason:
             content = f"When attempting '{task[:100]}': blocked by {reason[:200]}" if task else f"Blocked: {reason[:250]}"
             return {

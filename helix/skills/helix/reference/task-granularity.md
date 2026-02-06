@@ -16,6 +16,14 @@
 - Task touches >5 files → likely doing too much
 - Task description uses "and" to connect unrelated work → split
 
+## Test Task Parallelism
+
+BAD:  [impl-A, impl-B, impl-C] -> [test-all]     (serial: 355s)
+GOOD: [impl-A, impl-B, impl-C] -> [test-A, test-B, test-C]  (parallel: ~120s)
+      Each test-X blocked only by impl-X
+
+Only batch tests when they genuinely share state (DB schema, conflicting fixtures).
+
 ## Good Signs
 
 - Each task has a single, clear verify command

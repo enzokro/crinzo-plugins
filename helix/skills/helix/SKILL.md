@@ -214,9 +214,30 @@ while pending tasks exist:
     1. Get ready tasks (blockers all completed)
     2. If none ready but pending exist → STALLED
     3. Checkpoint: git stash push -m "helix-{seq}"
-    4. Spawn ready builders (inject insights first)
-    5. Process results, update task status
+    4. Spawn ready builders (inject insights + warnings + parent deliveries)
+    5. Wait for wave completion
+    6. Cross-wave synthesis (before dispatching next wave):
+       a. Collect wave results from wait-for-builders output
+       b. Synthesize convergent warnings for next wave
+       c. Collect parent deliveries for dependent tasks
+    7. Process results, update task status
 ```
+
+**Cross-wave synthesis** (step 6):
+```bash
+# Synthesize warnings from completed wave
+python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_RESULTS_JSON'
+# Returns: {"warnings": ["CONVERGENT ISSUE (tasks 009, 010): ..."], "count": N}
+
+# Collect parent deliveries for next-wave tasks
+python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries \
+  --results '$WAVE_RESULTS_JSON' \
+  --blockers '$NEXT_WAVE_BLOCKERS_JSON'
+# Returns: {"next_task_id": "[blocker_id] summary\n...", ...}
+```
+
+Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
+The `wait-for-builders` response includes `insights_emitted` count for extraction visibility.
 
 **On DELIVERED:** `git stash drop` — changes are good.
 **On BLOCKED:** `git stash pop` — revert, reassess.
@@ -325,19 +346,25 @@ Contracts in `agents/*.md`.
 # Wait for explorers
 python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
 
-# Wait for parallel builders
+# Wait for parallel builders (includes insights_emitted count)
 python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
 
-# Recall insights
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5
+# Cross-wave synthesis: detect convergent issues
+python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_JSON'
+
+# Collect parent deliveries for next wave
+python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
+
+# Recall insights (with relevance gate - only returns genuinely related insights)
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --min-relevance 0.35
 
 # Store new insight
 python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern"]'
 
-# Manual feedback (usually automatic via hooks)
-python3 "$HELIX/lib/memory/core.py" feedback --names '["name1", "name2"]' --outcome delivered
+# Manual feedback with causal filtering (usually automatic via hooks)
+python3 "$HELIX/lib/memory/core.py" feedback --names '["name1", "name2"]' --outcome delivered --causal-names '["name1"]'
 
-# Check health
+# Check health (includes causal_ratio metric)
 python3 "$HELIX/lib/memory/core.py" health
 ```
 

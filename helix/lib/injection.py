@@ -5,22 +5,20 @@ Single injection function replaces 4-query context builder.
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-
-def get_helix_dir() -> Path:
-    """Get .helix directory path."""
-    return Path.cwd() / ".helix"
+from lib.paths import get_helix_dir
 
 
-def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None) -> dict:
+def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None,
+                    min_relevance: Optional[float] = None) -> dict:
     """Build memory context for any agent.
 
     Args:
         objective: Task objective for semantic search
         limit: Maximum insights to inject
         task_id: Optional task ID; if provided, writes injection state for audit
+        min_relevance: Optional override for minimum cosine similarity threshold
 
     Returns: {
         "insights": ["[75%] When X, do Y", ...],
@@ -30,7 +28,10 @@ def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None
     # Import here to avoid circular dependency
     from lib.memory.core import recall
 
-    memories = recall(objective, limit=limit)
+    kwargs = {"limit": limit}
+    if min_relevance is not None:
+        kwargs["min_relevance"] = min_relevance
+    memories = recall(objective, **kwargs)
 
     insights = []
     names = []
@@ -68,7 +69,9 @@ def format_prompt(
     objective: str,
     verify: str,
     insights: list,
-    injected_names: list
+    injected_names: list,
+    warning: str = "",
+    parent_deliveries: str = ""
 ) -> str:
     """Format complete builder prompt.
 
@@ -77,7 +80,9 @@ def format_prompt(
     - TASK
     - OBJECTIVE
     - VERIFY
-    - INSIGHTS (if any)
+    - WARNING (cross-wave convergent issues, if any)
+    - PARENT_DELIVERIES (completed blocker summaries, if any)
+    - INSIGHTS (if any) or NO_PRIOR_MEMORY cold-start signal
     - INJECTED (names for feedback loop)
     """
     lines = [
@@ -87,11 +92,24 @@ def format_prompt(
         f"VERIFY: {verify}",
     ]
 
+    if warning:
+        lines.append("")
+        lines.append(f"WARNING: {warning}")
+
+    if parent_deliveries:
+        lines.append("")
+        lines.append("PARENT_DELIVERIES:")
+        lines.append(parent_deliveries)
+
     if insights:
         lines.append("")
         lines.append("INSIGHTS (from past experience):")
         for insight in insights:
             lines.append(f"  - {insight}")
+    else:
+        # Cold-start signal: encourage richer extraction from novel domains
+        lines.append("")
+        lines.append("NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable.")
 
     if injected_names:
         lines.append("")
@@ -100,11 +118,13 @@ def format_prompt(
     return "\n".join(lines)
 
 
-def build_agent_prompt(task_data: dict) -> str:
+def build_agent_prompt(task_data: dict, warning: str = "", parent_deliveries: str = "") -> str:
     """Build complete prompt for builder agent.
 
     Args:
         task_data: Dict with task_id, task, objective, verify
+        warning: Cross-wave convergent issue warnings
+        parent_deliveries: Formatted parent task delivery summaries
 
     Returns: Formatted prompt string
     """
@@ -122,5 +142,7 @@ def build_agent_prompt(task_data: dict) -> str:
         objective=objective,
         verify=verify,
         insights=context["insights"],
-        injected_names=context["names"]
+        injected_names=context["names"],
+        warning=warning,
+        parent_deliveries=parent_deliveries
     )

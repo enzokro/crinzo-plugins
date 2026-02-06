@@ -63,8 +63,8 @@ class TestFormatPrompt:
         assert "INJECTED:" in result
         assert '"insight-1"' in result
 
-    def test_format_prompt_no_insights(self):
-        """Format prompt without insights."""
+    def test_format_prompt_no_insights_emits_cold_start(self):
+        """Format prompt without insights emits NO_PRIOR_MEMORY cold-start signal."""
         result = format_prompt(
             task_id="task-002",
             task="Simple task",
@@ -75,7 +75,8 @@ class TestFormatPrompt:
         )
 
         assert "TASK_ID: task-002" in result
-        assert "INSIGHTS" not in result
+        assert "NO_PRIOR_MEMORY" in result
+        assert "Novel domain" in result
         assert "INJECTED" not in result
 
     def test_format_prompt_minimal(self):
@@ -91,6 +92,58 @@ class TestFormatPrompt:
 
         assert "TASK:" in result
         assert "OBJECTIVE:" in result
+
+    def test_format_prompt_with_warning(self):
+        """Format prompt includes WARNING field when provided."""
+        result = format_prompt(
+            task_id="010",
+            task="fix-exports",
+            objective="Fix barrel exports",
+            verify="tsc",
+            insights=[],
+            injected_names=[],
+            warning="CONVERGENT ISSUE: Multiple builders hit TS2308"
+        )
+
+        assert "WARNING:" in result
+        assert "CONVERGENT ISSUE" in result
+
+    def test_format_prompt_with_parent_deliveries(self):
+        """Format prompt includes PARENT_DELIVERIES section."""
+        result = format_prompt(
+            task_id="003",
+            task="build-api",
+            objective="Build API",
+            verify="pytest",
+            insights=[],
+            injected_names=[],
+            parent_deliveries="[001] Models created\n[002] Schema ready"
+        )
+
+        assert "PARENT_DELIVERIES:" in result
+        assert "[001] Models created" in result
+
+    def test_format_prompt_field_order(self):
+        """Fields appear in correct order: TASK_ID, WARNING, PARENT_DELIVERIES, INSIGHTS, INJECTED."""
+        result = format_prompt(
+            task_id="001",
+            task="test",
+            objective="test",
+            verify="test",
+            insights=["[75%] insight"],
+            injected_names=["n1"],
+            warning="warn",
+            parent_deliveries="[000] done"
+        )
+
+        lines = result.split("\n")
+        task_pos = next(i for i, l in enumerate(lines) if l.startswith("TASK_ID:"))
+        warn_pos = next(i for i, l in enumerate(lines) if l.startswith("WARNING:"))
+        parent_pos = next(i for i, l in enumerate(lines) if l.startswith("PARENT_DELIVERIES:"))
+        insight_pos = next(i for i, l in enumerate(lines) if l.startswith("INSIGHTS"))
+        injected_pos = next(i for i, l in enumerate(lines) if l.startswith("INJECTED:"))
+
+        assert task_pos < warn_pos < parent_pos < insight_pos < injected_pos
 
 
 class TestBuildAgentPrompt:

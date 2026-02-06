@@ -19,6 +19,13 @@ export CLAUDE_PLUGIN_ROOT="$HELIX_ROOT"
 mkdir -p .helix
 echo "$HELIX_ROOT" > .helix/plugin_root
 
+# Wipe ephemeral session state (coordination artifacts, not insights)
+rm -f .helix/task-status.jsonl
+rm -rf .helix/explorer-results/
+
+# Time-based cleanup of injection-state and hook-trace
+"$HELIX_ROOT/scripts/cleanup-state.sh" 2>/dev/null || true
+
 VENV_PATH="$HELIX_ROOT/.venv"
 
 # Self-heal: trigger init if venv missing or corrupted

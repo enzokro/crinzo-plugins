@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from lib.paths import get_helix_dir as _get_helix_dir
+
 
 # Completion markers by agent type
 MARKERS: Dict[str, List[str]] = {
@@ -250,7 +252,7 @@ def wait_for_explorer_results(
     if helix_dir:
         results_dir = Path(helix_dir) / "explorer-results"
     else:
-        results_dir = Path.cwd() / ".helix" / "explorer-results"
+        results_dir = _get_helix_dir() / "explorer-results"
 
     start = time.time()
 
@@ -332,7 +334,7 @@ def wait_for_builder_results(
     if helix_dir:
         status_file = Path(helix_dir) / "task-status.jsonl"
     else:
-        status_file = Path.cwd() / ".helix" / "task-status.jsonl"
+        status_file = _get_helix_dir() / "task-status.jsonl"
 
     task_set = set(task_ids)
     start = time.time()
@@ -352,15 +354,17 @@ def wait_for_builder_results(
                     continue
 
             if task_set <= set(found.keys()):
-                # All tasks found
+                # All tasks found — pass through insight field for wave synthesis
                 delivered = [e for e in found.values() if e.get("outcome") == "delivered"]
                 blocked = [e for e in found.values() if e.get("outcome") == "blocked"]
+                insights_emitted = sum(1 for e in found.values() if e.get("insight"))
                 return {
                     "completed": True,
                     "count": len(found),
                     "delivered": delivered,
                     "blocked": blocked,
-                    "all_delivered": len(blocked) == 0
+                    "all_delivered": len(blocked) == 0,
+                    "insights_emitted": insights_emitted
                 }
 
         time.sleep(poll_interval)

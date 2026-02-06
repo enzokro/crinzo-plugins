@@ -34,6 +34,8 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 
 3. Build specs: `{seq, slug, description, relevant_files, blocked_by}`
 
+3b. Test parallelism: If N independent impl tasks run in parallel, create N parallel test tasks (each blocked only by its impl task). Only batch tests when they genuinely share state.
+
 4. Validate: `python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'`
 
 5. Self-check: paths exist? dependencies minimal? acyclic?
@@ -43,6 +45,7 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 **OUTPUT DISCIPLINE (CRITICAL):**
 - Every task MUST have relevant_files with actual paths
 - Maximize parallelism (only add deps when output feeds input)
+- Test tasks mirror implementation parallelism. Never funnel parallel work into a serial test bottleneck.
 - Your ONLY output is the final PLAN_SPEC JSON block
 - Do NOT narrate your planning process
 - **NEVER use TaskOutput** - it loads 70KB+ execution traces

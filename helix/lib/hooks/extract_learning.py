@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Learning extraction from helix agent transcripts.
 
-Called by SubagentStop hook. Parses agent transcripts for insights
-and applies feedback to injected memories.
+Called by SubagentStop hook. Extracts insights and applies feedback synchronously.
 
-Unified extraction pattern:
+Extraction patterns:
     - INSIGHT: {"content": "When X, do Y because Z", "tags": [...]}
     - DELIVERED: <summary>
     - BLOCKED: <reason>
     - INJECTED: ["name1", "name2"]
 
-Output written to .helix/learning-queue/{agent_id}.json
+On completion:
+    - Stores extracted insight via memory.store()
+    - Applies feedback to injected insights via memory.feedback()
+    - Writes task status to .helix/task-status.jsonl
+    - Logs to .helix/extraction.log
 """
 
 import json
-import os
 import re
 import sys
 import time
@@ -26,32 +28,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from extraction import extract_insight, extract_outcome, extract_injected_names, process_completion
-
-
-def get_helix_dir() -> Path:
-    """Get .helix directory using ancestor search."""
-    project_dir = os.environ.get("HELIX_PROJECT_DIR")
-    if project_dir:
-        helix_dir = Path(project_dir) / ".helix"
-        helix_dir.mkdir(exist_ok=True)
-        return helix_dir
-
-    cwd = Path.cwd()
-    for parent in [cwd] + list(cwd.parents):
-        helix_dir = parent / ".helix"
-        if helix_dir.exists() and helix_dir.is_dir():
-            return helix_dir
-
-    helix_dir = cwd / ".helix"
-    helix_dir.mkdir(exist_ok=True)
-    return helix_dir
-
-
-def get_learning_queue_dir() -> Path:
-    """Get learning queue directory."""
-    queue_dir = get_helix_dir() / "learning-queue"
-    queue_dir.mkdir(exist_ok=True)
-    return queue_dir
+from paths import get_helix_dir
 
 
 def extract_task_id(transcript: str) -> Optional[str]:
@@ -99,8 +76,17 @@ def get_full_transcript_text(transcript: str) -> str:
     return '\n'.join(text_parts)
 
 
-def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Optional[str]):
-    """Write task status for orchestrator polling."""
+def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Optional[str],
+                      insight_content: Optional[str] = None):
+    """Write task status for orchestrator polling.
+
+    Args:
+        task_id: Task identifier
+        agent_id: Agent identifier
+        outcome: "delivered" or "blocked"
+        summary: Task completion summary
+        insight_content: Content of extracted insight (for wave synthesis + orchestrator visibility)
+    """
     status_file = get_helix_dir() / "task-status.jsonl"
     entry = {
         "task_id": task_id,
@@ -109,6 +95,8 @@ def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Option
         "summary": summary or "",
         "ts": datetime.now(timezone.utc).isoformat()
     }
+    if insight_content:
+        entry["insight"] = insight_content
     with open(status_file, 'a') as f:
         f.write(json.dumps(entry) + '\n')
 
@@ -152,14 +140,61 @@ def write_explorer_results(agent_id: str, findings: dict):
     result_file.write_text(json.dumps(findings, indent=2))
 
 
-def apply_feedback(injected_names: list, outcome: str) -> bool:
-    """Apply feedback to injected insights based on outcome."""
+def filter_causal_insights(injected_names: list, task_context: str) -> list:
+    """Filter injected insights to those causally relevant to the task.
+
+    Computes semantic similarity between each injected insight's content
+    and the task context (objective + delivery summary). Only insights
+    passing the threshold are considered causally relevant.
+
+    Args:
+        injected_names: Names of insights that were injected
+        task_context: Combined task objective + delivered summary text
+
+    Returns: Subset of injected_names that pass causal similarity check
+    """
+    if not injected_names or not task_context.strip():
+        return injected_names  # graceful fallback
+
+    try:
+        from memory.embeddings import embed, cosine
+        from memory.core import get, CAUSAL_SIMILARITY_THRESHOLD
+
+        context_emb = embed(task_context)
+        if not context_emb:
+            return injected_names  # no embeddings available, treat all as causal
+
+        causal = []
+        for name in injected_names:
+            insight = get(name)
+            if not insight:
+                continue
+            insight_emb = embed(insight["content"])
+            if not insight_emb:
+                causal.append(name)  # can't check, assume causal
+                continue
+            if cosine(context_emb, insight_emb) >= CAUSAL_SIMILARITY_THRESHOLD:
+                causal.append(name)
+
+        return causal
+    except Exception:
+        return injected_names  # on any error, treat all as causal
+
+
+def apply_feedback(injected_names: list, outcome: str, causal_names: list = None) -> bool:
+    """Apply feedback to injected insights based on outcome.
+
+    Args:
+        injected_names: All insight names that were injected
+        outcome: "delivered" or "blocked"
+        causal_names: Subset that passed causal check (None = all causal)
+    """
     if not injected_names or outcome not in ("delivered", "blocked"):
         return False
 
     try:
-        from memory import feedback
-        result = feedback(names=injected_names, outcome=outcome)
+        from memory.core import feedback
+        result = feedback(names=injected_names, outcome=outcome, causal_names=causal_names)
         return result.get("updated", 0) > 0
     except Exception:
         return False
@@ -180,13 +215,16 @@ def store_insight(insight: dict) -> Optional[str]:
     return None
 
 
-def log_extraction_result(agent_id: str, agent_type: str, result: dict, feedback_applied: Optional[bool] = None):
+def log_extraction_result(agent_id: str, agent_type: str, result: dict,
+                          feedback_applied: Optional[bool] = None,
+                          causal_count: Optional[int] = None,
+                          total_injected: Optional[int] = None):
     """Log extraction result for diagnostics."""
     log_file = get_helix_dir() / "extraction.log"
     ts = datetime.now(timezone.utc).isoformat()
     outcome = result.get("outcome", "unknown")
     has_insight = result.get("insight") is not None
-    n_injected = len(result.get("injected", []))
+    n_injected = total_injected if total_injected is not None else len(result.get("injected", []))
 
     log_parts = [
         ts,
@@ -198,6 +236,9 @@ def log_extraction_result(agent_id: str, agent_type: str, result: dict, feedback
 
     if feedback_applied is not None:
         log_parts.append(f"feedback={'applied' if feedback_applied else 'skipped'}({n_injected})")
+
+    if causal_count is not None:
+        log_parts.append(f"causal={causal_count}/{n_injected}")
 
     with open(log_file, 'a') as f:
         f.write(" | ".join(log_parts) + "\n")
@@ -239,20 +280,31 @@ def process_hook_input(hook_input: dict) -> dict:
     if result.get("insight"):
         stored_name = store_insight(result["insight"])
 
-    # Apply feedback to injected insights
+    # Build task context for causal filtering
+    task_parts = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript_text, re.IGNORECASE)
+    summary_parts = re.findall(r'(?:DELIVERED|BLOCKED):\s*(.+)', transcript_text, re.IGNORECASE)
+    task_context = " ".join(task_parts[-2:]) + " " + (summary_parts[-1] if summary_parts else "")
+
+    # Filter to causally relevant insights, then apply feedback
     feedback_applied = None
+    causal_names = None
     if result["injected"] and result["outcome"] in ("delivered", "blocked"):
-        feedback_applied = apply_feedback(result["injected"], result["outcome"])
+        causal_names = filter_causal_insights(result["injected"], task_context.strip())
+        feedback_applied = apply_feedback(result["injected"], result["outcome"], causal_names=causal_names)
 
-    # Log result
-    log_extraction_result(agent_id, agent_type, result, feedback_applied)
+    # Log result with causal stats
+    n_causal = len(causal_names) if causal_names is not None else None
+    n_injected = len(result.get("injected", []))
+    log_extraction_result(agent_id, agent_type, result, feedback_applied,
+                          causal_count=n_causal, total_injected=n_injected)
 
-    # Write task status for orchestrator polling
+    # Write task status for orchestrator polling (with insight content for wave synthesis)
     task_id = extract_task_id(transcript_raw)
     if task_id:
-        summary_match = re.search(r'(?:DELIVERED|BLOCKED):\s*(.+?)(?:\n|$)', transcript_text, re.IGNORECASE)
-        summary = summary_match.group(1).strip() if summary_match else None
-        write_task_status(task_id, agent_id, result["outcome"], summary)
+        summary = summary_parts[-1].strip()[:200] if summary_parts else None
+        insight_content = result["insight"]["content"] if result.get("insight") else None
+        write_task_status(task_id, agent_id, result["outcome"], summary,
+                          insight_content=insight_content)
 
     # Write explorer results for orchestrator
     if agent_short == "explorer":
