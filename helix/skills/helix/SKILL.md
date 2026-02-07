@@ -142,10 +142,12 @@ import json
 
 reset_session_tracking()
 objectives = $WAVE_OBJECTIVES_JSON  # ['obj1', 'obj2', ...]
-batch = batch_inject(objectives, limit=5)
+task_ids = $WAVE_TASK_IDS_JSON      # ['task-001', 'task-002', ...]
+batch = batch_inject(objectives, limit=5, task_ids=task_ids)
 print(json.dumps(batch))
 "
 # Returns: {"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}
+# Side effect: writes injection-state/{task_id}.json for each task (audit trail)
 ```
 
 Each `results[i]` corresponds to `objectives[i]`. Distribute to builder prompts:
@@ -216,7 +218,7 @@ while pending tasks exist:
     1. Get ready tasks (blockers all completed)
     2. If none ready but pending exist → STALLED
     3. Checkpoint: git stash push -m "helix-{seq}"
-    4. Batch inject: call batch_inject([obj1, obj2, ...]) for all ready tasks
+    4. Batch inject: call batch_inject([obj1, obj2, ...], task_ids=[id1, id2, ...]) for all ready tasks
     5. Spawn ready builders (batch results + warnings + parent deliveries)
     6. Wait for wave completion
     7. Cross-wave synthesis (before dispatching next wave):
@@ -365,8 +367,8 @@ python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_JSON'
 # Collect parent deliveries for next wave
 python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
 
-# Batch inject for a wave (diversity across parallel builders)
-python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5)))"
+# Batch inject for a wave (diversity + injection-state audit trail)
+python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5, task_ids=$TASK_IDS_JSON)))"
 
 # Single-task inject (fallback for single ready task)
 python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"

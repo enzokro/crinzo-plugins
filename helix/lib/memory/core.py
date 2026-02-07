@@ -18,7 +18,7 @@ import json
 import math
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List
 
@@ -38,6 +38,14 @@ except ImportError:
     from db.connection import get_db, write_lock
     sys.path.insert(0, str(Path(__file__).parent))
     from embeddings import embed, to_blob, from_blob, cosine
+
+
+def _utcnow() -> datetime:
+    """Return current UTC time as naive datetime (no tzinfo).
+
+    Matches SQLite datetime('now') format for consistent comparisons.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _slug(text: str) -> str:
@@ -148,20 +156,20 @@ def store(content: str, tags: list = None) -> dict:
                 with write_lock():
                     db.execute(
                         "UPDATE insight SET use_count = use_count + 1, last_used = ? WHERE name = ?",
-                        (datetime.now().isoformat(), row["name"])
+                        (_utcnow().isoformat(), row["name"])
                     )
                     db.commit()
                 return {"status": "merged", "name": row["name"], "reason": "similar exists"}
 
     name = _slug(content[:50])
     if not name:
-        name = f"insight-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        name = f"insight-{_utcnow().strftime('%Y%m%d%H%M%S')}"
 
     emb_blob = to_blob(new_emb) if new_emb else None
     tags_json = json.dumps(tags)
 
     db = get_db()
-    now = datetime.now().isoformat()
+    now = _utcnow().isoformat()
 
     with write_lock():
         try:
@@ -173,7 +181,7 @@ def store(content: str, tags: list = None) -> dict:
             return {"status": "added", "name": name, "reason": ""}
         except Exception as e:
             if "UNIQUE" in str(e):
-                name = f"{name}-{datetime.now().strftime('%H%M%S')}"
+                name = f"{name}-{_utcnow().strftime('%H%M%S')}"
                 db.execute(
                     "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) VALUES (?,?,?,?,?,?,?)",
                     (name, content, emb_blob, 0.5, 0, now, tags_json)
@@ -270,7 +278,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
         return {"updated": 0, "error": "outcome must be 'delivered', 'blocked', or 'plan_complete'"}
 
     db = get_db()
-    now = datetime.now().isoformat()
+    now = _utcnow().isoformat()
     updated = 0
     causal_count = 0
     eroded_count = 0
@@ -329,7 +337,7 @@ def decay(unused_days: int = 30) -> dict:
     Returns count of affected insights.
     """
     db = get_db()
-    cutoff = (datetime.now() - timedelta(days=unused_days)).isoformat()
+    cutoff = (_utcnow() - timedelta(days=unused_days)).isoformat()
 
     with write_lock():
         # Move effectiveness toward 0.5 by 10%
@@ -387,11 +395,13 @@ def health() -> dict:
 
     with_feedback = db.execute("SELECT COUNT(*) as c FROM insight WHERE use_count > 0").fetchone()["c"]
 
-    # Session feedback: insights that received feedback recently (proxy for session)
+    # Session feedback: insights that received causal feedback recently
     try:
+        cutoff = (_utcnow() - timedelta(hours=1)).isoformat()
         recent_fb = db.execute(
             "SELECT COUNT(*) as c FROM insight WHERE last_feedback_at IS NOT NULL "
-            "AND last_feedback_at > datetime('now', '-1 hour')"
+            "AND last_feedback_at > ?",
+            (cutoff,)
         ).fetchone()["c"]
     except Exception:
         recent_fb = 0

@@ -93,9 +93,10 @@ python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
 ## Injection
 
 ```bash
-# Batch inject for a wave (diversity across parallel builders — single invocation required)
-python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject(['obj1', 'obj2'], 5)))"
+# Batch inject for a wave (diversity + injection-state audit trail — single invocation required)
+python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject(['obj1', 'obj2'], 5, task_ids=['task-001', 'task-002'])))"
 # Returns: {"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}
+# Side effect: writes injection-state/{task_id}.json per task
 
 # Single-task inject (fallback for one ready task)
 python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('task objective', 5, 'task_id')))"

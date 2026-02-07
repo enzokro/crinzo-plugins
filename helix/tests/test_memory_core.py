@@ -5,7 +5,7 @@ These tests verify store/recall/feedback work correctly with the new unified API
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class TestStore:
@@ -307,9 +307,9 @@ class TestDecay:
         insight_before = get(result["name"])
         assert insight_before["effectiveness"] > 0.5
 
-        # Manually backdate last_used
+        # Manually backdate last_used (UTC to match core.py timestamps)
         db = get_db()
-        old_date = (datetime.now() - timedelta(days=60)).isoformat()
+        old_date = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=60)).isoformat()
         with write_lock():
             db.execute("UPDATE insight SET last_used=? WHERE name=?", (old_date, result["name"]))
             db.commit()

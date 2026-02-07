@@ -167,7 +167,8 @@ def build_agent_prompt(task_data: dict, warning: str = "", parent_deliveries: st
     )
 
 
-def batch_inject(tasks: List[str], limit: int = 5) -> dict:
+def batch_inject(tasks: List[str], limit: int = 5,
+                 task_ids: List[str] = None) -> dict:
     """Inject context for multiple tasks with cross-task diversity.
 
     Session diversity is automatically applied: insights injected for
@@ -176,14 +177,17 @@ def batch_inject(tasks: List[str], limit: int = 5) -> dict:
     Args:
         tasks: List of task objectives
         limit: Maximum insights per task
+        task_ids: Optional list of task IDs (same length as tasks).
+                  When provided, writes injection-state files for audit trail.
 
     Returns: {"results": [inject_context result, ...], "total_unique": int}
     """
     results = []
     all_names = set()
 
-    for objective in tasks:
-        ctx = inject_context(objective, limit=limit, diversify=True)
+    for i, objective in enumerate(tasks):
+        tid = task_ids[i] if task_ids and i < len(task_ids) else None
+        ctx = inject_context(objective, limit=limit, task_id=tid, diversify=True)
         results.append(ctx)
         all_names.update(ctx["names"])
 
