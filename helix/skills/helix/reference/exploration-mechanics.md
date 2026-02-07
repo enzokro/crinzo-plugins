@@ -20,21 +20,12 @@ Identify 3-6 natural partitions based on codebase signals:
 
 ## Explorer Spawn Pattern
 
-```bash
-# First, inject known facts so explorers skip redundant discovery
-explorer_context=$(python3 "$HELIX/lib/context.py" build-explorer-context \
-    --objective "$OBJECTIVE" --scope "$SCOPE")
-```
-
-Then spawn explorers using XML syntax (no `allowed_tools` needed—agents use frontmatter):
+Spawn explorers using XML syntax (no `allowed_tools` needed—agents use frontmatter):
 
 ```xml
 <invoke name="Task">
   <parameter name="subagent_type">helix:helix-explorer</parameter>
-  <parameter name="prompt">KNOWN_FACTS:
-{known_facts_json}
-
-SCOPE: src/api/
+  <parameter name="prompt">SCOPE: src/api/
 FOCUS: route handlers
 OBJECTIVE: {objective}</parameter>
   <parameter name="model">haiku</parameter>
@@ -46,15 +37,15 @@ OBJECTIVE: {objective}</parameter>
 
 ## Merging Explorer Outputs
 
-1. Store `output_file` paths when spawning explorers
-2. Poll completion: `python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type explorer`
-3. Extract JSON from completed outputs: `python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"`
-4. Deduplicate files across scopes
-5. Resolve conflicts (prefer higher-relevance findings)
-6. Aggregate findings preserving `task_hint` for planner grouping
-7. Each finding should have: `{file, what, action, task_hint}`
+SubagentStop hook writes each explorer's findings to `.helix/explorer-results/{agent_id}.json`. Use the batch wait utility:
 
-**Why not TaskOutput?** It loads full JSONL transcript (70KB+). The wait utility uses grep (~0 context cost).
+```bash
+python3 "$HELIX/lib/wait.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
+```
+
+Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
+
+**Why not TaskOutput?** It loads full JSONL transcript (70KB+). The wait utility polls small JSON files (~0 context cost).
 
 ## EMPTY_EXPLORATION Recovery
 

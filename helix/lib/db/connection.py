@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v6: Added causal_hits tracking for causal feedback filtering.
+Schema v7: Added last_feedback_at for session-level feedback tracking.
 """
 
 import os
@@ -203,6 +203,15 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    # Migration v7: Add last_feedback_at for session-level feedback tracking
+    if current_version < 7:
+        try:
+            db.execute("ALTER TABLE insight ADD COLUMN last_feedback_at TEXT")
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (7, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
 
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
@@ -216,7 +225,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             applied_at TEXT NOT NULL
         );
 
-        -- Unified insight table (v6+)
+        -- Unified insight table (v7+)
         CREATE TABLE IF NOT EXISTS insight (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
@@ -227,6 +236,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             causal_hits INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             last_used TEXT,
+            last_feedback_at TEXT,
             tags TEXT DEFAULT '[]'
         );
 

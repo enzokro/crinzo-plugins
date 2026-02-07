@@ -81,9 +81,10 @@ Once completed, retrieve results from the appropriate location:
 
 | Agent | Result Location | How to Retrieve |
 |-------|-----------------|-----------------|
-| builder | Task metadata | TaskGet → `metadata.helix_outcome` |
-| explorer | Last JSON in output_file | `python3 "$HELIX/lib/wait.py" last-json --output-file "$FILE"` |
-| planner | PLAN_SPEC in returned result | Parse JSON from planner's text output |
+| builder (fg) | Task returns directly | Parse for `DELIVERED:` or `BLOCKED:` |
+| builder (bg) | `.helix/task-status.jsonl` | `python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "1,2" --timeout 120` |
+| explorer | `.helix/explorer-results/{id}.json` | `python3 "$HELIX/lib/wait.py" wait-for-explorers --count N --timeout 120` |
+| planner | Task returns directly | Parse JSON after `PLAN_SPEC:` |
 
 ---
 
@@ -117,27 +118,23 @@ The wait utility scans for these markers using grep.
 ## Complete Example
 
 ```
-# 1. SPAWN builders for ready tasks
+# 1. SPAWN builders for ready tasks (parallel, background)
 for each ready task:
     <invoke name="Task">
       <parameter name="subagent_type">helix:helix-builder</parameter>
-      <parameter name="prompt">{context}</parameter>
-      <parameter name="max_turns">15</parameter>
+      <parameter name="prompt">{context_with_insights}</parameter>
+      <parameter name="max_turns">25</parameter>
       <parameter name="run_in_background">true</parameter>
       <parameter name="description">Build task {id}</parameter>
     </invoke>
-    # Store output_file from result
 
-# 2. WATCH for completion
-for each spawned agent:
-    python3 "$HELIX/lib/wait.py" wait --output-file "$FILE" --agent-type builder
+# 2. WAIT for wave completion (SubagentStop hook writes outcomes to task-status.jsonl)
+python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "1,2,3" --timeout 120
 
-# 3. RETRIEVE results
-for each completed agent:
-    <invoke name="TaskGet">
-      <parameter name="taskId">{task_id}</parameter>
-    </invoke>
-    # Parse helix_outcome from metadata
+# 3. PROCESS results from wait-for-builders JSON:
+#    - delivered: mark task completed, git stash drop
+#    - blocked: git stash pop, reassess
+#    - unknown/crashed: re-dispatch or mark blocked
 ```
 
 ---
@@ -146,7 +143,7 @@ for each completed agent:
 
 **Never use TaskOutput.** Exception: Debugging failed agents when full trace needed.
 
-- Wait → grep output_file (or wait.py)
-- Builder results → TaskGet
-- Explorer results → Extract from output_file last block
+- Wait → `wait-for-builders` / `wait-for-explorers` (batch polling)
+- Builder results → `wait-for-builders` JSON (delivered/blocked/unknown)
+- Explorer results → `wait-for-explorers` JSON (merged findings)
 - Planner results → PLAN_SPEC JSON in returned result (orchestrator creates tasks)

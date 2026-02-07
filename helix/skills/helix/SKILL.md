@@ -20,7 +20,7 @@ This isn't compliance, it's investing in yourself.
 
 **Code surfaces facts. You decide actions.**
 
-Six primitives handle memory mechanics: `store`, `recall`, `get`, `feedback`, `decay`, `prune`, `health`.
+Seven primitives handle memory mechanics: `store`, `recall`, `get`, `feedback`, `decay`, `prune`, `health`.
 
 Your memory represents living, growing knowledge as unified "insights" - each capturing "When X, do Y because Z".
 
@@ -77,21 +77,11 @@ OBJECTIVE: {objective}</parameter>
 
    Track expected count: `EXPLORER_COUNT=N`
 
-3. **Wait for results** (SubagentStop hook writes findings to files):
+3. **Wait and merge** (SubagentStop hook writes findings to files; wait utility merges and dedupes):
    ```bash
    python3 "$HELIX/lib/wait.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
    ```
-   Returns JSON with `completed`, `findings`, and partial results on timeout.
-
-4. **Merge findings:**
-   ```bash
-   cat .helix/explorer-results/*.json | jq -s '[.[].findings // []] | add | unique_by(.file)'
-   ```
-
-5. **Cleanup:**
-   ```bash
-   rm -rf .helix/explorer-results/
-   ```
+   Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
 
 **NEVER use TaskOutput** — SubagentStop hook extracts findings to small JSON files.
 
@@ -205,7 +195,9 @@ Wait for builder completions (SubagentStop hook writes outcomes to file):
 ```bash
 python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
 ```
-Returns JSON with `completed`, `delivered`, `blocked`, `all_delivered`, and partial results on timeout.
+Returns JSON with `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`, and partial results on timeout.
+
+**`all_delivered` is true only when zero blocked AND zero unknown.** Agents that crash (API 500, empty transcript) get outcome `"crashed"` which lands in `unknown`. Check `unknown` — if non-empty, those tasks need re-dispatch or manual resolution before the wave is clean.
 
 #### Build Loop
 
@@ -241,13 +233,15 @@ The `wait-for-builders` response includes `insights_emitted` count for extractio
 
 **On DELIVERED:** `git stash drop` — changes are good.
 **On BLOCKED:** `git stash pop` — revert, reassess.
+**On unknown/crashed:** Re-dispatch the task. Do not advance dependent tasks — their parent deliveries are missing. If a task crashes twice, mark it blocked and surface the failure in LEARN.
 
-#### Automatic Builder Learning
+#### Automatic Agent Learning
 
-The SubagentStop hook automatically:
-1. Extracts INSIGHT from builder output (if present)
+The SubagentStop hook fires on every builder and planner completion:
+1. Extracts INSIGHT from agent output (if present)
 2. Stores new insight to memory
-3. Applies feedback to INJECTED insights based on outcome
+3. Applies causal feedback to INJECTED insights based on outcome (DELIVERED, BLOCKED, PLAN_COMPLETE)
+4. Detects crashed agents (API errors, empty transcripts) and marks them accordingly
 
 This handles task-level learning. But the orchestrator sees the full picture.
 
@@ -304,10 +298,11 @@ python3 "$HELIX/lib/memory/core.py" health
 
 **Verify the loop closed:**
 
-- `with_feedback > 0` if insights were injected (builders provided outcomes)
+- `recent_feedback > 0` if insights were injected this session (builders/planners provided outcomes)
 - `total_insights` increased if LEARN phase stored discoveries
+- `with_feedback` is lifetime count; `recent_feedback` is this session's signal
 
-If you injected insights and `with_feedback: 0`, something broke. If the session completed work and you stored nothing in LEARN, you wasted knowledge.
+If you injected insights and `recent_feedback: 0`, the feedback loop broke this session. If the session completed work and you stored nothing in LEARN, you wasted knowledge.
 
 **Quality over quantity.** One sharp insight beats ten generic observations.
 
@@ -375,12 +370,13 @@ python3 "$HELIX/lib/memory/core.py" health
 | Hook | Trigger | Action |
 |------|---------|--------|
 | SubagentStop | helix agent completion | Extract insight, apply feedback, write results |
+| SessionEnd | session termination | Clean injection-state, remove task-status.jsonl, run decay |
 
 **SubagentStop writes:**
 - Explorer: `.helix/explorer-results/{agent_id}.json`
-- Builder: `.helix/task-status.jsonl`
+- Builder/Planner: `.helix/task-status.jsonl`
 
-**Feedback is automatic:** When builder outputs DELIVERED/BLOCKED with INJECTED names, feedback is applied to those insights.
+**Feedback is automatic:** When a builder or planner outputs DELIVERED/BLOCKED/PLAN_COMPLETE with INJECTED names, feedback is applied to those insights. Planners participate fully in the feedback loop — their insights compound across sessions just like builders'.
 
 ---
 

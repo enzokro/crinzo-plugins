@@ -22,6 +22,7 @@ echo "$HELIX_ROOT" > .helix/plugin_root
 # Wipe ephemeral session state (coordination artifacts, not insights)
 rm -f .helix/task-status.jsonl
 rm -rf .helix/explorer-results/
+rm -rf .helix/injection-state/
 
 # Time-based cleanup of injection-state and hook-trace
 "$HELIX_ROOT/scripts/cleanup-state.sh" 2>/dev/null || true

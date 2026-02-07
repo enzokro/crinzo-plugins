@@ -146,6 +146,29 @@ class TestFormatPrompt:
         assert task_pos < warn_pos < parent_pos < insight_pos < injected_pos
 
 
+class TestInjectContextState:
+    """Tests for injection-state file writing."""
+
+    def test_inject_context_writes_state_when_no_insights(self, test_db, mock_embeddings, meta_dir):
+        """Injection-state file written even with empty names list."""
+        import json
+        from unittest.mock import patch
+
+        # Empty DB → no insights will be recalled → names will be empty
+        result = inject_context("nonexistent topic", limit=5, task_id="task-42")
+
+        assert result["names"] == []
+
+        # State file should still be written
+        state_file = meta_dir / "injection-state" / "task-42.json"
+        assert state_file.exists()
+
+        data = json.loads(state_file.read_text())
+        assert data["task_id"] == "task-42"
+        assert data["names"] == []
+        assert "ts" in data
+
+
 class TestBuildAgentPrompt:
     """Tests for build_agent_prompt function."""
 

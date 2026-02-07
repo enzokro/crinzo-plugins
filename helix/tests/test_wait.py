@@ -304,6 +304,57 @@ class TestGetLastJsonBlock:
         assert result is None
 
 
+class TestWaitForBuilderResults:
+    """Tests for wait_for_builder_results function."""
+
+    def test_wait_builder_unknown_not_delivered(self, tmp_path):
+        """Tasks with unknown outcome cause all_delivered=False."""
+        from lib.wait import wait_for_builder_results
+
+        helix_dir = tmp_path / ".helix"
+        helix_dir.mkdir()
+        status_file = helix_dir / "task-status.jsonl"
+        status_file.write_text(
+            json.dumps({"task_id": "task-1", "outcome": "delivered", "summary": "done"}) + "\n"
+            + json.dumps({"task_id": "task-2", "outcome": "unknown", "summary": ""}) + "\n"
+        )
+
+        result = wait_for_builder_results(
+            ["task-1", "task-2"],
+            helix_dir=str(helix_dir),
+            timeout_sec=1.0,
+            poll_interval=0.1
+        )
+
+        assert result["completed"] is True
+        assert result["all_delivered"] is False
+        assert len(result["unknown"]) == 1
+        assert result["unknown"][0]["task_id"] == "task-2"
+
+    def test_wait_builder_all_delivered(self, tmp_path):
+        """All delivered tasks => all_delivered=True."""
+        from lib.wait import wait_for_builder_results
+
+        helix_dir = tmp_path / ".helix"
+        helix_dir.mkdir()
+        status_file = helix_dir / "task-status.jsonl"
+        status_file.write_text(
+            json.dumps({"task_id": "task-1", "outcome": "delivered", "summary": "done"}) + "\n"
+            + json.dumps({"task_id": "task-2", "outcome": "delivered", "summary": "done"}) + "\n"
+        )
+
+        result = wait_for_builder_results(
+            ["task-1", "task-2"],
+            helix_dir=str(helix_dir),
+            timeout_sec=1.0,
+            poll_interval=0.1
+        )
+
+        assert result["completed"] is True
+        assert result["all_delivered"] is True
+        assert len(result["unknown"]) == 0
+
+
 class TestCLI:
     """Tests for CLI interface."""
 

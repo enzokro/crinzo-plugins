@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""SessionEnd hook - log session summary.
+"""SessionEnd hook - clean up session state and run maintenance.
 
 Triggered by: SessionEnd lifecycle event
 
-Logs SESSION_END event to .helix/session.log for diagnostics.
+Actions:
+1. Clean injection-state (prevent cross-session collision)
+2. Remove task-status.jsonl (append-only, never cleaned)
+3. Run decay on dormant insights
+4. Log session summary
 """
 
 import sys
@@ -33,8 +37,27 @@ def main():
         helix_dir = get_helix_dir()
         log_file = helix_dir / "session.log"
 
-        # Log session end
-        log_event(log_file, "SESSION_END")
+        # 1. Clean injection-state (prevent cross-session collision)
+        injection_dir = helix_dir / "injection-state"
+        if injection_dir.exists():
+            import shutil
+            shutil.rmtree(injection_dir, ignore_errors=True)
+
+        # 2. Truncate task-status.jsonl (append-only, never cleaned)
+        status_file = helix_dir / "task-status.jsonl"
+        if status_file.exists():
+            status_file.unlink()
+
+        # 3. Run decay on dormant insights
+        try:
+            from memory.core import decay
+            decay_result = decay()
+            decayed = decay_result.get("decayed", 0)
+        except Exception:
+            decayed = 0
+
+        # 4. Log session summary
+        log_event(log_file, "SESSION_END", f"decayed={decayed}")
 
         # Always output valid JSON
         print("{}")

@@ -31,6 +31,25 @@ from extraction import extract_insight, extract_outcome, extract_injected_names,
 from paths import get_helix_dir
 
 
+def _transcript_has_error(transcript_raw: str) -> bool:
+    """Check if transcript's last entry indicates agent crash/API error."""
+    lines = [l for l in transcript_raw.strip().splitlines() if l.strip()]
+    if not lines:
+        return True  # empty transcript = crashed
+    try:
+        last = json.loads(lines[-1])
+        # Check for error indicators in last entry
+        if last.get("type") == "error" or last.get("error"):
+            return True
+        # Check for API error in message content
+        msg = last.get("message", {})
+        if msg.get("stop_reason") == "error":
+            return True
+    except json.JSONDecodeError:
+        pass
+    return False
+
+
 def extract_task_id(transcript: str) -> Optional[str]:
     """Extract TASK_ID from transcript."""
     for line in transcript.split('\n'):
@@ -189,7 +208,7 @@ def apply_feedback(injected_names: list, outcome: str, causal_names: list = None
         outcome: "delivered" or "blocked"
         causal_names: Subset that passed causal check (None = all causal)
     """
-    if not injected_names or outcome not in ("delivered", "blocked"):
+    if not injected_names or outcome not in ("delivered", "blocked", "plan_complete"):
         return False
 
     try:
@@ -266,14 +285,17 @@ def process_hook_input(hook_input: dict) -> dict:
 
     # Retry for builders if outcome not yet flushed
     agent_short = agent_type.replace("helix:helix-", "")
-    if agent_short == "builder" and result["outcome"] == "unknown":
-        for delay in [0.15, 0.35, 0.75]:
-            time.sleep(delay)
-            transcript_raw = Path(transcript_path).read_text()
-            transcript_text = get_full_transcript_text(transcript_raw)
-            result = process_completion(transcript_text, agent_short)
-            if result["outcome"] != "unknown":
-                break
+    if agent_short in ("builder", "planner") and result["outcome"] == "unknown":
+        if _transcript_has_error(transcript_raw):
+            result["outcome"] = "crashed"
+        else:
+            for delay in [0.15, 0.35, 0.75]:
+                time.sleep(delay)
+                transcript_raw = Path(transcript_path).read_text()
+                transcript_text = get_full_transcript_text(transcript_raw)
+                result = process_completion(transcript_text, agent_short)
+                if result["outcome"] != "unknown":
+                    break
 
     # Store insight if extracted
     stored_name = None
@@ -288,7 +310,7 @@ def process_hook_input(hook_input: dict) -> dict:
     # Filter to causally relevant insights, then apply feedback
     feedback_applied = None
     causal_names = None
-    if result["injected"] and result["outcome"] in ("delivered", "blocked"):
+    if result["injected"] and result["outcome"] in ("delivered", "blocked", "plan_complete"):
         causal_names = filter_causal_insights(result["injected"], task_context.strip())
         feedback_applied = apply_feedback(result["injected"], result["outcome"], causal_names=causal_names)
 

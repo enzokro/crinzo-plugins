@@ -186,6 +186,53 @@ class TestFeedback:
         assert "error" in fb_result
 
 
+class TestFeedbackMetrics:
+    """Tests for last_feedback_at and recent_feedback."""
+
+    def test_feedback_sets_last_feedback_at(self, test_db, mock_embeddings):
+        """Causal feedback sets last_feedback_at timestamp."""
+        from lib.memory.core import store, feedback, get_db
+
+        result = store(
+            content="When deploying services, always check health endpoints first because silent failures waste time"
+        )
+        name = result["name"]
+
+        feedback([name], "delivered")
+
+        db = get_db()
+        row = db.execute("SELECT last_feedback_at FROM insight WHERE name=?", (name,)).fetchone()
+        assert row["last_feedback_at"] is not None
+
+    def test_health_includes_recent_feedback(self, test_db, mock_embeddings):
+        """health() includes recent_feedback count."""
+        from lib.memory.core import store, feedback, health
+
+        result = store(
+            content="When writing integration tests, use test containers because they match production"
+        )
+        feedback([result["name"]], "delivered")
+
+        h = health()
+        assert "recent_feedback" in h
+        assert h["recent_feedback"] >= 1
+
+    def test_feedback_plan_complete_treated_as_success(self, test_db, mock_embeddings):
+        """plan_complete outcome increases effectiveness like delivered."""
+        from lib.memory.core import store, get, feedback
+
+        result = store(
+            content="When planning microservices, separate by bounded context because it reduces coupling"
+        )
+        name = result["name"]
+        before = get(name)["effectiveness"]
+
+        feedback([name], "plan_complete")
+
+        after = get(name)["effectiveness"]
+        assert after > before
+
+
 class TestDecay:
     """Tests for decay mechanism."""
 

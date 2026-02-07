@@ -1,6 +1,6 @@
 # CLI Reference
 
-## Memory (6 Core Primitives)
+## Memory (7 Core Primitives)
 
 ```bash
 HELIX="$(cat .helix/plugin_root)"
@@ -14,8 +14,8 @@ python3 "$HELIX/lib/memory/core.py" recall "query text" --limit 5 --min-effectiv
 # Get specific insight by name
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
 
-# Apply feedback after task completion (outcome: delivered|blocked)
-python3 "$HELIX/lib/memory/core.py" feedback --names '["insight1", "insight2"]' --outcome delivered
+# Apply feedback after task completion (outcome: delivered|blocked|plan_complete)
+python3 "$HELIX/lib/memory/core.py" feedback --names '["insight1", "insight2"]' --outcome delivered --causal-names '["insight1"]'
 
 # Decay dormant insights toward neutral (0.5) effectiveness
 python3 "$HELIX/lib/memory/core.py" decay --days 30
@@ -36,8 +36,10 @@ python3 "$HELIX/lib/memory/core.py" health
 | embedding | BLOB | 384-dim all-MiniLM-L6-v2 vector |
 | effectiveness | REAL | 0-1 score, updated via feedback |
 | use_count | INT | Times injected and received feedback |
+| causal_hits | INT | Times causally relevant to outcome |
 | created_at | TEXT | ISO timestamp |
 | last_used | TEXT | ISO timestamp of last feedback |
+| last_feedback_at | TEXT | ISO timestamp of last causal feedback (session-scoped metric) |
 | tags | TEXT | JSON array of tags |
 
 ## Scoring Formula
@@ -52,13 +54,16 @@ recency = 2^(-days_since_use / 14)
 | Option | Description |
 |--------|-------------|
 | `--limit N` | Maximum results (default 5) |
-| `--min-effectiveness F` | Filter below threshold (default 0.0) |
+| `--min-effectiveness F` | Filter below effectiveness threshold (default 0.0) |
+| `--min-relevance F` | Filter below cosine similarity threshold (default 0.35) |
 
 ## Feedback Mechanics
 
-- `delivered` → effectiveness moves toward 1.0 (EMA: `eff * 0.9 + 1.0 * 0.1`)
+- `delivered` / `plan_complete` → effectiveness moves toward 1.0 (EMA: `eff * 0.9 + 1.0 * 0.1`)
 - `blocked` → effectiveness moves toward 0.0 (EMA: `eff * 0.9 + 0.0 * 0.1`)
-- `use_count` increments on each feedback call
+- Causal insights (semantically related to outcome): full EMA update + `causal_hits` increment
+- Non-causal insights: 4% erosion toward neutral (`eff + (0.5 - eff) * 0.04`)
+- `use_count` increments on each feedback call; `last_feedback_at` set on causal updates
 
 ## Wait Utilities
 

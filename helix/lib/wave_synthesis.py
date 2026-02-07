@@ -139,12 +139,17 @@ def collect_parent_deliveries(
 
     Returns: Dict mapping next-wave task_id -> formatted parent delivery string
     """
-    # Index wave results by task_id
+    # Index wave results by task_id (both "task-N" and "N" formats)
     result_by_id = {}
     for r in wave_results:
         tid = r.get("task_id")
         if tid:
             result_by_id[tid] = r
+            # Normalize: index under both formats for cross-format lookup
+            if tid.startswith("task-"):
+                result_by_id[tid.removeprefix("task-")] = r
+            else:
+                result_by_id[f"task-{tid}"] = r
 
     deliveries = {}
     for next_task_id, blocker_ids in task_blockers.items():

@@ -1,6 +1,12 @@
 # STALLED Recovery (Orchestrator Judgment)
 
-When build stalls (pending tasks but none ready), analyze the situation:
+When build stalls (pending tasks but none ready), detect and analyze:
+
+```bash
+python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '$TASK_LIST_JSON'
+```
+
+Returns `{"stalled": true/false, "info": {"pending_count": N, "blocked_by_blocked": [...]}}`. If stalled:
 
 ## Decision Table
 

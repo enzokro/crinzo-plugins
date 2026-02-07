@@ -8,6 +8,28 @@ import re
 from typing import Optional
 
 
+def _extract_json_after(text: str, marker: str) -> Optional[dict]:
+    """Extract first JSON object after marker using balanced brace matching."""
+    idx = text.lower().find(marker.lower())
+    if idx < 0:
+        return None
+    start = text.find('{', idx)
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+        if depth == 0:
+            try:
+                return json.loads(text[start:i + 1])
+            except json.JSONDecodeError:
+                return None
+    return None
+
+
 def extract_insight(transcript: str) -> Optional[dict]:
     """Extract insight from any agent transcript.
 
@@ -16,19 +38,15 @@ def extract_insight(transcript: str) -> Optional[dict]:
 
     Returns: {"content": str, "tags": list} or None
     """
-    # Primary: explicit INSIGHT line
-    match = re.search(r'INSIGHT:\s*(\{[^}]+\})', transcript, re.IGNORECASE)
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            content = data.get("content", "").strip()
-            if content and len(content) >= 20:
-                return {
-                    "content": content,
-                    "tags": data.get("tags", [])
-                }
-        except json.JSONDecodeError:
-            pass
+    # Primary: explicit INSIGHT line (balanced brace extraction)
+    data = _extract_json_after(transcript, 'INSIGHT:')
+    if data:
+        content = data.get("content", "").strip()
+        if content and len(content) >= 20:
+            return {
+                "content": content,
+                "tags": data.get("tags", [])
+            }
 
     # Fallback: derive from DELIVERED/BLOCKED with context
     delivered_matches = re.findall(r'DELIVERED:\s*(.+)', transcript, re.IGNORECASE)
@@ -62,12 +80,14 @@ def extract_insight(transcript: str) -> Optional[dict]:
 def extract_outcome(transcript: str) -> str:
     """Extract outcome from transcript.
 
-    Returns: "delivered"|"blocked"|"unknown"
+    Returns: "delivered"|"blocked"|"plan_complete"|"unknown"
     """
     if re.search(r'DELIVERED:', transcript, re.IGNORECASE):
         return "delivered"
     if re.search(r'BLOCKED:', transcript, re.IGNORECASE):
         return "blocked"
+    if re.search(r'PLAN_COMPLETE:', transcript, re.IGNORECASE):
+        return "plan_complete"
     return "unknown"
 
 

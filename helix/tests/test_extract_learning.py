@@ -14,6 +14,7 @@ from hooks.extract_learning import (
     extract_task_id,
     get_full_transcript_text,
     extract_explorer_findings,
+    _transcript_has_error,
 )
 
 
@@ -67,6 +68,30 @@ class TestExtractExplorerFindings:
         text = "Just some text without JSON"
         result = extract_explorer_findings(text)
         assert result is None
+
+
+class TestTranscriptHasError:
+    """Tests for _transcript_has_error function."""
+
+    def test_transcript_has_error_api_crash(self):
+        """Detect API error in last transcript entry."""
+        transcript = '{"message": {"role": "user", "content": "Do something"}}\n{"type": "error", "error": "API 500"}'
+        assert _transcript_has_error(transcript) is True
+
+    def test_transcript_has_error_empty(self):
+        """Empty transcript indicates crash."""
+        assert _transcript_has_error("") is True
+        assert _transcript_has_error("   \n  ") is True
+
+    def test_transcript_has_error_normal(self):
+        """Normal transcript does not indicate error."""
+        transcript = '{"message": {"role": "assistant", "content": "DELIVERED: Done"}}'
+        assert _transcript_has_error(transcript) is False
+
+    def test_transcript_has_error_stop_reason(self):
+        """Detect stop_reason error in message."""
+        transcript = '{"message": {"role": "assistant", "content": "partial", "stop_reason": "error"}}'
+        assert _transcript_has_error(transcript) is True
 
 
 if __name__ == "__main__":

@@ -21,6 +21,8 @@ python3 "$HELIX/lib/memory/core.py" health
 - **by_tag**: Breakdown by tags (debugging, pattern, eval, etc.)
 - **effectiveness**: Average effectiveness of insights with feedback
 - **with_feedback**: Count of insights that have received feedback (use_count > 0)
+- **recent_feedback**: Count of insights that received causal feedback in the last hour (session-scoped signal)
+- **causal_ratio**: Fraction of feedback events that were causally relevant
 - **issues**: List of problems if any
 
 ## Example Output
@@ -32,6 +34,8 @@ python3 "$HELIX/lib/memory/core.py" health
   "by_tag": {"debugging": 6, "pattern": 10, "eval": 5, ...},
   "effectiveness": 0.65,
   "with_feedback": 12,
+  "recent_feedback": 3,
+  "causal_ratio": 0.82,
   "issues": []
 }
 ```
@@ -42,6 +46,8 @@ python3 "$HELIX/lib/memory/core.py" health
 |--------|---------|---------------------|
 | total_insights | > 0 | Run helix to build memories |
 | with_feedback | > 0 | Ensure feedback() called after builds |
+| recent_feedback | > 0 (after a build session) | Check injection-state files and SubagentStop hook |
+| causal_ratio | > 0.5 | Insights aren't matching outcomes; review content quality |
 | effectiveness | > 0.5 | Prune low performers |
 | issues | empty | Address listed issues |
 
@@ -59,11 +65,12 @@ python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 
 ## Feedback Mechanics
 
-When `feedback(names, outcome)` is called:
-- `outcome="delivered"` → effectiveness moves toward 1.0
+When `feedback(names, outcome, causal_names)` is called:
+- `outcome="delivered"` or `"plan_complete"` → effectiveness moves toward 1.0
 - `outcome="blocked"` → effectiveness moves toward 0.0
-- Uses EMA update: `new_eff = old_eff * 0.9 + outcome * 0.1`
-- `use_count` increments, `last_used` updates
+- Causal insights: EMA update `new_eff = old_eff * 0.9 + outcome_value * 0.1`
+- Non-causal insights: 4% erosion toward neutral `new_eff + (0.5 - eff) * 0.04`
+- `use_count` increments, `last_used` updates, `last_feedback_at` set on causal
 
 ## Database Location
 

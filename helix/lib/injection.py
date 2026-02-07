@@ -46,7 +46,7 @@ def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None
     names = [n for n in names if n]
 
     # Write injection state for audit trail (foreground agents don't trigger SubagentStop)
-    if task_id and names:
+    if task_id:
         state_dir = get_helix_dir() / "injection-state"
         state_dir.mkdir(parents=True, exist_ok=True)
         state_file = state_dir / f"{task_id}.json"

@@ -235,8 +235,8 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
 
     Returns count of updated insights with causal breakdown.
     """
-    if outcome not in ("delivered", "blocked"):
-        return {"updated": 0, "error": "outcome must be 'delivered' or 'blocked'"}
+    if outcome not in ("delivered", "blocked", "plan_complete"):
+        return {"updated": 0, "error": "outcome must be 'delivered', 'blocked', or 'plan_complete'"}
 
     db = get_db()
     now = datetime.now().isoformat()
@@ -245,7 +245,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
     eroded_count = 0
 
     causal_set = set(causal_names) if causal_names is not None else None
-    outcome_value = 1.0 if outcome == "delivered" else 0.0
+    outcome_value = 1.0 if outcome in ("delivered", "plan_complete") else 0.0
 
     with write_lock():
         for name in set(names):
@@ -262,8 +262,8 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
                 new_eff = max(0.0, min(1.0, new_eff))
                 db.execute(
                     "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
-                    "causal_hits=causal_hits+1, last_used=? WHERE name=?",
-                    (new_eff, now, name)
+                    "causal_hits=causal_hits+1, last_used=?, last_feedback_at=? WHERE name=?",
+                    (new_eff, now, now, name)
                 )
                 causal_count += 1
             else:
@@ -356,6 +356,15 @@ def health() -> dict:
 
     with_feedback = db.execute("SELECT COUNT(*) as c FROM insight WHERE use_count > 0").fetchone()["c"]
 
+    # Session feedback: insights that received feedback recently (proxy for session)
+    try:
+        recent_fb = db.execute(
+            "SELECT COUNT(*) as c FROM insight WHERE last_feedback_at IS NOT NULL "
+            "AND last_feedback_at > datetime('now', '-1 hour')"
+        ).fetchone()["c"]
+    except Exception:
+        recent_fb = 0
+
     # Average effectiveness
     avg_eff_row = db.execute("SELECT AVG(effectiveness) as avg_eff FROM insight WHERE use_count > 0").fetchone()
     avg_eff = avg_eff_row["avg_eff"] if avg_eff_row and avg_eff_row["avg_eff"] else 0.5
@@ -384,6 +393,7 @@ def health() -> dict:
         "by_tag": by_tag,
         "effectiveness": round(avg_eff, 3),
         "with_feedback": with_feedback,
+        "recent_feedback": recent_fb,
         "causal_ratio": causal_ratio,
         "issues": issues
     }
@@ -429,7 +439,7 @@ if __name__ == "__main__":
 
     s = sub.add_parser("feedback")
     s.add_argument("--names", required=True, help="JSON list of insight names")
-    s.add_argument("--outcome", required=True, choices=["delivered", "blocked"])
+    s.add_argument("--outcome", required=True, choices=["delivered", "blocked", "plan_complete"])
     s.add_argument("--causal-names", default=None, help="JSON list of causally relevant insight names (subset of --names)")
 
     s = sub.add_parser("decay")

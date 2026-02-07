@@ -357,13 +357,15 @@ def wait_for_builder_results(
                 # All tasks found — pass through insight field for wave synthesis
                 delivered = [e for e in found.values() if e.get("outcome") == "delivered"]
                 blocked = [e for e in found.values() if e.get("outcome") == "blocked"]
+                unknown = [e for e in found.values() if e.get("outcome") not in ("delivered", "blocked")]
                 insights_emitted = sum(1 for e in found.values() if e.get("insight"))
                 return {
                     "completed": True,
                     "count": len(found),
                     "delivered": delivered,
                     "blocked": blocked,
-                    "all_delivered": len(blocked) == 0,
+                    "unknown": unknown,
+                    "all_delivered": len(blocked) == 0 and len(unknown) == 0,
                     "insights_emitted": insights_emitted
                 }
 

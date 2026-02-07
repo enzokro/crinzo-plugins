@@ -88,6 +88,30 @@ class TestExtractInsight:
 
         assert result is None
 
+    def test_extract_insight_nested_braces(self):
+        """INSIGHT with } in content string is not truncated."""
+        transcript = '''
+        DELIVERED: Fixed config parsing
+        INSIGHT: {"content": "When {config} is missing from the environment, fall back to defaults", "tags": ["config"]}
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert "{config}" in result["content"]
+        assert "config" in result["tags"]
+
+    def test_extract_insight_nested_json(self):
+        """INSIGHT with nested JSON objects in metadata."""
+        transcript = '''
+        DELIVERED: Done
+        INSIGHT: {"content": "When deploying to production, validate all env vars first because missing vars cause silent failures", "tags": ["deploy"], "meta": {"source": "wave-3"}}
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert "env vars" in result["content"]
+        assert "deploy" in result["tags"]
+
 
 class TestExtractOutcome:
     """Tests for extract_outcome function."""
@@ -107,10 +131,16 @@ class TestExtractOutcome:
         transcript = "Some text without outcome markers"
         assert extract_outcome(transcript) == "unknown"
 
+    def test_plan_complete_outcome(self):
+        """Detect PLAN_COMPLETE outcome."""
+        transcript = "PLAN_COMPLETE: 5 tasks created"
+        assert extract_outcome(transcript) == "plan_complete"
+
     def test_case_insensitive(self):
         """Handle case variations."""
         assert extract_outcome("delivered: done") == "delivered"
         assert extract_outcome("Blocked: failed") == "blocked"
+        assert extract_outcome("plan_complete: done") == "plan_complete"
 
 
 class TestExtractInjectedNames:
@@ -185,3 +215,18 @@ class TestProcessCompletion:
 
         assert result["outcome"] == "blocked"
         assert "bad-advice-1" in result["injected"]
+
+    def test_planner_completion(self):
+        """Process planner completion with PLAN_COMPLETE outcome."""
+        transcript = '''
+        OBJECTIVE: Design authentication system
+        PLAN_COMPLETE: 5 tasks created in DAG
+        INSIGHT: {"content": "When planning auth systems, separate token management from user management because they evolve independently", "tags": ["planning"]}
+        INJECTED: ["auth-insight-1"]
+        '''
+        result = process_completion(transcript, "planner")
+
+        assert result["outcome"] == "plan_complete"
+        assert result["insight"] is not None
+        assert "token management" in result["insight"]["content"]
+        assert result["injected"] == ["auth-insight-1"]

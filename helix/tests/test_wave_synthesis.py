@@ -155,3 +155,35 @@ class TestCollectParentDeliveries:
         assert "003" in deliveries
         assert "[001]" in deliveries["003"]
         assert "[002]" not in deliveries["003"]
+
+    def test_collect_parent_deliveries_mixed_id_formats(self):
+        """Bare '3' blocker matches 'task-3' result via normalization."""
+        from lib.wave_synthesis import collect_parent_deliveries
+
+        wave_results = [
+            {"task_id": "task-3", "outcome": "delivered", "summary": "Created models"},
+        ]
+        task_blockers = {
+            "5": ["3"],  # bare ID referencing task-3
+        }
+
+        deliveries = collect_parent_deliveries(wave_results, task_blockers)
+        assert "5" in deliveries
+        assert "Created models" in deliveries["5"]
+
+    def test_collect_parent_deliveries_bare_ids(self):
+        """Both sides use bare IDs."""
+        from lib.wave_synthesis import collect_parent_deliveries
+
+        wave_results = [
+            {"task_id": "1", "outcome": "delivered", "summary": "Schema done"},
+            {"task_id": "2", "outcome": "delivered", "summary": "Models done"},
+        ]
+        task_blockers = {
+            "3": ["1", "2"],
+        }
+
+        deliveries = collect_parent_deliveries(wave_results, task_blockers)
+        assert "3" in deliveries
+        assert "[1]" in deliveries["3"]
+        assert "[2]" in deliveries["3"]
