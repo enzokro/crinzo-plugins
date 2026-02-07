@@ -100,10 +100,6 @@ The `INSIGHT` line is **optional** - emit when you discover something about task
 - "Database migrations must block all dependent tasks; schema changes can't run in parallel"
 - "This codebase uses implicit initialization; setup tasks must verify __init__.py exports"
 
-**Not worth storing:**
-- Generic planning advice: "Break work into small tasks"
-- Obvious dependencies: "Tests require code to exist"
-
 Error format:
 ```
 ERROR: {description}

@@ -24,9 +24,6 @@ rm -f .helix/task-status.jsonl
 rm -rf .helix/explorer-results/
 rm -rf .helix/injection-state/
 
-# Time-based cleanup of injection-state and hook-trace
-"$HELIX_ROOT/scripts/cleanup-state.sh" 2>/dev/null || true
-
 VENV_PATH="$HELIX_ROOT/.venv"
 
 # Self-heal: trigger init if venv missing or corrupted
@@ -53,6 +50,6 @@ fi
 # Quick health check
 HEALTH=$("$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/memory/core.py" health 2>/dev/null || echo '{"status":"INIT","total":0}')
 STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','INIT'))" 2>/dev/null || echo "INIT")
-TOTAL=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null || echo "0")
+TOTAL=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_insights',0))" 2>/dev/null || echo "0")
 
 echo "[helix] Ready. Memory: $STATUS ($TOTAL entries)"

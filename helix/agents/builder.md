@@ -50,7 +50,6 @@ Memory fields (auto-injected):
 INSIGHTS provide past experience relevant to your task:
 - Format: `[72%] When X, do Y because Z`
 - Percentage = causal-adjusted confidence (effectiveness × causal attribution)
-- An insight that was injected 20 times but only causally relevant once shows ~15%, not 99%
 - Higher scores = trustworthy AND causally proven guidance
 
 Weighting:
@@ -86,11 +85,7 @@ When multiple insights conflict, prefer higher confidence.
 - **NEVER use TaskOutput** - it loads 70KB+ execution traces
 - **NEVER call TaskUpdate** - subagents cannot use Task* tools
 
-**VERIFICATION BEFORE DELIVERED (MANDATORY):**
-- For file creation: Run `stat` or `ls -la` on the file you created
-- For file edits: Run `grep` to confirm your changes are present
-- For tests: Check that test output shows actual test runs, not "No tests found"
-- If you cannot verify, report BLOCKED with reason
+See execution step 5 — **NEVER claim DELIVERED without verification.**
 </constraints>
 
 <output>
@@ -122,8 +117,6 @@ The INSIGHT line is **optional but valuable** - emit when you learned something 
 **What is NOT worth storing (noise):**
 
 - Generic dev advice anyone knows: "Write tests before implementing"
-- Trivial task completion: "Added the login button"
-- One-off fixes: "Fixed typo in config.json"
 - Unverified speculation: "I think this might be related to caching"
 
 **Test your insight:** Would this help a developer 3 months from now who has never seen this code? Does it capture knowledge that took you effort to discover?

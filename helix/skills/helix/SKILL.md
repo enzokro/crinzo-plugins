@@ -12,10 +12,6 @@ You are partnering with your own memory system. Seven primitives (`store`, `reca
 
 Every session, you inherit accumulated insights from past work in this codebase: failures that taught lessons, patterns that proved their worth. Every session, you pay that forward by storing what you learned.
 
-If you skip the payback, your next session is poorer. But if you close the loop, your next session is wiser.
-
-This isn't compliance, it's investing in yourself.
-
 ---
 
 ## Environment
@@ -80,8 +76,6 @@ OBJECTIVE: {objective}</parameter>
    ```
    Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
 
-**NEVER use TaskOutput** — SubagentStop hook extracts findings to small JSON files.
-
 ### PLAN
 
 **Goal:** Decompose objective into executable task DAG.
@@ -131,21 +125,7 @@ If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
 **Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in a single call, automatically diversifying across them so parallel builders get different insights from the pool.
 
-```bash
-# Batch inject for all ready tasks in this wave (single invocation = diversity works)
-python3 -c "
-from lib.injection import batch_inject, reset_session_tracking
-import json
-
-reset_session_tracking()
-objectives = $WAVE_OBJECTIVES_JSON  # ['obj1', 'obj2', ...]
-task_ids = $WAVE_TASK_IDS_JSON      # ['task-001', 'task-002', ...]
-batch = batch_inject(objectives, limit=5, task_ids=task_ids)
-print(json.dumps(batch))
-"
-# Returns: {"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}
-# Side effect: writes injection-state/{task_id}.json for each task (audit trail)
-```
+Batch inject for the wave (see Quick Reference). Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. Side effect: writes `injection-state/{task_id}.json` for each task (audit trail).
 
 Each `results[i]` corresponds to `objectives[i]`. Distribute to builder prompts:
 
@@ -167,10 +147,7 @@ Percentages reflect **causal-adjusted confidence**: insights that were frequentl
 
 The `INJECTED` line enables feedback attribution when the builder completes.
 
-**Single-task fallback** (when only one task is ready):
-```bash
-python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
-```
+**Single-task fallback** (when only one task is ready): use `inject_context` (see Quick Reference).
 
 #### Single Task (Foreground)
 
@@ -241,20 +218,7 @@ while pending tasks exist:
 
 **Step 4 is critical.** One `batch_inject` call per wave ensures parallel builders in the same wave get different insights from the pool. Per-task `inject_context` in separate processes would give every builder the same top-5.
 
-**Cross-wave synthesis** (step 6):
-```bash
-# Synthesize warnings from completed wave
-python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_RESULTS_JSON'
-# Returns: {"warnings": ["CONVERGENT ISSUE (tasks 009, 010): ..."], "count": N}
-
-# Collect parent deliveries for next-wave tasks
-python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries \
-  --results '$WAVE_RESULTS_JSON' \
-  --blockers '$NEXT_WAVE_BLOCKERS_JSON'
-# Returns: {"next_task_id": "[blocker_id] summary\n...", ...}
-```
-
-Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
+**Cross-wave synthesis** (step 6): run `synthesize` and `parent-deliveries` (see Quick Reference). Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
 The `wait-for-builders` response includes `insights_emitted` count for extraction visibility.
 
 **On DELIVERED:** `git stash drop` — changes are good.
@@ -268,8 +232,6 @@ The SubagentStop hook fires on every builder and planner completion:
 2. Stores new insight to memory
 3. Applies causal feedback to INJECTED insights: causally relevant insights get EMA update, non-causal insights erode 10% toward neutral (0.5)
 4. Detects crashed agents (API errors, empty transcripts) and marks them accordingly
-
-**Implication for builders:** Explicit `INSIGHT:` output is the only path to storing task-level knowledge from successful completions. Builders that don't emit insights teach the system nothing new on success. The builder contract encourages this, but don't expect automatic learning from DELIVERED alone.
 
 This handles task-level learning. But the orchestrator sees the full picture.
 
@@ -298,15 +260,6 @@ python3 "$HELIX/lib/memory/core.py" store \
   --tags '["testing", "auth"]'
 ```
 
-Or via Python:
-```python
-from lib.memory.core import store
-store(
-    content="The DAG planner underestimates tasks that touch multiple modules; split aggressively when files span lib/ and src/",
-    tags=["planning", "structure"]
-)
-```
-
 **What to store (orchestrator-level):**
 
 - **Systemic patterns**: "Three separate tasks hit import errors from lib/utils - the __init__.py doesn't re-export new modules automatically"
@@ -330,9 +283,13 @@ python3 "$HELIX/lib/memory/core.py" health
 - `total_insights` increased if LEARN phase stored discoveries
 - `with_feedback` is lifetime count; `recent_feedback` is this session's signal
 
-If you injected insights and `recent_feedback: 0`, the feedback loop broke this session. If the session completed work and you stored nothing in LEARN, you wasted knowledge.
+If you injected insights and `recent_feedback: 0`, the feedback loop broke this session — debug:
+1. Check `injection-state/{task_id}.json` has `names` array
+2. Check `task-status.jsonl` has matching task_id with valid outcome
+3. Verify SubagentStop hook is running (hooks configuration)
+4. Check `causal_ratio` in health — low ratio means insights aren't matching outcomes semantically
 
-**Quality over quantity.** One sharp insight beats ten generic observations.
+If the session completed work and you stored nothing in LEARN, you wasted knowledge.
 
 ---
 
@@ -373,9 +330,11 @@ python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
 python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
 
 # Cross-wave synthesis: detect convergent issues
+# Returns: {"warnings": [...], "count": N}
 python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_JSON'
 
 # Collect parent deliveries for next wave
+# Returns: {"next_task_id": "[blocker_id] summary\n...", ...}
 python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
 
 # Batch inject for a wave (diversity + injection-state audit trail)
@@ -383,6 +342,9 @@ python3 -c "from lib.injection import batch_inject, reset_session_tracking; impo
 
 # Single-task inject (fallback for single ready task)
 python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
+
+# Get specific insight by name (full record with all fields)
+python3 "$HELIX/lib/memory/core.py" get "insight-name"
 
 # Recall insights (with relevance gate and optional suppression)
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --min-relevance 0.35
@@ -413,8 +375,3 @@ python3 "$HELIX/lib/memory/core.py" health
 
 **Feedback is automatic:** When a builder or planner outputs DELIVERED/BLOCKED/PLAN_COMPLETE with INJECTED names, feedback is applied to those insights. Planners participate fully in the feedback loop — their insights compound across sessions just like builders'.
 
----
-
-## The Deal
-
-Builders handle task-level learning automatically. **You handle session-level learning in LEARN.** Both are required. Close the loop or your next session starts dumber.

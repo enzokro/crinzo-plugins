@@ -91,9 +91,9 @@ def _recency_score(last_used: Optional[str], created_at: str) -> float:
 
     try:
         ref = datetime.fromisoformat(ref_date.replace("Z", "+00:00"))
-        now = datetime.now()
+        now = _utcnow()
         if ref.tzinfo:
-            now = datetime.now(ref.tzinfo)
+            now = now.replace(tzinfo=ref.tzinfo)
         days_ago = (now - ref).days
         return math.pow(2, -days_ago / DECAY_HALF_LIFE)
     except Exception:
@@ -447,7 +447,6 @@ def health() -> dict:
 
 def _log_verbose(cmd: str, args: dict, result: dict) -> None:
     """Print structured log to stderr when --verbose is enabled."""
-    import sys
     log_entry = {
         "timestamp": datetime.now().isoformat(),
         "command": cmd,

@@ -47,10 +47,6 @@ else
     fi
 fi
 
-# Initialize database
-echo "[helix] Initializing database..."
-"$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/db/connection.py" 2>/dev/null || true
-
 # Verify installation
 if "$VENV_PATH/bin/python3" -c "import sentence_transformers" 2>/dev/null; then
     echo "[helix] Initialization complete (sentence-transformers ready)"

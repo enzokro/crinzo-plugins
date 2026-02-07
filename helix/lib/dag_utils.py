@@ -80,12 +80,12 @@ def _get_task_ids_by_outcome(all_tasks: List[Dict], outcome: str) -> List[str]:
     ]
 
 
-def get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
+def _get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
     """Get task IDs that completed successfully (delivered)."""
     return _get_task_ids_by_outcome(all_tasks, "delivered")
 
 
-def get_blocked_task_ids(all_tasks: List[Dict]) -> List[str]:
+def _get_blocked_task_ids(all_tasks: List[Dict]) -> List[str]:
     """Get task IDs that were blocked."""
     return _get_task_ids_by_outcome(all_tasks, "blocked")
 
@@ -106,8 +106,8 @@ def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
     ready = []
 
     # Build set of successfully completed task IDs
-    completed_ids = set(get_completed_task_ids(all_tasks))
-    blocked_ids = set(get_blocked_task_ids(all_tasks))
+    completed_ids = set(_get_completed_task_ids(all_tasks))
+    blocked_ids = set(_get_blocked_task_ids(all_tasks))
 
     for task in all_tasks:
         if task.get("status") != "pending":
@@ -147,7 +147,7 @@ def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
         return False, None
 
     # Stalled - analyze why
-    blocked_ids = set(get_blocked_task_ids(all_tasks))
+    blocked_ids = set(_get_blocked_task_ids(all_tasks))
     blocked_by_blocked = []
 
     for task in pending:

@@ -140,7 +140,7 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
 
     # Migration v8: NULL out embedding BLOBs for model migration
     # Old 384-dim MiniLM vectors are incompatible with new 256-dim arctic-embed vectors.
-    # Run scripts/reindex.py after upgrade to re-embed all insights.
+    # Run utils/reindex.py --force after upgrade to re-embed all insights.
     if current_version < 8:
         try:
             db.execute("UPDATE insight SET embedding = NULL")
