@@ -2,14 +2,13 @@
 
 Core entities:
 - Insight: Learned knowledge with effectiveness tracking
-- MemoryEdge: Relationships between insights (graph structure)
 
 Note: Plan, Task, and Workspace are handled by Claude Code's native
 Task system with metadata. See SKILL.md for the architecture.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 
 
@@ -32,7 +31,7 @@ class Insight:
     effectiveness: float = 0.5  # Starts neutral
     use_count: int = 0  # Times injected and received feedback
 
-    # Semantic search (384-dim all-MiniLM-L6-v2)
+    # Semantic search (256-dim snowflake-arctic-embed-m-v1.5)
     embedding: Optional[bytes] = None
 
     # Tags for categorization (JSON array)
@@ -44,23 +43,3 @@ class Insight:
 
     # Auto-generated
     id: Optional[int] = None
-
-
-@dataclass
-class MemoryEdge:
-    """Relationship between two insights.
-
-    Enables graph traversal for related knowledge.
-    Types: similar, solves, causes, co_occurs
-    """
-    from_name: str
-    to_name: str
-    rel_type: str  # similar, solves, causes, co_occurs
-    weight: float = 1.0  # Capped at 10.0
-
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    id: Optional[int] = None
-
-
-# Legacy alias for backwards compatibility
-Memory = Insight

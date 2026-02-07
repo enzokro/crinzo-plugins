@@ -92,7 +92,7 @@ def extract_injected_names(transcript: str) -> list:
     return []
 
 
-def process_completion(transcript: str, agent_type: str = "builder") -> dict:
+def process_completion(transcript: str) -> dict:
     """Process agent completion for learning.
 
     Called by SubagentStop hook.

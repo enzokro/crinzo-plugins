@@ -149,22 +149,6 @@ def meta_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def sample_task_data():
-    """Sample task data for context building tests."""
-    return {
-        "id": "task-001",
-        "subject": "001: impl-user-auth",
-        "description": "Implement user authentication with JWT tokens",
-        "metadata": {
-            "verify": "pytest tests/test_auth.py -v",
-            "framework": "pytest",
-            "relevant_files": ["src/auth/jwt.py", "src/routes/auth.py"],
-            "delta": ["src/auth/jwt.py"]
-        }
-    }
-
-
-@pytest.fixture
 def sample_tasks():
     """Sample task list for orchestrator tests."""
     return [

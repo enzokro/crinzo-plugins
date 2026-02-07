@@ -281,7 +281,7 @@ def process_hook_input(hook_input: dict) -> dict:
     transcript_text = get_full_transcript_text(transcript_raw)
 
     # Process with unified extraction
-    result = process_completion(transcript_text, agent_type.replace("helix:helix-", ""))
+    result = process_completion(transcript_text)
 
     # Retry for builders if outcome not yet flushed
     agent_short = agent_type.replace("helix:helix-", "")
@@ -293,7 +293,7 @@ def process_hook_input(hook_input: dict) -> dict:
                 time.sleep(delay)
                 transcript_raw = Path(transcript_path).read_text()
                 transcript_text = get_full_transcript_text(transcript_raw)
-                result = process_completion(transcript_text, agent_short)
+                result = process_completion(transcript_text)
                 if result["outcome"] != "unknown":
                     break
 

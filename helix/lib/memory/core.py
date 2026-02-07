@@ -26,7 +26,7 @@ from typing import Optional, List
 SCORE_WEIGHTS = {'relevance': 0.7, 'effectiveness': 0.2, 'recency': 0.1}
 DECAY_HALF_LIFE = 14  # days
 DUPLICATE_THRESHOLD = 0.85
-MIN_RELEVANCE_DEFAULT = 0.35  # MiniLM-L6-v2: unrelated 0.05-0.25, related 0.35+
+MIN_RELEVANCE_DEFAULT = 0.35  # arctic-embed-m-v1.5: unrelated 0.05-0.25, related 0.35+
 CAUSAL_SIMILARITY_THRESHOLD = 0.40  # For feedback attribution filtering
 
 # Support both module and script execution

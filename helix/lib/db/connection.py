@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v8: NULL embedding BLOBs for model migration (MiniLM -> arctic-embed-m-v1.5).
+Schema v8: insight table with 256-dim snowflake-arctic-embed-m-v1.5 embeddings.
 """
 
 import os
@@ -252,49 +252,6 @@ def init_db(db: sqlite3.Connection = None) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_insight_name ON insight(name);
-
-        -- Legacy tables kept for migration (will be dropped in future)
-        CREATE TABLE IF NOT EXISTS memory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            type TEXT NOT NULL,
-            trigger TEXT NOT NULL,
-            resolution TEXT NOT NULL,
-            helped REAL DEFAULT 0,
-            failed REAL DEFAULT 0,
-            embedding BLOB,
-            source TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            last_used TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_memory_type ON memory(type);
-        CREATE INDEX IF NOT EXISTS idx_memory_name ON memory(name);
-
-        -- Memory relationships (graph edges) - legacy
-        CREATE TABLE IF NOT EXISTS memory_edge (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_name TEXT NOT NULL,
-            to_name TEXT NOT NULL,
-            rel_type TEXT NOT NULL,
-            weight REAL DEFAULT 1.0,
-            created_at TEXT NOT NULL,
-            UNIQUE(from_name, to_name, rel_type)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_edge_from ON memory_edge(from_name);
-        CREATE INDEX IF NOT EXISTS idx_edge_to ON memory_edge(to_name);
-        CREATE INDEX IF NOT EXISTS idx_edge_rel ON memory_edge(rel_type);
-
-        -- Normalized file patterns - legacy
-        CREATE TABLE IF NOT EXISTS memory_file_pattern (
-            memory_name TEXT NOT NULL,
-            pattern TEXT NOT NULL,
-            PRIMARY KEY (memory_name, pattern),
-            FOREIGN KEY (memory_name) REFERENCES memory(name) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_file_pattern ON memory_file_pattern(pattern);
     """)
     db.commit()
 

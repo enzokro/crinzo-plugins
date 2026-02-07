@@ -36,6 +36,12 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 
 3b. Test parallelism: If N independent impl tasks run in parallel, create N parallel test tasks (each blocked only by its impl task). Only batch tests when they genuinely share state.
 
+3c. Size signals:
+   - Single file or same-concern multi-file → one task
+   - Separate concerns → separate tasks
+   - >150 lines or >5 files → split
+   - Task description uses "and" for unrelated work → split
+
 4. Validate: `python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'`
 
 5. Self-check: paths exist? dependencies minimal? acyclic?

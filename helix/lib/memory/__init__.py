@@ -1,6 +1,6 @@
 """Memory layer for Helix.
 
-6 Core Primitives:
+7 Core Primitives:
 - store: Store new insight with semantic deduplication
 - recall: Semantic search ranked by relevance x effectiveness x recency
 - get: Retrieve specific insight by name

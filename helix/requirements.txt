@@ -4,4 +4,3 @@
 
 sentence-transformers>=5.2.0
 numpy>=2.0.0
-requests>=2.32.0

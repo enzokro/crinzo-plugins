@@ -3,9 +3,10 @@
 #
 # Removes:
 # - injection-state files older than 24 hours
-# - hook-trace files older than 7 days
 #
 # Called from setup-env.sh on session start
+# Note: setup-env.sh already rm -rf's injection-state/ on each session.
+# This handles the edge case of stale files from interrupted sessions.
 
 set -euo pipefail
 
@@ -24,16 +25,6 @@ if [ -d "$INJECTION_DIR" ]; then
     COUNT=$(find "$INJECTION_DIR" -type f -mtime +1 2>/dev/null | wc -l | tr -d ' ')
     if [ "$COUNT" -gt 0 ]; then
         find "$INJECTION_DIR" -type f -mtime +1 -delete 2>/dev/null || true
-        CLEANED=$((CLEANED + COUNT))
-    fi
-fi
-
-# Clean old hook-trace files (older than 7 days)
-TRACE_DIR="$HELIX_DIR/hook-trace"
-if [ -d "$TRACE_DIR" ]; then
-    COUNT=$(find "$TRACE_DIR" -type f -mtime +7 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$COUNT" -gt 0 ]; then
-        find "$TRACE_DIR" -type f -mtime +7 -delete 2>/dev/null || true
         CLEANED=$((CLEANED + COUNT))
     fi
 fi

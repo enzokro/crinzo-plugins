@@ -61,40 +61,33 @@ def detect_cycles(dependencies: Dict[str, List[str]]) -> List[List[str]]:
     return cycles
 
 
-def get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
-    """Get task IDs that completed successfully (delivered).
+def _get_task_ids_by_outcome(all_tasks: List[Dict], outcome: str) -> List[str]:
+    """Get task IDs with a specific helix_outcome.
 
     Derives state from TaskList metadata, not from parallel tracking.
 
     Args:
         all_tasks: List of task data from TaskList
+        outcome: helix_outcome value to filter by ("delivered", "blocked", etc.)
 
     Returns:
-        List of task IDs with helix_outcome == "delivered"
+        List of matching task IDs
     """
     return [
         t.get("id") for t in all_tasks
         if t.get("status") == "completed"
-        and t.get("metadata", {}).get("helix_outcome") == "delivered"
+        and t.get("metadata", {}).get("helix_outcome") == outcome
     ]
+
+
+def get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
+    """Get task IDs that completed successfully (delivered)."""
+    return _get_task_ids_by_outcome(all_tasks, "delivered")
 
 
 def get_blocked_task_ids(all_tasks: List[Dict]) -> List[str]:
-    """Get task IDs that were blocked.
-
-    Derives state from TaskList metadata, not from parallel tracking.
-
-    Args:
-        all_tasks: List of task data from TaskList
-
-    Returns:
-        List of task IDs with helix_outcome == "blocked"
-    """
-    return [
-        t.get("id") for t in all_tasks
-        if t.get("status") == "completed"
-        and t.get("metadata", {}).get("helix_outcome") == "blocked"
-    ]
+    """Get task IDs that were blocked."""
+    return _get_task_ids_by_outcome(all_tasks, "blocked")
 
 
 def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
@@ -173,33 +166,12 @@ def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
     }
 
 
-def clear_checkpoints() -> int:
-    """Clear all checkpoints (for starting fresh).
-
-    Returns:
-        Number of checkpoints cleared
-    """
-    cp_dir = Path.cwd() / ".helix" / "checkpoints"
-    if not cp_dir.exists():
-        return 0
-
-    count = 0
-    for cp_file in cp_dir.glob("*.json"):
-        cp_file.unlink()
-        count += 1
-
-    return count
-
-
 # CLI for utilities
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Helix DAG utilities")
     subparsers = parser.add_subparsers(dest="cmd", required=True)
-
-    # clear command
-    subparsers.add_parser("clear", help="Clear all checkpoints")
 
     # detect-cycles command
     p = subparsers.add_parser("detect-cycles", help="Check for cycles in dependencies")
@@ -211,11 +183,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.cmd == "clear":
-        count = clear_checkpoints()
-        print(json.dumps({"cleared": count}))
-
-    elif args.cmd == "detect-cycles":
+    if args.cmd == "detect-cycles":
         deps = json.loads(args.dependencies)
         cycles = detect_cycles(deps)
         print(json.dumps({"cycles": cycles, "has_cycles": len(cycles) > 0}))

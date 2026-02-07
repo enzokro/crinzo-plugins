@@ -188,7 +188,7 @@ class TestProcessCompletion:
         INSIGHT: {"content": "When tokens expire, use refresh tokens because they reduce login friction", "tags": ["auth"]}
         INJECTED: ["auth-pattern-1", "token-insight-2"]
         '''
-        result = process_completion(transcript, "builder")
+        result = process_completion(transcript)
 
         assert result["outcome"] == "delivered"
         assert result["insight"] is not None
@@ -198,7 +198,7 @@ class TestProcessCompletion:
     def test_minimal_completion(self):
         """Process minimal transcript with just outcome."""
         transcript = "DELIVERED: Done"
-        result = process_completion(transcript, "builder")
+        result = process_completion(transcript)
 
         assert result["outcome"] == "delivered"
         assert result["injected"] == []
@@ -209,7 +209,7 @@ class TestProcessCompletion:
         BLOCKED: Tests failing
         INJECTED: ["bad-advice-1"]
         '''
-        result = process_completion(transcript, "builder")
+        result = process_completion(transcript)
 
         assert result["outcome"] == "blocked"
         assert "bad-advice-1" in result["injected"]
@@ -222,7 +222,7 @@ class TestProcessCompletion:
         INSIGHT: {"content": "When planning auth systems, separate token management from user management because they evolve independently", "tags": ["planning"]}
         INJECTED: ["auth-insight-1"]
         '''
-        result = process_completion(transcript, "planner")
+        result = process_completion(transcript)
 
         assert result["outcome"] == "plan_complete"
         assert result["insight"] is not None

@@ -59,7 +59,14 @@ State lives and evolves in reasoned conversation, not in a database.
 
 **Standard path:**
 
-1. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions
+1. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions:
+
+   | Codebase Signal | Partition Strategy |
+   |-----------------|-------------------|
+   | Clear directory structure | One per top-level directory |
+   | Microservices/modules | One per service/module |
+   | Frontend/backend split | Separate partitions |
+   | Monolith with layers | Partition by layer (api, service, data) |
 
 2. **Spawn explorer swarm** (haiku, parallel, background):
    ```xml
@@ -216,7 +223,7 @@ Returns JSON with `completed`, `delivered`, `blocked`, `unknown`, `all_delivered
 ```
 while pending tasks exist:
     1. Get ready tasks (blockers all completed)
-    2. If none ready but pending exist → STALLED
+    2. If none ready but pending exist → STALLED (see recovery table below)
     3. Checkpoint: git stash push -m "helix-{seq}"
     4. Batch inject: call batch_inject([obj1, obj2, ...], task_ids=[id1, id2, ...]) for all ready tasks
     5. Spawn ready builders (batch results + warnings + parent deliveries)
@@ -227,6 +234,20 @@ while pending tasks exist:
        c. Collect parent deliveries for dependent tasks
     8. Process results, update task status
 ```
+
+**STALLED recovery** — detect with `python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '$TASK_LIST_JSON'`:
+
+| Condition | Action |
+|-----------|--------|
+| Single blocked task, workaround exists | **SKIP** + store failure insight |
+| Multiple tasks blocked by same root cause | **ABORT** + store systemic insight |
+| Blocked task on critical path | **REPLAN** with narrower scope |
+| Blocking task has unclear verify | **REPLAN** with better verify |
+| 3+ attempts on same blocker | **ABORT** + escalate to user |
+
+- **SKIP**: `TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped"})` → continue
+- **REPLAN**: New PLAN phase with modified constraints
+- **ABORT**: Summarize state, store learnings, end session
 
 **Step 4 is critical.** One `batch_inject` call per wave ensures parallel builders in the same wave get different insights from the pool. Per-task `inject_context` in separate processes would give every builder the same top-5.
 
@@ -402,16 +423,8 @@ python3 "$HELIX/lib/memory/core.py" health
 
 **Feedback is automatic:** When a builder or planner outputs DELIVERED/BLOCKED/PLAN_COMPLETE with INJECTED names, feedback is applied to those insights. Planners participate fully in the feedback loop — their insights compound across sessions just like builders'.
 
-**PreToolUse (inject_memory)** is a fallback. If the orchestrator already injected insights via `batch_inject` (prompt contains `INJECTED:`), the hook skips. It only fires for direct builder spawning without orchestrator injection.
-
 ---
 
 ## The Deal
 
-You receive accumulated knowledge. You pay back discoveries.
-
-Builders handle task-level learning automatically. **You handle session-level learning manually.** Both are required.
-
-Insights that help get stronger. Insights that mislead get weaker.
-
-**Close the loop or your next session starts dumber than this one ended.**
+Builders handle task-level learning automatically. **You handle session-level learning in LEARN.** Both are required. Close the loop or your next session starts dumber.
