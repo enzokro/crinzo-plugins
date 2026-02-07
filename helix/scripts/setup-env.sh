@@ -52,4 +52,9 @@ HEALTH=$("$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/memory/core.py" health 2>/dev
 STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','INIT'))" 2>/dev/null || echo "INIT")
 TOTAL=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_insights',0))" 2>/dev/null || echo "0")
 
+# Background warmup: prime OS page cache with embedding model files
+# By the time the orchestrator needs inject_context (after planning phase),
+# the model files are already in memory, eliminating disk I/O latency.
+"$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/memory/embeddings.py" warmup >/dev/null 2>&1 &
+
 echo "[helix] Ready. Memory: $STATUS ($TOTAL entries)"

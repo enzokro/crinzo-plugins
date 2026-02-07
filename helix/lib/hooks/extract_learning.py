@@ -120,33 +120,62 @@ def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Option
         f.write(json.dumps(entry) + '\n')
 
 
+def _get_last_assistant_text(transcript_raw: str) -> Optional[str]:
+    """Extract text content from the last assistant message in JSONL transcript."""
+    last_text = None
+    for line in transcript_raw.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            role = entry.get('message', {}).get('role', entry.get('role', ''))
+            if role == 'assistant':
+                content = entry.get('message', {}).get('content', '')
+                if isinstance(content, list):
+                    content = ' '.join(
+                        c.get('text', '') for c in content
+                        if isinstance(c, dict) and c.get('type') == 'text'
+                    )
+                if isinstance(content, str) and content.strip():
+                    last_text = content.strip()
+        except json.JSONDecodeError:
+            continue
+    return last_text
+
+
 def extract_explorer_findings(transcript_text: str) -> Optional[dict]:
-    """Extract JSON findings from explorer transcript."""
+    """Extract JSON findings from explorer transcript.
+
+    Scans backwards from end of text — the explorer's JSON output is
+    typically the last JSON object in the transcript.
+    """
+    if not transcript_text:
+        return None
     if '"findings"' not in transcript_text and '"status"' not in transcript_text:
         return None
 
-    start = transcript_text.find('{')
-    if start < 0:
-        return None
-
-    depth = 0
-    end = -1
-    for i in range(start, len(transcript_text)):
-        if transcript_text[i] == '{':
-            depth += 1
-        elif transcript_text[i] == '}':
-            depth -= 1
+    # Search backwards — explorer JSON is last output
+    end = transcript_text.rfind('}')
+    while end >= 0:
+        depth = 0
+        start = -1
+        for i in range(end, -1, -1):
+            if transcript_text[i] == '}':
+                depth += 1
+            elif transcript_text[i] == '{':
+                depth -= 1
             if depth == 0:
-                end = i + 1
+                start = i
                 break
-
-    if end > start:
-        try:
-            parsed = json.loads(transcript_text[start:end])
-            if 'findings' in parsed or 'status' in parsed:
-                return parsed
-        except json.JSONDecodeError:
-            pass
+        if start >= 0:
+            try:
+                parsed = json.loads(transcript_text[start:end + 1])
+                if 'findings' in parsed or 'status' in parsed:
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        # Try next-to-last }
+        end = transcript_text.rfind('}', 0, end)
 
     return None
 
@@ -330,9 +359,17 @@ def process_hook_input(hook_input: dict) -> dict:
 
     # Write explorer results for orchestrator
     if agent_short == "explorer":
-        findings = extract_explorer_findings(transcript_text)
+        # Primary: extract from last assistant message (isolated from prompt noise)
+        last_msg = _get_last_assistant_text(transcript_raw)
+        findings = extract_explorer_findings(last_msg) if last_msg else None
+        # Fallback: search flattened text (backward scan)
+        if not findings:
+            findings = extract_explorer_findings(transcript_text)
         if findings:
             write_explorer_results(agent_id, findings)
+        else:
+            log_extraction_result(agent_id, agent_type,
+                                  {"outcome": "explorer_extraction_failed"})
 
     return {}
 

@@ -43,21 +43,44 @@ def _suppress_output():
 
 
 def _load():
-    """Lazy load embedding model."""
+    """Lazy load embedding model.
+
+    Tries local cache first (no network) to avoid httpx timeouts when
+    HuggingFace Hub is slow/unreachable. Falls back to full download
+    only when model isn't cached yet.
+    """
     global _model, _loaded
     if _loaded:
         return _model
     try:
         with _suppress_output():
             from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer(
-                "Snowflake/snowflake-arctic-embed-m-v1.5",
-                truncate_dim=EMBED_DIM,
-            )
-    except ImportError:
+            try:
+                # Local cache only — no network requests
+                _model = SentenceTransformer(
+                    "Snowflake/snowflake-arctic-embed-m-v1.5",
+                    truncate_dim=EMBED_DIM,
+                    local_files_only=True,
+                )
+            except Exception:
+                # Model not cached yet — download it
+                _model = SentenceTransformer(
+                    "Snowflake/snowflake-arctic-embed-m-v1.5",
+                    truncate_dim=EMBED_DIM,
+                )
+    except Exception:
         _model = None
     _loaded = True
     return _model
+
+
+def warmup():
+    """Pre-load embedding model into OS page cache.
+
+    Called during session init (background) so subsequent in-process
+    loads skip disk I/O.
+    """
+    return _load() is not None
 
 
 @lru_cache(maxsize=2000)
@@ -102,3 +125,10 @@ def cosine(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "warmup":
+        print("ok" if warmup() else "unavailable")
+    else:
+        print("Usage: embeddings.py warmup")
