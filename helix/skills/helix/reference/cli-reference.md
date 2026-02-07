@@ -36,7 +36,7 @@ python3 "$HELIX/lib/memory/core.py" health
 |--------|------|-------------|
 | name | TEXT | Unique slug identifier |
 | content | TEXT | Full insight text |
-| embedding | BLOB | 384-dim all-MiniLM-L6-v2 vector |
+| embedding | BLOB | 256-dim snowflake-arctic-embed-m-v1.5 vector |
 | effectiveness | REAL | 0-1 score, updated via feedback |
 | use_count | INT | Times injected and received feedback |
 | causal_hits | INT | Times causally relevant to outcome |

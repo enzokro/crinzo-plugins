@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v7: Added last_feedback_at for session-level feedback tracking.
+Schema v8: NULL embedding BLOBs for model migration (MiniLM -> arctic-embed-m-v1.5).
 """
 
 import os
@@ -208,6 +208,17 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         try:
             db.execute("ALTER TABLE insight ADD COLUMN last_feedback_at TEXT")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (7, datetime('now'))")
+            db.commit()
+        except Exception:
+            pass
+
+    # Migration v8: NULL out embedding BLOBs for model migration
+    # Old 384-dim MiniLM vectors are incompatible with new 256-dim arctic-embed vectors.
+    # Run scripts/reindex.py after upgrade to re-embed all insights.
+    if current_version < 8:
+        try:
+            db.execute("UPDATE insight SET embedding = NULL")
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (8, datetime('now'))")
             db.commit()
         except Exception:
             pass

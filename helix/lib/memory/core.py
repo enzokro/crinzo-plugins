@@ -147,7 +147,7 @@ def store(content: str, tags: list = None) -> dict:
     tags = tags or []
 
     # Check for semantic duplicate
-    new_emb = embed(content)
+    new_emb = embed(content, is_query=False)
     if new_emb:
         db = get_db()
         for row in db.execute("SELECT name, embedding FROM insight WHERE embedding IS NOT NULL"):
@@ -209,7 +209,7 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
     if not rows:
         return []
 
-    q_emb = embed(query)
+    q_emb = embed(query, is_query=True)
     if q_emb is None:
         # Fallback: by effectiveness only
         rows = db.execute(

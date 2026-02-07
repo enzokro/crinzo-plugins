@@ -84,9 +84,11 @@ class TestContextInjection:
         """inject_context returns actual insights from store."""
         from lib.injection import inject_context
 
-        result = inject_context("user authentication with secure token handling", limit=5)
+        result = inject_context("user authentication with secure token handling", limit=5,
+                                min_relevance=0.0)
 
-        # Should have found some relevant insights
+        # Should have found some relevant insights (min_relevance=0 since mock embeddings
+        # are hash-based and don't produce meaningful cosine similarity)
         assert len(result["names"]) > 0
         assert len(result["insights"]) > 0
 

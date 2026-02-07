@@ -92,7 +92,7 @@ def synthesize_wave_warnings(
     embeddings = []
     valid = []
     for s in summaries:
-        emb = embed(s["text"])
+        emb = embed(s["text"], is_query=False)
         if emb:
             embeddings.append(emb)
             valid.append(s)

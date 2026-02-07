@@ -179,7 +179,7 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
         from memory.embeddings import embed, cosine
         from memory.core import get, CAUSAL_SIMILARITY_THRESHOLD
 
-        context_emb = embed(task_context)
+        context_emb = embed(task_context, is_query=True)
         if not context_emb:
             return injected_names  # no embeddings available, treat all as causal
 
@@ -188,7 +188,7 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
             insight = get(name)
             if not insight:
                 continue
-            insight_emb = embed(insight["content"])
+            insight_emb = embed(insight["content"], is_query=False)
             if not insight_emb:
                 causal.append(name)  # can't check, assume causal
                 continue

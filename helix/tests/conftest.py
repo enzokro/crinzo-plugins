@@ -92,12 +92,12 @@ def mock_embeddings(monkeypatch):
     """
     import hashlib
 
-    def deterministic_embed(text):
-        """Generate deterministic 384-dim embedding from text hash."""
+    def deterministic_embed(text, is_query=False):
+        """Generate deterministic 256-dim embedding from text hash."""
         h = hashlib.sha256(text.encode()).digest()
-        # Expand hash to 384 dimensions (deterministic pseudo-random)
+        # Expand hash to 256 dimensions (deterministic pseudo-random)
         embedding = []
-        for i in range(384):
+        for i in range(256):
             byte_idx = i % 32
             embedding.append((h[byte_idx] + i) / 255.0 - 0.5)
         return embedding

@@ -1,6 +1,7 @@
 """Semantic embeddings for meaning-based retrieval.
 
-Uses sentence-transformers all-MiniLM-L6-v2 for 384-dim embeddings.
+Uses Snowflake arctic-embed-m-v1.5 for 256-dim embeddings (Matryoshka truncation).
+Asymmetric encoding: query prompt for searches, plain encode for documents.
 Falls back gracefully when unavailable.
 """
 
@@ -13,6 +14,12 @@ from typing import Optional, Tuple
 
 _model = None
 _loaded = False
+
+# Matryoshka truncation dimension (768 -> 256, 98.4% quality retention)
+EMBED_DIM = 256
+
+# Max text length (~500 tokens)
+MAX_TEXT_CHARS = 2000
 
 
 @contextmanager
@@ -43,7 +50,10 @@ def _load():
     try:
         with _suppress_output():
             from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer("all-MiniLM-L6-v2")
+            _model = SentenceTransformer(
+                "Snowflake/snowflake-arctic-embed-m-v1.5",
+                truncate_dim=EMBED_DIM,
+            )
     except ImportError:
         _model = None
     _loaded = True
@@ -51,18 +61,28 @@ def _load():
 
 
 @lru_cache(maxsize=2000)
-def embed(text: str) -> Optional[Tuple[float, ...]]:
-    """Generate 384-dim embedding for text.
+def embed(text: str, is_query: bool = False) -> Optional[Tuple[float, ...]]:
+    """Generate 256-dim embedding for text.
+
+    Args:
+        text: Input text to embed.
+        is_query: True for search queries (adds retrieval instruction prefix).
+                  False for documents/insights (plain encoding).
 
     Returns None if embeddings unavailable.
-    Cached for performance.
+    Cached by (text, is_query) for performance.
     """
     model = _load()
     if model is None:
         return None
-    if len(text) > 8000:
-        text = text[:8000]
-    vec = model.encode(text, convert_to_numpy=True)
+    if len(text) > MAX_TEXT_CHARS:
+        text = text[:MAX_TEXT_CHARS]
+
+    if is_query:
+        vec = model.encode([text], prompt_name="query", normalize_embeddings=True)[0]
+    else:
+        vec = model.encode([text], normalize_embeddings=True)[0]
+
     return tuple(float(x) for x in vec)
 
 
@@ -82,5 +102,3 @@ def cosine(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
-
-
