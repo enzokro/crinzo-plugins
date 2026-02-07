@@ -132,21 +132,24 @@ If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
 #### Memory Injection
 
-Get relevant insights for the task:
+**Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in a single call, automatically diversifying across them so parallel builders get different insights from the pool.
 
-```python
-from lib.injection import inject_context
-
-context = inject_context(task_objective, limit=5)
-# context = {"insights": ["[75%] When X...", ...], "names": ["insight-name-1", ...]}
-```
-
-Or via CLI (pass task_id to write injection state for audit):
 ```bash
-python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
+# Batch inject for all ready tasks in this wave (single invocation = diversity works)
+python3 -c "
+from lib.injection import batch_inject, reset_session_tracking
+import json
+
+reset_session_tracking()
+objectives = $WAVE_OBJECTIVES_JSON  # ['obj1', 'obj2', ...]
+batch = batch_inject(objectives, limit=5)
+print(json.dumps(batch))
+"
+# Returns: {"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}
 ```
 
-Include in builder prompt:
+Each `results[i]` corresponds to `objectives[i]`. Distribute to builder prompts:
+
 ```
 TASK_ID: {task_id}
 TASK: {task_subject}
@@ -155,13 +158,20 @@ VERIFY: {verification_steps}
 RELEVANT_FILES: {files}
 
 INSIGHTS (from past experience):
-  - [75%] When implementing auth, check token expiry first
-  - [60%] Use dependency injection for testability
+  - [72%] When implementing auth, check token expiry first
+  - [45%] Use dependency injection for testability
 
 INJECTED: ["insight-name-1", "insight-name-2"]
 ```
 
+Percentages reflect **causal-adjusted confidence**: insights that were frequently injected but rarely causally relevant to outcomes are penalized (up to 70%). A [72%] score means the insight both succeeded historically AND was causally linked to those successes.
+
 The `INJECTED` line enables feedback attribution when the builder completes.
+
+**Single-task fallback** (when only one task is ready):
+```bash
+python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
+```
 
 #### Single Task (Foreground)
 
@@ -206,14 +216,17 @@ while pending tasks exist:
     1. Get ready tasks (blockers all completed)
     2. If none ready but pending exist → STALLED
     3. Checkpoint: git stash push -m "helix-{seq}"
-    4. Spawn ready builders (inject insights + warnings + parent deliveries)
-    5. Wait for wave completion
-    6. Cross-wave synthesis (before dispatching next wave):
+    4. Batch inject: call batch_inject([obj1, obj2, ...]) for all ready tasks
+    5. Spawn ready builders (batch results + warnings + parent deliveries)
+    6. Wait for wave completion
+    7. Cross-wave synthesis (before dispatching next wave):
        a. Collect wave results from wait-for-builders output
        b. Synthesize convergent warnings for next wave
        c. Collect parent deliveries for dependent tasks
-    7. Process results, update task status
+    8. Process results, update task status
 ```
+
+**Step 4 is critical.** One `batch_inject` call per wave ensures parallel builders in the same wave get different insights from the pool. Per-task `inject_context` in separate processes would give every builder the same top-5.
 
 **Cross-wave synthesis** (step 6):
 ```bash
@@ -238,10 +251,12 @@ The `wait-for-builders` response includes `insights_emitted` count for extractio
 #### Automatic Agent Learning
 
 The SubagentStop hook fires on every builder and planner completion:
-1. Extracts INSIGHT from agent output (if present)
+1. Extracts explicit `INSIGHT:` from agent output (if present). **Only explicit insights are stored** — DELIVERED completions without an INSIGHT line produce nothing. BLOCKED outcomes derive failure insights automatically.
 2. Stores new insight to memory
-3. Applies causal feedback to INJECTED insights based on outcome (DELIVERED, BLOCKED, PLAN_COMPLETE)
+3. Applies causal feedback to INJECTED insights: causally relevant insights get EMA update, non-causal insights erode 10% toward neutral (0.5)
 4. Detects crashed agents (API errors, empty transcripts) and marks them accordingly
+
+**Implication for builders:** Explicit `INSIGHT:` output is the only path to storing task-level knowledge from successful completions. Builders that don't emit insights teach the system nothing new on success. The builder contract encourages this, but don't expect automatic learning from DELIVERED alone.
 
 This handles task-level learning. But the orchestrator sees the full picture.
 
@@ -350,8 +365,15 @@ python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_JSON'
 # Collect parent deliveries for next wave
 python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
 
-# Recall insights (with relevance gate - only returns genuinely related insights)
+# Batch inject for a wave (diversity across parallel builders)
+python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5)))"
+
+# Single-task inject (fallback for single ready task)
+python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
+
+# Recall insights (with relevance gate and optional suppression)
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --min-relevance 0.35
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --suppress-names '["already-seen-1"]'
 
 # Store new insight
 python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern"]'
@@ -377,6 +399,8 @@ python3 "$HELIX/lib/memory/core.py" health
 - Builder/Planner: `.helix/task-status.jsonl`
 
 **Feedback is automatic:** When a builder or planner outputs DELIVERED/BLOCKED/PLAN_COMPLETE with INJECTED names, feedback is applied to those insights. Planners participate fully in the feedback loop — their insights compound across sessions just like builders'.
+
+**PreToolUse (inject_memory)** is a fallback. If the orchestrator already injected insights via `batch_inject` (prompt contains `INJECTED:`), the hook skips. It only fires for direct builder spawning without orchestrator injection.
 
 ---
 

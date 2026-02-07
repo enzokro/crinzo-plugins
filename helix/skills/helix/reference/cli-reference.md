@@ -8,8 +8,11 @@ HELIX="$(cat .helix/plugin_root)"
 # Store insight (returns {"status": "added"|"merged", "name": str})
 python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern", "typescript"]'
 
-# Recall by semantic similarity (returns list with _relevance, _recency, _score)
+# Recall by semantic similarity (returns list with _relevance, _effectiveness, _recency, _score)
 python3 "$HELIX/lib/memory/core.py" recall "query text" --limit 5 --min-effectiveness 0.3
+
+# Recall with diversity (exclude already-injected insights)
+python3 "$HELIX/lib/memory/core.py" recall "query text" --limit 5 --suppress-names '["insight-1", "insight-2"]'
 
 # Get specific insight by name
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
@@ -45,8 +48,9 @@ python3 "$HELIX/lib/memory/core.py" health
 ## Scoring Formula
 
 ```
-score = (0.5 * relevance) + (0.3 * effectiveness) + (0.2 * recency)
+score = (0.7 * relevance) + (0.2 * causal_adjusted_effectiveness) + (0.1 * recency)
 recency = 2^(-days_since_use / 14)
+causal_adjusted_effectiveness = effectiveness * max(0.3, causal_hits / use_count)  # for use_count >= 3
 ```
 
 ## Recall Options
@@ -54,15 +58,16 @@ recency = 2^(-days_since_use / 14)
 | Option | Description |
 |--------|-------------|
 | `--limit N` | Maximum results (default 5) |
-| `--min-effectiveness F` | Filter below effectiveness threshold (default 0.0) |
+| `--min-effectiveness F` | Filter below raw effectiveness threshold (default 0.0) |
 | `--min-relevance F` | Filter below cosine similarity threshold (default 0.35) |
+| `--suppress-names JSON` | JSON list of insight names to exclude (for diversity) |
 
 ## Feedback Mechanics
 
 - `delivered` / `plan_complete` → effectiveness moves toward 1.0 (EMA: `eff * 0.9 + 1.0 * 0.1`)
 - `blocked` → effectiveness moves toward 0.0 (EMA: `eff * 0.9 + 0.0 * 0.1`)
-- Causal insights (semantically related to outcome): full EMA update + `causal_hits` increment
-- Non-causal insights: 4% erosion toward neutral (`eff + (0.5 - eff) * 0.04`)
+- Causal insights (semantically related to outcome, cosine >= 0.40): full EMA update + `causal_hits` increment
+- Non-causal insights: 10% erosion toward neutral (`eff + (0.5 - eff) * 0.10`)
 - `use_count` increments on each feedback call; `last_feedback_at` set on causal updates
 
 ## Wait Utilities
@@ -88,11 +93,16 @@ python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
 ## Injection
 
 ```bash
-# Get insights for a task (writes injection-state/{task_id}.json)
+# Batch inject for a wave (diversity across parallel builders — single invocation required)
+python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject(['obj1', 'obj2'], 5)))"
+# Returns: {"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}
+
+# Single-task inject (fallback for one ready task)
 python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('task objective', 5, 'task_id')))"
+# Returns: {"insights": ["[72%] When X...", ...], "names": ["insight-name-1", ...]}
 ```
 
-Returns: `{"insights": ["[75%] When X...", ...], "names": ["insight-name-1", ...]}`
+Percentages in insights reflect causal-adjusted effectiveness, not raw.
 
 ## Verbose Mode
 

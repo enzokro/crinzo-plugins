@@ -5,13 +5,23 @@ Single injection function replaces 4-query context builder.
 
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 from lib.paths import get_helix_dir
 
+# Session-level diversity tracking
+_session_injected: set = set()
+
+
+def reset_session_tracking():
+    """Reset session injection tracking."""
+    global _session_injected
+    _session_injected = set()
+
 
 def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None,
-                    min_relevance: Optional[float] = None) -> dict:
+                    min_relevance: Optional[float] = None,
+                    diversify: bool = True) -> dict:
     """Build memory context for any agent.
 
     Args:
@@ -25,25 +35,34 @@ def inject_context(objective: str, limit: int = 5, task_id: Optional[str] = None
         "names": ["insight-name-1", ...]
     }
     """
+    global _session_injected
+
     # Import here to avoid circular dependency
     from lib.memory.core import recall
 
     kwargs = {"limit": limit}
     if min_relevance is not None:
         kwargs["min_relevance"] = min_relevance
+    if diversify and _session_injected:
+        kwargs["suppress_names"] = list(_session_injected)
     memories = recall(objective, **kwargs)
 
     insights = []
     names = []
 
     for m in memories:
-        eff_pct = int(m.get("effectiveness", 0.5) * 100)
+        # Prefer causal-adjusted effectiveness (from recall scoring) over raw
+        eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
+        eff_pct = int(eff * 100)
         content = m.get("content", "")
         if content:
             insights.append(f"[{eff_pct}%] {content}")
             names.append(m.get("name", ""))
 
     names = [n for n in names if n]
+
+    if diversify:
+        _session_injected.update(names)
 
     # Write injection state for audit trail (foreground agents don't trigger SubagentStop)
     if task_id:
@@ -146,3 +165,29 @@ def build_agent_prompt(task_data: dict, warning: str = "", parent_deliveries: st
         warning=warning,
         parent_deliveries=parent_deliveries
     )
+
+
+def batch_inject(tasks: List[str], limit: int = 5) -> dict:
+    """Inject context for multiple tasks with cross-task diversity.
+
+    Session diversity is automatically applied: insights injected for
+    earlier tasks are suppressed in later ones.
+
+    Args:
+        tasks: List of task objectives
+        limit: Maximum insights per task
+
+    Returns: {"results": [inject_context result, ...], "total_unique": int}
+    """
+    results = []
+    all_names = set()
+
+    for objective in tasks:
+        ctx = inject_context(objective, limit=limit, diversify=True)
+        results.append(ctx)
+        all_names.update(ctx["names"])
+
+    return {
+        "results": results,
+        "total_unique": len(all_names)
+    }

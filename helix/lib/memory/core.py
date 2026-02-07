@@ -3,14 +3,14 @@
 
 Core API (6 primitives):
 - store(content, tags) -> {"status": "added"|"merged", "name": str}
-- recall(query, limit) -> insights sorted by relevance × effectiveness × recency
-- feedback(names, outcome) -> update effectiveness
+- recall(query, limit, suppress_names) -> insights sorted by 0.7*relevance + 0.2*causal_eff + 0.1*recency
+- feedback(names, outcome, causal_names) -> update effectiveness with causal filtering
 - decay(unused_days) -> decay dormant insights
 - prune(min_effectiveness, min_uses) -> remove low-performing insights
 - health() -> system status
 
 Scoring formula:
-    score = (0.5 * relevance) + (0.3 * effectiveness) + (0.2 * recency)
+    score = (0.7 * relevance) + (0.2 * effectiveness) + (0.1 * recency)
     recency = 2^(-days_since_use / 14)
 """
 
@@ -23,11 +23,11 @@ from pathlib import Path
 from typing import Optional, List
 
 # Constants
-SCORE_WEIGHTS = {'relevance': 0.5, 'effectiveness': 0.3, 'recency': 0.2}
+SCORE_WEIGHTS = {'relevance': 0.7, 'effectiveness': 0.2, 'recency': 0.1}
 DECAY_HALF_LIFE = 14  # days
 DUPLICATE_THRESHOLD = 0.85
 MIN_RELEVANCE_DEFAULT = 0.35  # MiniLM-L6-v2: unrelated 0.05-0.25, related 0.35+
-CAUSAL_SIMILARITY_THRESHOLD = 0.25  # For feedback attribution filtering
+CAUSAL_SIMILARITY_THRESHOLD = 0.40  # For feedback attribution filtering
 
 # Support both module and script execution
 try:
@@ -49,6 +49,29 @@ def _slug(text: str) -> str:
 def _effectiveness(row) -> float:
     """Get effectiveness from row (already stored as 0-1)."""
     return row["effectiveness"] if row["effectiveness"] is not None else 0.5
+
+
+def _causal_adjusted_effectiveness(row) -> float:
+    """Adjust effectiveness by causal hit ratio at read time.
+
+    Insights with high use_count but low causal_hits are penalized.
+    Floor adjustment multiplier at 0.3 (max 70% penalty).
+    Skip adjustment for insights with < 3 uses (insufficient data).
+    """
+    eff = _effectiveness(row)
+    use_count = row["use_count"] or 0
+    if use_count < 3:
+        return eff
+
+    causal_hits = 0
+    try:
+        causal_hits = row["causal_hits"] or 0
+    except (IndexError, KeyError):
+        return eff
+
+    causal_ratio = causal_hits / use_count
+    adjustment = max(0.3, causal_ratio)
+    return eff * adjustment
 
 
 def _recency_score(last_used: Optional[str], created_at: str) -> float:
@@ -161,7 +184,8 @@ def store(content: str, tags: list = None) -> dict:
 
 
 def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
-           min_relevance: float = MIN_RELEVANCE_DEFAULT) -> List[dict]:
+           min_relevance: float = MIN_RELEVANCE_DEFAULT,
+           suppress_names: List[str] = None) -> List[dict]:
     """Recall insights by semantic similarity.
 
     Args:
@@ -186,10 +210,15 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         ).fetchall()
         return [_to_dict(r) for r in rows]
 
+    suppress_set = set(suppress_names) if suppress_names else set()
+
     scored = []
     for r in rows:
-        eff = _effectiveness(r)
-        if eff < min_effectiveness:
+        if suppress_set and r["name"] in suppress_set:
+            continue
+
+        raw_eff = _effectiveness(r)
+        if raw_eff < min_effectiveness:
             continue
 
         rel = cosine(q_emb, from_blob(r["embedding"]))
@@ -198,6 +227,7 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         if rel < min_relevance:
             continue
 
+        eff = _causal_adjusted_effectiveness(r)
         rec = _recency_score(r["last_used"], r["created_at"])
 
         score = (SCORE_WEIGHTS['relevance'] * rel) + \
@@ -206,6 +236,7 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
 
         m = _to_dict(r)
         m["_relevance"] = round(rel, 3)
+        m["_effectiveness"] = round(eff, 3)  # causal-adjusted
         m["_recency"] = round(rec, 3)
         m["_score"] = round(score, 3)
         scored.append((score, m))
@@ -231,7 +262,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
                       None means treat all as causal (backward compatible).
 
     Causal insights get standard EMA update.
-    Non-causal insights erode 4% toward neutral (0.5), breaking rich-get-richer cycles.
+    Non-causal insights erode 10% toward neutral (0.5), breaking rich-get-richer cycles.
 
     Returns count of updated insights with causal breakdown.
     """
@@ -267,8 +298,8 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
                 )
                 causal_count += 1
             else:
-                # Erode toward neutral: 4% toward 0.5
-                new_eff = old_eff + (0.5 - old_eff) * 0.04
+                # Erode toward neutral: 10% toward 0.5
+                new_eff = old_eff + (0.5 - old_eff) * 0.10
                 new_eff = max(0.0, min(1.0, new_eff))
                 db.execute(
                     "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
@@ -433,6 +464,8 @@ if __name__ == "__main__":
     s.add_argument("--min-effectiveness", type=float, default=0.0)
     s.add_argument("--min-relevance", type=float, default=MIN_RELEVANCE_DEFAULT,
                    help=f"Minimum cosine similarity threshold (default: {MIN_RELEVANCE_DEFAULT})")
+    s.add_argument("--suppress-names", default=None,
+                   help="JSON list of insight names to exclude from results (for diversity)")
 
     s = sub.add_parser("get")
     s.add_argument("name")
@@ -468,7 +501,9 @@ if __name__ == "__main__":
         tags = json.loads(args.tags) if args.tags else []
         r = store(args.content, tags)
     elif args.cmd == "recall":
-        r = recall(args.query, args.limit, args.min_effectiveness, args.min_relevance)
+        suppress = json.loads(args.suppress_names) if args.suppress_names else None
+        r = recall(args.query, args.limit, args.min_effectiveness, args.min_relevance,
+                   suppress_names=suppress)
     elif args.cmd == "get":
         r = get(args.name)
         if r is None:

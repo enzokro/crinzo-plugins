@@ -233,6 +233,64 @@ class TestFeedbackMetrics:
         assert after > before
 
 
+class TestRecallSuppressNames:
+    """Tests for suppress_names parameter in recall."""
+
+    def test_recall_suppress_names(self, test_db, mock_embeddings):
+        """Suppressed names are excluded from recall results."""
+        from lib.memory.core import store, recall
+
+        r1 = store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+        r2 = store(content="When handling async errors, always wrap in try/catch because unhandled rejections crash Node")
+
+        # Recall without suppression
+        all_results = recall("Python debugging imports", limit=10, min_relevance=0.0)
+        all_names = [r["name"] for r in all_results]
+        assert r1["name"] in all_names
+
+        # Recall with suppression
+        suppressed = recall("Python debugging imports", limit=10, min_relevance=0.0,
+                           suppress_names=[r1["name"]])
+        suppressed_names = [r["name"] for r in suppressed]
+        assert r1["name"] not in suppressed_names
+
+
+class TestCausalAdjustedEffectiveness:
+    """Tests for _causal_adjusted_effectiveness read-time penalty."""
+
+    def test_causal_adjusted_zero_causal(self, test_db, mock_embeddings):
+        """High use, zero causal hits → floor multiplier (0.3)."""
+        from lib.memory.core import _causal_adjusted_effectiveness
+
+        row = {"effectiveness": 0.99, "use_count": 20, "causal_hits": 0}
+        result = _causal_adjusted_effectiveness(row)
+        assert abs(result - 0.99 * 0.3) < 0.001
+
+    def test_causal_adjusted_full_causal(self, test_db, mock_embeddings):
+        """All uses are causal → no penalty."""
+        from lib.memory.core import _causal_adjusted_effectiveness
+
+        row = {"effectiveness": 0.75, "use_count": 5, "causal_hits": 5}
+        result = _causal_adjusted_effectiveness(row)
+        assert abs(result - 0.75) < 0.001
+
+    def test_causal_adjusted_low_use_count(self, test_db, mock_embeddings):
+        """use_count < 3 → raw effectiveness unchanged."""
+        from lib.memory.core import _causal_adjusted_effectiveness
+
+        row = {"effectiveness": 0.99, "use_count": 2, "causal_hits": 0}
+        result = _causal_adjusted_effectiveness(row)
+        assert abs(result - 0.99) < 0.001
+
+    def test_causal_adjusted_partial(self, test_db, mock_embeddings):
+        """Partial causal ratio → proportional penalty."""
+        from lib.memory.core import _causal_adjusted_effectiveness
+
+        row = {"effectiveness": 0.80, "use_count": 10, "causal_hits": 5}
+        result = _causal_adjusted_effectiveness(row)
+        assert abs(result - 0.80 * 0.5) < 0.001
+
+
 class TestDecay:
     """Tests for decay mechanism."""
 

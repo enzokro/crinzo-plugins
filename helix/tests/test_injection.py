@@ -1,7 +1,7 @@
 """Tests for lib/injection.py - insight injection for agents."""
 
 import pytest
-from lib.injection import inject_context, format_prompt, build_agent_prompt
+from lib.injection import inject_context, format_prompt, build_agent_prompt, reset_session_tracking, batch_inject
 
 
 class TestInjectContext:
@@ -201,3 +201,85 @@ class TestBuildAgentPrompt:
         # Should have injected some insights about auth
         if "INSIGHTS" in result:
             assert "[" in result  # Percentage format
+
+
+class TestSessionDiversity:
+    """Tests for session-level injection diversity."""
+
+    def test_diversify_excludes_already_injected(self, test_db, mock_embeddings, sample_insights):
+        """Second call with diversify=True suppresses names from first call."""
+        reset_session_tracking()
+
+        result1 = inject_context("authentication with JWT", limit=5)
+        names1 = set(result1["names"])
+
+        result2 = inject_context("authentication with JWT", limit=5)
+        names2 = set(result2["names"])
+
+        # Second call should not repeat names from first (if pool is large enough)
+        if names1:
+            overlap = names1 & names2
+            # With diversify on, no overlap expected
+            assert len(overlap) == 0
+
+    def test_diversify_false_allows_repeats(self, test_db, mock_embeddings, sample_insights):
+        """diversify=False returns same results on repeated calls."""
+        reset_session_tracking()
+
+        result1 = inject_context("authentication with JWT", limit=5, diversify=False)
+        result2 = inject_context("authentication with JWT", limit=5, diversify=False)
+
+        # Same query, same results when diversity is off
+        assert result1["names"] == result2["names"]
+
+    def test_reset_session_tracking(self, test_db, mock_embeddings, sample_insights):
+        """reset_session_tracking clears suppressed names."""
+        reset_session_tracking()
+
+        result1 = inject_context("authentication with JWT", limit=5)
+        names1 = result1["names"]
+
+        reset_session_tracking()
+
+        result2 = inject_context("authentication with JWT", limit=5)
+        names2 = result2["names"]
+
+        # After reset, same names should appear again
+        assert names1 == names2
+
+
+class TestBatchInject:
+    """Tests for batch_inject function."""
+
+    def test_batch_inject_returns_structure(self, test_db, mock_embeddings, sample_insights):
+        """batch_inject returns expected structure."""
+        reset_session_tracking()
+
+        result = batch_inject(["authentication", "database"], limit=3)
+
+        assert "results" in result
+        assert "total_unique" in result
+        assert len(result["results"]) == 2
+        assert isinstance(result["total_unique"], int)
+
+    def test_batch_inject_diversifies_across_tasks(self, test_db, mock_embeddings, sample_insights):
+        """Insights are diversified across batch tasks."""
+        reset_session_tracking()
+
+        result = batch_inject(["authentication", "authentication"], limit=5)
+
+        names_1 = set(result["results"][0]["names"])
+        names_2 = set(result["results"][1]["names"])
+
+        # No overlap between tasks (diversity applied)
+        if names_1:
+            assert len(names_1 & names_2) == 0
+
+    def test_batch_inject_empty_tasks(self, test_db, mock_embeddings):
+        """Empty task list returns empty results."""
+        reset_session_tracking()
+
+        result = batch_inject([], limit=5)
+
+        assert result["results"] == []
+        assert result["total_unique"] == 0

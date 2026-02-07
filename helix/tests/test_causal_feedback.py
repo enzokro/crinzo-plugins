@@ -52,7 +52,7 @@ class TestDualPathFeedback:
         assert updated["causal_hits"] == 1
 
     def test_non_causal_insight_erodes_toward_neutral(self):
-        """Non-causal insights erode 4% toward 0.5."""
+        """Non-causal insights erode 10% toward 0.5."""
         from lib.memory.core import store, feedback, get
         from lib.db.connection import get_db, write_lock
 
@@ -69,8 +69,8 @@ class TestDualPathFeedback:
         feedback([name], "delivered", causal_names=[])
 
         updated = get(name)
-        # Erosion: 0.75 + (0.5 - 0.75) * 0.04 = 0.75 - 0.01 = 0.74
-        assert abs(updated["effectiveness"] - 0.74) < 0.01
+        # Erosion: 0.75 + (0.5 - 0.75) * 0.10 = 0.75 - 0.025 = 0.725
+        assert abs(updated["effectiveness"] - 0.725) < 0.01
         assert updated["causal_hits"] == 0
 
     def test_none_causal_names_treats_all_as_causal(self):
@@ -128,11 +128,11 @@ class TestDualPathFeedback:
             feedback([name], "delivered", causal_names=[])
 
         updated = get(name)
-        # After 11 erosions of 4% toward 0.5: 0.75 → ~0.66
-        # Each step: eff = eff + (0.5 - eff) * 0.04
+        # After 11 erosions of 10% toward 0.5: 0.75 → ~0.578
+        # Each step: eff = eff + (0.5 - eff) * 0.10
         # Significantly lower than starting 0.75, moving toward neutral
-        assert updated["effectiveness"] < 0.70
-        assert updated["effectiveness"] > 0.60
+        assert updated["effectiveness"] < 0.62
+        assert updated["effectiveness"] > 0.55
 
     def test_feedback_return_includes_causal_breakdown(self):
         """Feedback return dict includes causal and eroded counts."""

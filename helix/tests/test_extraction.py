@@ -43,8 +43,8 @@ class TestExtractInsight:
         assert result is not None
         assert result["tags"] == []
 
-    def test_fallback_to_delivered(self):
-        """Derive insight from DELIVERED when no explicit INSIGHT."""
+    def test_delivered_without_insight_returns_none(self):
+        """DELIVERED without explicit INSIGHT returns None (no derived noise)."""
         transcript = '''
         TASK: Implement login
         OBJECTIVE: Add user authentication
@@ -52,9 +52,7 @@ class TestExtractInsight:
         '''
         result = extract_insight(transcript)
 
-        assert result is not None
-        assert "derived" in result["tags"]
-        assert "success" in result["tags"]
+        assert result is None
 
     def test_fallback_to_blocked(self):
         """Derive insight from BLOCKED when no explicit INSIGHT."""

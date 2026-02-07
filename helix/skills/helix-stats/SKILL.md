@@ -69,7 +69,7 @@ When `feedback(names, outcome, causal_names)` is called:
 - `outcome="delivered"` or `"plan_complete"` → effectiveness moves toward 1.0
 - `outcome="blocked"` → effectiveness moves toward 0.0
 - Causal insights: EMA update `new_eff = old_eff * 0.9 + outcome_value * 0.1`
-- Non-causal insights: 4% erosion toward neutral `new_eff + (0.5 - eff) * 0.04`
+- Non-causal insights: 10% erosion toward neutral `new_eff = old_eff + (0.5 - old_eff) * 0.10`
 - `use_count` increments, `last_used` updates, `last_feedback_at` set on causal
 
 ## Database Location

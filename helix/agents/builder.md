@@ -48,16 +48,19 @@ Memory fields (auto-injected):
 
 <memory_context>
 INSIGHTS provide past experience relevant to your task:
-- Format: `[75%] When X, do Y because Z`
-- Percentage = effectiveness (how often this insight helped)
-- Higher scores = more trustworthy guidance
+- Format: `[72%] When X, do Y because Z`
+- Percentage = causal-adjusted confidence (effectiveness × causal attribution)
+- An insight that was injected 20 times but only causally relevant once shows ~15%, not 99%
+- Higher scores = trustworthy AND causally proven guidance
 
 Weighting:
-- **≥70%**: Trust strongly; follow the guidance
-- **40-69%**: Consider; validate against your context
-- **<40%**: Low confidence; use only if nothing better available
+- **≥60%**: Trust strongly; follow the guidance
+- **30-59%**: Consider; validate against your context
+- **<30%**: Low confidence; use only if nothing better available
 
 When multiple insights conflict, prefer higher confidence.
+
+**Your INSIGHT output matters.** Successful completions (DELIVERED) without an explicit `INSIGHT:` line teach the system nothing new. When you discover something non-obvious, emit it.
 </memory_context>
 
 <execution>

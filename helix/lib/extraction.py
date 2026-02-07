@@ -34,7 +34,7 @@ def extract_insight(transcript: str) -> Optional[dict]:
     """Extract insight from any agent transcript.
 
     Looks for: INSIGHT: {"content": "When X, do Y because Z"}
-    Fallback: Derives from DELIVERED/BLOCKED outcome
+    Fallback: Derives from BLOCKED outcome only
 
     Returns: {"content": str, "tags": list} or None
     """
@@ -48,21 +48,8 @@ def extract_insight(transcript: str) -> Optional[dict]:
                 "tags": data.get("tags", [])
             }
 
-    # Fallback: derive from DELIVERED/BLOCKED with context
-    delivered_matches = re.findall(r'DELIVERED:\s*(.+)', transcript, re.IGNORECASE)
+    # Fallback ONLY for failures
     blocked_matches = re.findall(r'BLOCKED:\s*(.+)', transcript, re.IGNORECASE)
-
-    if delivered_matches:
-        summary = delivered_matches[-1].strip()
-        # Look for task context
-        task_matches = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
-        task = task_matches[-1].strip() if task_matches else ""
-        if task and summary:
-            return {
-                "content": f"For '{task[:100]}': {summary[:200]}",
-                "tags": ["derived", "success"]
-            }
-
     if blocked_matches:
         reason = blocked_matches[-1].strip()
         task_matches = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
