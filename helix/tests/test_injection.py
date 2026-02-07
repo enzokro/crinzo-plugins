@@ -1,7 +1,7 @@
 """Tests for lib/injection.py - insight injection for agents."""
 
 import pytest
-from lib.injection import inject_context, format_prompt, build_agent_prompt, reset_session_tracking, batch_inject
+from lib.injection import inject_context, format_prompt, reset_session_tracking, batch_inject
 
 
 class TestInjectContext:
@@ -167,40 +167,6 @@ class TestInjectContextState:
         assert data["task_id"] == "task-42"
         assert data["names"] == []
         assert "ts" in data
-
-
-class TestBuildAgentPrompt:
-    """Tests for build_agent_prompt function."""
-
-    def test_build_agent_prompt(self, test_db, mock_embeddings, sample_insights):
-        """build_agent_prompt assembles complete prompt."""
-        task_data = {
-            "task_id": "task-003",
-            "task": "Fix login bug",
-            "objective": "Resolve authentication timeout issue",
-            "verify": "Run login flow test"
-        }
-
-        result = build_agent_prompt(task_data)
-
-        assert "TASK_ID: task-003" in result
-        assert "Fix login bug" in result
-        assert "authentication timeout" in result
-
-    def test_build_agent_prompt_injects_insights(self, test_db, mock_embeddings, sample_insights):
-        """build_agent_prompt includes relevant insights."""
-        task_data = {
-            "task_id": "task-004",
-            "task": "Implement auth",
-            "objective": "Add JWT authentication with refresh tokens",
-            "verify": "Test auth flow"
-        }
-
-        result = build_agent_prompt(task_data)
-
-        # Should have injected some insights about auth
-        if "INSIGHTS" in result:
-            assert "[" in result  # Percentage format
 
 
 class TestSessionDiversity:

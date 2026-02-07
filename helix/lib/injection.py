@@ -137,36 +137,6 @@ def format_prompt(
     return "\n".join(lines)
 
 
-def build_agent_prompt(task_data: dict, warning: str = "", parent_deliveries: str = "") -> str:
-    """Build complete prompt for builder agent.
-
-    Args:
-        task_data: Dict with task_id, task, objective, verify
-        warning: Cross-wave convergent issue warnings
-        parent_deliveries: Formatted parent task delivery summaries
-
-    Returns: Formatted prompt string
-    """
-    task_id = task_data.get("task_id", "")
-    task = task_data.get("task", "")
-    objective = task_data.get("objective", task)
-    verify = task_data.get("verify", "")
-
-    # Get relevant insights
-    context = inject_context(objective, limit=5)
-
-    return format_prompt(
-        task_id=task_id,
-        task=task,
-        objective=objective,
-        verify=verify,
-        insights=context["insights"],
-        injected_names=context["names"],
-        warning=warning,
-        parent_deliveries=parent_deliveries
-    )
-
-
 def batch_inject(tasks: List[str], limit: int = 5,
                  task_ids: List[str] = None) -> dict:
     """Inject context for multiple tasks with cross-task diversity.

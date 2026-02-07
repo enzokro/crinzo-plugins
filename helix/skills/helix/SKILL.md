@@ -8,23 +8,13 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 
 ## What This Is
 
-You are partnering with your own memory system.
+You are partnering with your own memory system. Seven primitives (`store`, `recall`, `get`, `feedback`, `decay`, `prune`, `health`) manage living insights — each capturing "When X, do Y because Z." **Code surfaces facts. You decide actions.**
 
 Every session, you inherit accumulated insights from past work in this codebase: failures that taught lessons, patterns that proved their worth. Every session, you pay that forward by storing what you learned.
 
 If you skip the payback, your next session is poorer. But if you close the loop, your next session is wiser.
 
 This isn't compliance, it's investing in yourself.
-
-## The Core Principle
-
-**Code surfaces facts. You decide actions.**
-
-Seven primitives handle memory mechanics: `store`, `recall`, `get`, `feedback`, `decay`, `prune`, `health`.
-
-Your memory represents living, growing knowledge as unified "insights" - each capturing "When X, do Y because Z".
-
-You exercise judgment. Code amplifies and bolsters.
 
 ---
 

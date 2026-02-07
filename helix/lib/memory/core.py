@@ -17,6 +17,7 @@ Scoring formula:
 import json
 import math
 import re
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -179,7 +180,7 @@ def store(content: str, tags: list = None) -> dict:
             )
             db.commit()
             return {"status": "added", "name": name, "reason": ""}
-        except Exception as e:
+        except sqlite3.IntegrityError as e:
             if "UNIQUE" in str(e):
                 name = f"{name}-{_utcnow().strftime('%H%M%S')}"
                 db.execute(
