@@ -16,6 +16,7 @@ from hooks.extract_learning import (
     extract_explorer_findings,
     _get_last_assistant_text,
     _transcript_has_error,
+    _read_sideband,
 )
 
 
@@ -186,6 +187,56 @@ class TestTranscriptHasError:
         """Detect stop_reason error in message."""
         transcript = '{"message": {"role": "assistant", "content": "partial", "stop_reason": "error"}}'
         assert _transcript_has_error(transcript) is True
+
+
+class TestReadSideband:
+    """Tests for sideband file reading in extract_learning."""
+
+    def test_reads_sideband_and_cleans_up(self, tmp_path, monkeypatch):
+        """Read sideband file, return names, delete file."""
+        from hooks import extract_learning
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        injected_dir = tmp_path / "injected"
+        injected_dir.mkdir()
+        sideband = injected_dir / "agent-test.json"
+        sideband.write_text(json.dumps({"names": ["insight-a", "insight-b"], "ts": "2026-01-01T00:00:00"}))
+
+        names = _read_sideband("agent-test")
+        assert set(names) == {"insight-a", "insight-b"}
+        assert not sideband.exists()
+
+    def test_missing_sideband_returns_empty(self, tmp_path, monkeypatch):
+        """Missing file returns empty list without error."""
+        from hooks import extract_learning
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        names = _read_sideband("nonexistent")
+        assert names == []
+
+    def test_corrupt_sideband_returns_empty(self, tmp_path, monkeypatch):
+        """Corrupt JSON returns empty list without error."""
+        from hooks import extract_learning
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        injected_dir = tmp_path / "injected"
+        injected_dir.mkdir()
+        (injected_dir / "agent-corrupt.json").write_text("{bad json")
+
+        names = _read_sideband("agent-corrupt")
+        assert names == []
+
+    def test_sideband_without_names_key(self, tmp_path, monkeypatch):
+        """Sideband with missing 'names' key returns empty list."""
+        from hooks import extract_learning
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        injected_dir = tmp_path / "injected"
+        injected_dir.mkdir()
+        (injected_dir / "agent-nonames.json").write_text(json.dumps({"ts": "now"}))
+
+        names = _read_sideband("agent-nonames")
+        assert names == []
 
 
 if __name__ == "__main__":

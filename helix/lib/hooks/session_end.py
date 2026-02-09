@@ -4,10 +4,10 @@
 Triggered by: SessionEnd lifecycle event
 
 Actions:
-1. Clean injection-state (prevent cross-session collision)
-2. Remove task-status.jsonl (append-only, never cleaned)
-3. Run decay on dormant insights
-4. Log session summary
+1. Remove task-status.jsonl (append-only, never cleaned)
+1b. Clean stale sideband files from .helix/injected/ (inject_memory hook)
+2. Run decay on dormant insights
+3. Log session summary
 """
 
 import sys
@@ -37,18 +37,21 @@ def main():
         helix_dir = get_helix_dir()
         log_file = helix_dir / "session.log"
 
-        # 1. Clean injection-state (prevent cross-session collision)
-        injection_dir = helix_dir / "injection-state"
-        if injection_dir.exists():
-            import shutil
-            shutil.rmtree(injection_dir, ignore_errors=True)
-
-        # 2. Truncate task-status.jsonl (append-only, never cleaned)
+        # 1. Truncate task-status.jsonl (append-only, never cleaned)
         status_file = helix_dir / "task-status.jsonl"
         if status_file.exists():
             status_file.unlink()
 
-        # 3. Run decay on dormant insights
+        # 1b. Clean stale sideband files (from inject_memory hook)
+        injected_dir = helix_dir / "injected"
+        if injected_dir.exists():
+            for f in injected_dir.iterdir():
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+        # 2. Run decay on dormant insights
         try:
             from memory.core import decay
             decay_result = decay()
@@ -56,7 +59,7 @@ def main():
         except Exception:
             decayed = 0
 
-        # 4. Log session summary
+        # 3. Log session summary
         log_event(log_file, "SESSION_END", f"decayed={decayed}")
 
         # Always output valid JSON

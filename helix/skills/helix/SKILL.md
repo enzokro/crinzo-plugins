@@ -72,7 +72,7 @@ OBJECTIVE: {objective}</parameter>
 
 3. **Wait and merge** (SubagentStop hook writes findings to files; wait utility merges and dedupes):
    ```bash
-   python3 "$HELIX/lib/wait.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
+   python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
    ```
    Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
 
@@ -92,6 +92,7 @@ EXPLORATION: {findings_json}</parameter>
    ```
 
    **No `run_in_background`.** Task returns synchronously with planner output.
+   The SubagentStart hook automatically injects relevant planning insights via `additionalContext`. No manual injection needed.
 
 2. **Parse PLAN_SPEC from returned result:**
    The Task tool returns the planner's output directly. Extract the JSON array after `PLAN_SPEC:`.
@@ -125,7 +126,7 @@ If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
 **Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in a single call, automatically diversifying across them so parallel builders get different insights from the pool.
 
-Batch inject for the wave (see Quick Reference). Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. Side effect: writes `injection-state/{task_id}.json` for each task (audit trail).
+Batch inject for the wave (see Quick Reference). Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`.
 
 Each `results[i]` corresponds to `objectives[i]`. Distribute to builder prompts:
 
@@ -148,6 +149,8 @@ Percentages reflect **causal-adjusted confidence**: insights that were frequentl
 The `INJECTED` line enables feedback attribution when the builder completes.
 
 **Single-task fallback** (when only one task is ready): use `inject_context` (see Quick Reference).
+
+**Hook safety net:** The SubagentStart hook also recalls insights for every builder spawn. If the orchestrator's `batch_inject` is skipped, the hook provides injection via `additionalContext` and writes a sideband file for feedback attribution. This is automatic — no orchestrator action required.
 
 #### Single Task (Foreground)
 
@@ -179,7 +182,7 @@ The `INJECTED` line enables feedback attribution when the builder completes.
 
 Wait for builder completions (SubagentStop hook writes outcomes to file):
 ```bash
-python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
+python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 120
 ```
 Returns JSON with `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`, and partial results on timeout.
 
@@ -192,7 +195,7 @@ while pending tasks exist:
     1. Get ready tasks (blockers all completed)
     2. If none ready but pending exist → STALLED (see recovery table below)
     3. Checkpoint: git stash push -m "helix-{seq}"
-    4. Batch inject: call batch_inject([obj1, obj2, ...], task_ids=[id1, id2, ...]) for all ready tasks
+    4. Batch inject: call batch_inject([obj1, obj2, ...]) for all ready tasks
     5. Spawn ready builders (batch results + warnings + parent deliveries)
     6. Wait for wave completion
     7. Cross-wave synthesis (before dispatching next wave):
@@ -202,7 +205,7 @@ while pending tasks exist:
     8. Process results, update task status
 ```
 
-**STALLED recovery** — detect with `python3 "$HELIX/lib/dag_utils.py" check-stalled --tasks '$TASK_LIST_JSON'`:
+**STALLED recovery** — detect with `python3 "$HELIX/lib/build_loop.py" check-stalled --tasks '$TASK_LIST_JSON'`:
 
 | Condition | Action |
 |-----------|--------|
@@ -218,7 +221,7 @@ while pending tasks exist:
 
 **Step 4 is critical.** One `batch_inject` call per wave ensures parallel builders in the same wave get different insights from the pool. Per-task `inject_context` in separate processes would give every builder the same top-5.
 
-**Cross-wave synthesis** (step 6): run `synthesize` and `parent-deliveries` (see Quick Reference). Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
+**Cross-wave synthesis** (step 7): run `synthesize` and `parent-deliveries` via `build_loop.py` (see Quick Reference). Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
 The `wait-for-builders` response includes `insights_emitted` count for extraction visibility.
 
 **On DELIVERED:** `git stash drop` — changes are good.
@@ -284,9 +287,9 @@ python3 "$HELIX/lib/memory/core.py" health
 - `with_feedback` is lifetime count; `recent_feedback` is this session's signal
 
 If you injected insights and `recent_feedback: 0`, the feedback loop broke this session — debug:
-1. Check `injection-state/{task_id}.json` has `names` array
-2. Check `task-status.jsonl` has matching task_id with valid outcome
-3. Verify SubagentStop hook is running (hooks configuration)
+1. Check `task-status.jsonl` has matching task_id with valid outcome
+2. Verify SubagentStop hook is running (hooks configuration)
+3. Check `extraction.log` for ERROR entries (silent failures now logged)
 4. Check `causal_ratio` in health — low ratio means insights aren't matching outcomes semantically
 
 If the session completed work and you stored nothing in LEARN, you wasted knowledge.
@@ -324,24 +327,27 @@ Contracts in `agents/*.md`.
 
 ```bash
 # Wait for explorers
-python3 "$HELIX/lib/wait.py" wait-for-explorers --count 3 --timeout 120
+python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count 3 --timeout 120
 
 # Wait for parallel builders (includes insights_emitted count)
-python3 "$HELIX/lib/wait.py" wait-for-builders --task-ids "2,3" --timeout 120
+python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 120
 
 # Cross-wave synthesis: detect convergent issues
 # Returns: {"warnings": [...], "count": N}
-python3 "$HELIX/lib/wave_synthesis.py" synthesize --results '$WAVE_JSON'
+python3 "$HELIX/lib/build_loop.py" synthesize --results '$WAVE_JSON'
 
 # Collect parent deliveries for next wave
 # Returns: {"next_task_id": "[blocker_id] summary\n...", ...}
-python3 "$HELIX/lib/wave_synthesis.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
+python3 "$HELIX/lib/build_loop.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
 
-# Batch inject for a wave (diversity + injection-state audit trail)
-python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5, task_ids=$TASK_IDS_JSON)))"
+# Get ready tasks
+python3 "$HELIX/lib/build_loop.py" get-ready --tasks '$TASK_LIST_JSON'
+
+# Batch inject for a wave (with cross-task diversity)
+python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5)))"
 
 # Single-task inject (fallback for single ready task)
-python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5, '$TASK_ID')))"
+python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5)))"
 
 # Get specific insight by name (full record with all fields)
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
@@ -366,12 +372,19 @@ python3 "$HELIX/lib/memory/core.py" health
 
 | Hook | Trigger | Action |
 |------|---------|--------|
-| SubagentStop | helix agent completion | Extract insight, apply feedback, write results |
-| SessionEnd | session termination | Clean injection-state, remove task-status.jsonl, run decay |
+| SubagentStart | builder/planner spawn | Recall insights, write sideband file, return additionalContext |
+| SubagentStop | helix agent completion | Extract insight, apply feedback (sideband + transcript), write results |
+| SessionEnd | session termination | Remove task-status.jsonl, run decay |
+
+**SubagentStart** (inject_memory.py): Provides memory injection as a safety net. For builders where the orchestrator already injected via `batch_inject` + `format_prompt`, the hook writes only the sideband file (no additionalContext). For planners and builders without orchestrator injection, it returns insights as `additionalContext`.
+
+**SubagentStop** reads INJECTED names from two sources (merged):
+1. **Sideband file** (primary): `.helix/injected/{agent_id}.json` written by SubagentStart hook
+2. **Transcript regex** (fallback): `INJECTED: [...]` from orchestrator's `format_prompt()`
 
 **SubagentStop writes:**
 - Explorer: `.helix/explorer-results/{agent_id}.json`
 - Builder/Planner: `.helix/task-status.jsonl`
 
-**Feedback is automatic:** When a builder or planner outputs DELIVERED/BLOCKED/PLAN_COMPLETE with INJECTED names, feedback is applied to those insights. Planners participate fully in the feedback loop — their insights compound across sessions just like builders'.
+**Feedback is automatic:** When a builder or planner completes with DELIVERED/BLOCKED/PLAN_COMPLETE, feedback is applied to injected insights using sideband names (if available) merged with transcript INJECTED names. Planners now participate fully in the feedback loop via hook injection.
 

@@ -146,29 +146,6 @@ class TestFormatPrompt:
         assert task_pos < warn_pos < parent_pos < insight_pos < injected_pos
 
 
-class TestInjectContextState:
-    """Tests for injection-state file writing."""
-
-    def test_inject_context_writes_state_when_no_insights(self, test_db, mock_embeddings, meta_dir):
-        """Injection-state file written even with empty names list."""
-        import json
-        from unittest.mock import patch
-
-        # Empty DB → no insights will be recalled → names will be empty
-        result = inject_context("nonexistent topic", limit=5, task_id="task-42")
-
-        assert result["names"] == []
-
-        # State file should still be written
-        state_file = meta_dir / "injection-state" / "task-42.json"
-        assert state_file.exists()
-
-        data = json.loads(state_file.read_text())
-        assert data["task_id"] == "task-42"
-        assert data["names"] == []
-        assert "ts" in data
-
-
 class TestSessionDiversity:
     """Tests for session-level injection diversity."""
 
@@ -250,24 +227,3 @@ class TestBatchInject:
         assert result["results"] == []
         assert result["total_unique"] == 0
 
-    def test_batch_inject_writes_injection_state(self, test_db, mock_embeddings, sample_insights, meta_dir):
-        """batch_inject with task_ids writes injection-state files."""
-        import json
-        reset_session_tracking()
-
-        task_ids = ["task-010", "task-011"]
-        result = batch_inject(
-            ["authentication", "database"],
-            limit=3,
-            task_ids=task_ids
-        )
-
-        # Injection-state files should exist for both tasks
-        state_dir = meta_dir / "injection-state"
-        for tid in task_ids:
-            state_file = state_dir / f"{tid}.json"
-            assert state_file.exists(), f"injection-state/{tid}.json not written"
-            data = json.loads(state_file.read_text())
-            assert data["task_id"] == tid
-            assert "names" in data
-            assert "ts" in data

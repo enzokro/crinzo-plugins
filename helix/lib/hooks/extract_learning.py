@@ -31,6 +31,31 @@ from extraction import extract_insight, extract_outcome, extract_injected_names,
 from paths import get_helix_dir
 
 
+def _log_error(context: str, error: Exception):
+    """Log error to extraction.log for diagnostics."""
+    try:
+        log_file = get_helix_dir() / "extraction.log"
+        ts = datetime.now(timezone.utc).isoformat()
+        with open(log_file, 'a') as f:
+            f.write(f"{ts} | ERROR | {context} | {type(error).__name__}: {error}\n")
+    except Exception:
+        pass  # logging must never crash the hook
+
+
+def _get_text_content(entry: dict) -> str:
+    """Extract text content from a transcript entry.
+
+    Handles both string content and list content (array of {type, text} blocks).
+    """
+    content = entry.get('message', {}).get('content', '')
+    if isinstance(content, list):
+        content = ' '.join(
+            c.get('text', '') for c in content
+            if isinstance(c, dict) and c.get('type') == 'text'
+        )
+    return str(content) if content else ''
+
+
 def _transcript_has_error(transcript_raw: str) -> bool:
     """Check if transcript's last entry indicates agent crash/API error."""
     lines = [l for l in transcript_raw.strip().splitlines() if l.strip()]
@@ -59,13 +84,8 @@ def extract_task_id(transcript: str) -> Optional[str]:
             entry = json.loads(line)
             role = entry.get('message', {}).get('role', entry.get('role', ''))
             if role == 'user':
-                content = entry.get('message', {}).get('content', '')
-                if isinstance(content, list):
-                    content = ' '.join(
-                        c.get('text', '') for c in content
-                        if isinstance(c, dict) and c.get('type') == 'text'
-                    )
-                if isinstance(content, str):
+                content = _get_text_content(entry)
+                if content:
                     match = re.search(r'TASK_ID:\s*(\S+)', content)
                     if match:
                         return match.group(1)
@@ -82,14 +102,9 @@ def get_full_transcript_text(transcript: str) -> str:
             continue
         try:
             entry = json.loads(line)
-            content = entry.get('message', {}).get('content', '')
-            if isinstance(content, list):
-                content = ' '.join(
-                    c.get('text', '') for c in content
-                    if isinstance(c, dict) and c.get('type') == 'text'
-                )
+            content = _get_text_content(entry)
             if content:
-                text_parts.append(str(content))
+                text_parts.append(content)
         except json.JSONDecodeError:
             continue
     return '\n'.join(text_parts)
@@ -130,13 +145,8 @@ def _get_last_assistant_text(transcript_raw: str) -> Optional[str]:
             entry = json.loads(line)
             role = entry.get('message', {}).get('role', entry.get('role', ''))
             if role == 'assistant':
-                content = entry.get('message', {}).get('content', '')
-                if isinstance(content, list):
-                    content = ' '.join(
-                        c.get('text', '') for c in content
-                        if isinstance(c, dict) and c.get('type') == 'text'
-                    )
-                if isinstance(content, str) and content.strip():
+                content = _get_text_content(entry)
+                if content.strip():
                     last_text = content.strip()
         except json.JSONDecodeError:
             continue
@@ -225,8 +235,33 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
                 causal.append(name)
 
         return causal
-    except Exception:
+    except Exception as e:
+        _log_error("filter_causal_insights", e)
         return injected_names  # on any error, treat all as causal
+
+
+def _read_sideband(agent_id: str) -> list:
+    """Read and clean up sideband file written by SubagentStart hook.
+
+    File: .helix/injected/{agent_id}.json
+    Returns: list of insight names, or empty list if not found.
+    Deletes file after reading.
+    """
+    try:
+        sideband_file = get_helix_dir() / "injected" / f"{agent_id}.json"
+        if not sideband_file.exists():
+            return []
+
+        data = json.loads(sideband_file.read_text())
+        names = data.get("names", [])
+
+        # Clean up
+        sideband_file.unlink(missing_ok=True)
+
+        return names
+    except Exception as e:
+        _log_error("_read_sideband", e)
+        return []
 
 
 def apply_feedback(injected_names: list, outcome: str, causal_names: list = None) -> bool:
@@ -244,7 +279,8 @@ def apply_feedback(injected_names: list, outcome: str, causal_names: list = None
         from memory.core import feedback
         result = feedback(names=injected_names, outcome=outcome, causal_names=causal_names)
         return result.get("updated", 0) > 0
-    except Exception:
+    except Exception as e:
+        _log_error("apply_feedback", e)
         return False
 
 
@@ -258,8 +294,8 @@ def store_insight(insight: dict) -> Optional[str]:
         result = store(content=insight["content"], tags=insight.get("tags", []))
         if result.get("status") in ("added", "merged"):
             return result.get("name")
-    except Exception:
-        pass
+    except Exception as e:
+        _log_error("store_insight", e)
     return None
 
 
@@ -327,9 +363,12 @@ def process_hook_input(hook_input: dict) -> dict:
                     break
 
     # Store insight if extracted
-    stored_name = None
     if result.get("insight"):
-        stored_name = store_insight(result["insight"])
+        store_insight(result["insight"])
+
+    # Merge INJECTED names: sideband (SubagentStart hook) + transcript (orchestrator)
+    injected_from_sideband = _read_sideband(agent_id)
+    all_injected = list(set(injected_from_sideband + result["injected"]))
 
     # Build task context for causal filtering
     task_parts = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript_text, re.IGNORECASE)
@@ -339,13 +378,13 @@ def process_hook_input(hook_input: dict) -> dict:
     # Filter to causally relevant insights, then apply feedback
     feedback_applied = None
     causal_names = None
-    if result["injected"] and result["outcome"] in ("delivered", "blocked", "plan_complete"):
-        causal_names = filter_causal_insights(result["injected"], task_context.strip())
-        feedback_applied = apply_feedback(result["injected"], result["outcome"], causal_names=causal_names)
+    if all_injected and result["outcome"] in ("delivered", "blocked", "plan_complete"):
+        causal_names = filter_causal_insights(all_injected, task_context.strip())
+        feedback_applied = apply_feedback(all_injected, result["outcome"], causal_names=causal_names)
 
     # Log result with causal stats
     n_causal = len(causal_names) if causal_names is not None else None
-    n_injected = len(result.get("injected", []))
+    n_injected = len(all_injected)
     log_extraction_result(agent_id, agent_type, result, feedback_applied,
                           causal_count=n_causal, total_injected=n_injected)
 

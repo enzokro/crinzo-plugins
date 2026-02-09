@@ -24,7 +24,28 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
 
 <state_machine>ANALYZE -> DESIGN_DAG -> VALIDATE -> OUTPUT | CLARIFY</state_machine>
 
-<input>objective, exploration</input>
+<input>objective, exploration
+
+Memory fields (auto-injected via hook):
+- INSIGHTS: Past experience relevant to this task (format: `[75%] content`)
+- INJECTED: JSON array of insight names for feedback attribution
+</input>
+
+<memory_context>
+INSIGHTS provide past experience relevant to your task decomposition:
+- Format: `[72%] When X, do Y because Z`
+- Percentage = causal-adjusted confidence (effectiveness x causal attribution)
+- Higher scores = trustworthy AND causally proven guidance
+
+Weighting:
+- **>=60%**: Trust strongly; follow the guidance
+- **30-59%**: Consider; validate against your context
+- **<30%**: Low confidence; use only if nothing better available
+
+When multiple insights conflict, prefer higher confidence.
+
+**Your INSIGHT output matters.** When you discover something about task decomposition that will help future planning, emit it.
+</memory_context>
 
 <execution>
 1. Analyze findings: `{file, what, action, task_hint}`
@@ -42,7 +63,7 @@ Agents do NOT inherit parent env vars. MUST read HELIX from file.
    - >150 lines or >5 files → split
    - Task description uses "and" for unrelated work → split
 
-4. Validate: `python3 "$HELIX/lib/dag_utils.py" detect-cycles --dependencies '{...}'`
+4. Validate: `python3 "$HELIX/lib/build_loop.py" detect-cycles --dependencies '{...}'`
 
 5. Self-check: paths exist? dependencies minimal? acyclic?
 </execution>

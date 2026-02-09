@@ -22,7 +22,6 @@ echo "$HELIX_ROOT" > .helix/plugin_root
 # Wipe ephemeral session state (coordination artifacts, not insights)
 rm -f .helix/task-status.jsonl
 rm -rf .helix/explorer-results/
-rm -rf .helix/injection-state/
 
 VENV_PATH="$HELIX_ROOT/.venv"
 

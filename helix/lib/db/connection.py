@@ -58,9 +58,8 @@ def get_db() -> sqlite3.Connection:
         _db = sqlite3.connect(str(db_path), check_same_thread=False)
         _db.row_factory = sqlite3.Row
 
-        # Enable WAL mode and foreign keys
+        # Enable WAL mode for concurrent reads
         _db.execute("PRAGMA journal_mode=WAL")
-        _db.execute("PRAGMA foreign_keys=ON")
 
         # Initialize schema
         init_db(_db)
@@ -79,10 +78,9 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
 
     # v1-v4: legacy memory table migrations (removed; tables dropped in v9)
 
-    # Migration v5: Create unified insight table, migrate from memory
+    # Migration v5: Create unified insight table
     if current_version < 5:
         try:
-            # Create insight table
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS insight (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,26 +93,8 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
                     last_used TEXT,
                     tags TEXT DEFAULT '[]'
                 );
-                CREATE INDEX IF NOT EXISTS idx_insight_name ON insight(name);
             """)
-
-            # Migrate data from memory table if it exists
-            cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='memory'")
-            if cursor.fetchone():
-                db.execute("""
-                    INSERT OR IGNORE INTO insight (name, content, embedding, effectiveness, use_count, created_at, last_used, tags)
-                    SELECT
-                        name,
-                        trigger || ' -> ' || resolution,
-                        embedding,
-                        CASE WHEN (helped + failed) > 0 THEN helped / (helped + failed) ELSE 0.5 END,
-                        CAST(helped + failed AS INTEGER),
-                        created_at,
-                        last_used,
-                        '["' || type || '"]'
-                    FROM memory
-                """)
-
+            # Note: v1-v4 legacy migration from `memory` table removed (table dropped in v9)
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (5, datetime('now'))")
             db.commit()
         except Exception:

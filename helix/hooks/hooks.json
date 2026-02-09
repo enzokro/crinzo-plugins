@@ -30,6 +30,18 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "helix:helix-builder|helix:helix-planner",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/inject_memory.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "matcher": "helix:helix-.*",

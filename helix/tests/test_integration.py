@@ -125,7 +125,7 @@ class TestOrchestrationFlow:
 
     def test_tasks_progress_through_dag(self):
         """Tasks become ready as blockers complete."""
-        from lib.dag_utils import get_ready_tasks
+        from lib.build_loop import get_ready_tasks
 
         # Initial state: only t1 ready
         tasks = [
@@ -153,7 +153,7 @@ class TestOrchestrationFlow:
 
     def test_stall_detection_with_blocked(self):
         """Stall detected when blocker is blocked."""
-        from lib.dag_utils import check_stalled
+        from lib.build_loop import check_stalled
 
         tasks = [
             {"id": "t1", "status": "completed", "blockedBy": [], "metadata": {"helix_outcome": "delivered"}},

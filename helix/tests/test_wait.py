@@ -13,7 +13,7 @@ class TestWaitForExplorerResults:
 
     def test_wait_explorer_results_found(self, tmp_path):
         """Returns merged findings when all explorer results arrive."""
-        from lib.wait import wait_for_explorer_results
+        from lib.build_loop import wait_for_explorer_results
 
         helix_dir = tmp_path / ".helix"
         results_dir = helix_dir / "explorer-results"
@@ -40,7 +40,7 @@ class TestWaitForExplorerResults:
 
     def test_wait_explorer_results_timeout(self, tmp_path):
         """Returns partial results on timeout."""
-        from lib.wait import wait_for_explorer_results
+        from lib.build_loop import wait_for_explorer_results
 
         helix_dir = tmp_path / ".helix"
         results_dir = helix_dir / "explorer-results"
@@ -64,7 +64,7 @@ class TestWaitForExplorerResults:
 
     def test_wait_explorer_deduplicates(self, tmp_path):
         """Deduplicates findings by file path."""
-        from lib.wait import wait_for_explorer_results
+        from lib.build_loop import wait_for_explorer_results
 
         helix_dir = tmp_path / ".helix"
         results_dir = helix_dir / "explorer-results"
@@ -90,7 +90,7 @@ class TestWaitForExplorerResults:
 
     def test_wait_explorer_handles_errors(self, tmp_path):
         """Reports errors from failed explorers."""
-        from lib.wait import wait_for_explorer_results
+        from lib.build_loop import wait_for_explorer_results
 
         helix_dir = tmp_path / ".helix"
         results_dir = helix_dir / "explorer-results"
@@ -117,7 +117,7 @@ class TestWaitForBuilderResults:
 
     def test_wait_builder_unknown_not_delivered(self, tmp_path):
         """Tasks with unknown outcome cause all_delivered=False."""
-        from lib.wait import wait_for_builder_results
+        from lib.build_loop import wait_for_builder_results
 
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()
@@ -141,7 +141,7 @@ class TestWaitForBuilderResults:
 
     def test_wait_builder_all_delivered(self, tmp_path):
         """All delivered tasks => all_delivered=True."""
-        from lib.wait import wait_for_builder_results
+        from lib.build_loop import wait_for_builder_results
 
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()
@@ -164,7 +164,7 @@ class TestWaitForBuilderResults:
 
     def test_wait_builder_timeout(self, tmp_path):
         """Returns partial results on timeout."""
-        from lib.wait import wait_for_builder_results
+        from lib.build_loop import wait_for_builder_results
 
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()
@@ -186,7 +186,7 @@ class TestWaitForBuilderResults:
 
     def test_wait_builder_blocked(self, tmp_path):
         """Blocked tasks are categorized correctly."""
-        from lib.wait import wait_for_builder_results
+        from lib.build_loop import wait_for_builder_results
 
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()
@@ -210,7 +210,7 @@ class TestWaitForBuilderResults:
 
     def test_wait_builder_insights_emitted(self, tmp_path):
         """Counts insights_emitted from task status entries."""
-        from lib.wait import wait_for_builder_results
+        from lib.build_loop import wait_for_builder_results
 
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()

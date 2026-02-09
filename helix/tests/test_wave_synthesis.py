@@ -15,7 +15,7 @@ class TestUnionFindClusters:
 
     def test_no_clusters_below_threshold(self):
         """Items with low similarity form no clusters."""
-        from lib.wave_synthesis import _union_find_clusters
+        from lib.build_loop import _union_find_clusters
 
         items = [1, 100, 200]  # arbitrary
         clusters = _union_find_clusters(items, lambda a, b: 0.0, threshold=0.5)
@@ -24,7 +24,7 @@ class TestUnionFindClusters:
 
     def test_all_similar_form_one_cluster(self):
         """Items all similar form one cluster."""
-        from lib.wave_synthesis import _union_find_clusters
+        from lib.build_loop import _union_find_clusters
 
         items = ["a", "b", "c"]
         clusters = _union_find_clusters(items, lambda a, b: 1.0, threshold=0.5)
@@ -33,7 +33,7 @@ class TestUnionFindClusters:
 
     def test_two_clusters(self):
         """Two groups of similar items form two clusters."""
-        from lib.wave_synthesis import _union_find_clusters
+        from lib.build_loop import _union_find_clusters
 
         items = [0, 1, 10, 11]
 
@@ -51,7 +51,7 @@ class TestSynthesizeWaveWarnings:
 
     def test_no_warnings_for_single_result(self):
         """Single result cannot form convergent cluster."""
-        from lib.wave_synthesis import synthesize_wave_warnings
+        from lib.build_loop import synthesize_wave_warnings
 
         results = [{"task_id": "001", "summary": "Fixed barrel exports"}]
         warnings = synthesize_wave_warnings(results)
@@ -59,7 +59,7 @@ class TestSynthesizeWaveWarnings:
 
     def test_no_warnings_for_dissimilar_results(self):
         """Dissimilar results produce no warnings."""
-        from lib.wave_synthesis import synthesize_wave_warnings
+        from lib.build_loop import synthesize_wave_warnings
 
         results = [
             {"task_id": "001", "summary": "Implemented priority mailbox with actor message queuing"},
@@ -70,7 +70,7 @@ class TestSynthesizeWaveWarnings:
 
     def test_convergent_issues_produce_warning(self):
         """Similar summaries from different tasks produce convergent warning."""
-        from lib.wave_synthesis import synthesize_wave_warnings
+        from lib.build_loop import synthesize_wave_warnings
 
         results = [
             {"task_id": "009", "summary": "Fixed TS2308 barrel-export error in index.ts by adding re-export"},
@@ -85,7 +85,7 @@ class TestSynthesizeWaveWarnings:
 
     def test_min_count_respected(self):
         """Clusters smaller than min_count don't produce warnings."""
-        from lib.wave_synthesis import synthesize_wave_warnings
+        from lib.build_loop import synthesize_wave_warnings
 
         results = [
             {"task_id": "001", "summary": "Fixed barrel export error"},
@@ -97,7 +97,7 @@ class TestSynthesizeWaveWarnings:
 
     def test_insight_field_included_in_synthesis(self):
         """Insight content is included in convergence detection."""
-        from lib.wave_synthesis import synthesize_wave_warnings
+        from lib.build_loop import synthesize_wave_warnings
 
         results = [
             {"task_id": "001", "summary": "Done", "insight": "Barrel exports in TypeScript need explicit re-export"},
@@ -113,7 +113,7 @@ class TestCollectParentDeliveries:
 
     def test_maps_deliveries_to_dependent_tasks(self):
         """Correctly maps blocker deliveries to next-wave tasks."""
-        from lib.wave_synthesis import collect_parent_deliveries
+        from lib.build_loop import collect_parent_deliveries
 
         wave_results = [
             {"task_id": "001", "outcome": "delivered", "summary": "Created data models"},
@@ -135,14 +135,14 @@ class TestCollectParentDeliveries:
 
     def test_empty_blockers_returns_empty(self):
         """No blockers means no parent deliveries."""
-        from lib.wave_synthesis import collect_parent_deliveries
+        from lib.build_loop import collect_parent_deliveries
 
         deliveries = collect_parent_deliveries([], {})
         assert deliveries == {}
 
     def test_missing_blocker_results_skipped(self):
         """Blockers not in wave results are silently skipped."""
-        from lib.wave_synthesis import collect_parent_deliveries
+        from lib.build_loop import collect_parent_deliveries
 
         wave_results = [
             {"task_id": "001", "outcome": "delivered", "summary": "Done A"},
@@ -158,7 +158,7 @@ class TestCollectParentDeliveries:
 
     def test_collect_parent_deliveries_mixed_id_formats(self):
         """Bare '3' blocker matches 'task-3' result via normalization."""
-        from lib.wave_synthesis import collect_parent_deliveries
+        from lib.build_loop import collect_parent_deliveries
 
         wave_results = [
             {"task_id": "task-3", "outcome": "delivered", "summary": "Created models"},
@@ -173,7 +173,7 @@ class TestCollectParentDeliveries:
 
     def test_collect_parent_deliveries_bare_ids(self):
         """Both sides use bare IDs."""
-        from lib.wave_synthesis import collect_parent_deliveries
+        from lib.build_loop import collect_parent_deliveries
 
         wave_results = [
             {"task_id": "1", "outcome": "delivered", "summary": "Schema done"},

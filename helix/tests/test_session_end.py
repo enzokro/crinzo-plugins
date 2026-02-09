@@ -13,23 +13,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib" / "hooks"))
 class TestSessionEndCleanup:
     """Tests for session_end main() cleanup actions."""
 
-    def test_session_end_cleans_injection_state(self, tmp_path):
-        """session_end removes injection-state directory."""
-        helix_dir = tmp_path / ".helix"
-        helix_dir.mkdir()
-        injection_dir = helix_dir / "injection-state"
-        injection_dir.mkdir()
-        (injection_dir / "task-1.json").write_text('{"task_id": "task-1"}')
-
-        with patch("hooks.session_end.get_helix_dir", return_value=helix_dir), \
-             patch("hooks.session_end.sys") as mock_sys, \
-             patch("builtins.print"):
-            mock_sys.stdin.read.return_value = "{}"
-            from hooks.session_end import main
-            main()
-
-        assert not injection_dir.exists()
-
     def test_session_end_removes_task_status(self, tmp_path):
         """session_end removes task-status.jsonl."""
         helix_dir = tmp_path / ".helix"
@@ -82,3 +65,24 @@ class TestSessionEndCleanup:
         log_file = helix_dir / "session.log"
         assert log_file.exists()
         assert "SESSION_END" in log_file.read_text()
+
+    def test_session_end_cleans_sideband_files(self, tmp_path):
+        """session_end removes stale sideband files from .helix/injected/."""
+        helix_dir = tmp_path / ".helix"
+        helix_dir.mkdir()
+        injected_dir = helix_dir / "injected"
+        injected_dir.mkdir()
+
+        # Create stale sideband files (from crashed agents)
+        (injected_dir / "agent-orphan-1.json").write_text('{"names": ["a"]}')
+        (injected_dir / "agent-orphan-2.json").write_text('{"names": ["b"]}')
+
+        with patch("hooks.session_end.get_helix_dir", return_value=helix_dir), \
+             patch("hooks.session_end.sys") as mock_sys, \
+             patch("builtins.print"):
+            mock_sys.stdin.read.return_value = "{}"
+            from hooks.session_end import main
+            main()
+
+        # Files should be cleaned up
+        assert list(injected_dir.iterdir()) == []
