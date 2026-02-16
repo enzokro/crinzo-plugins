@@ -406,27 +406,6 @@ class TestWaitForBuilderResults:
         assert len(result["blocked"]) == 1
         assert len(result["delivered"]) == 1
 
-    def test_wait_builder_insights_emitted(self, tmp_path):
-        """Counts insights_emitted from task status entries."""
-        from lib.build_loop import wait_for_builder_results
-
-        helix_dir = tmp_path / ".helix"
-        helix_dir.mkdir()
-        status_file = helix_dir / "task-status.jsonl"
-        status_file.write_text(
-            json.dumps({"task_id": "task-1", "outcome": "delivered", "summary": "done", "insight": "When X, do Y"}) + "\n"
-            + json.dumps({"task_id": "task-2", "outcome": "delivered", "summary": "done"}) + "\n"
-        )
-
-        result = wait_for_builder_results(
-            ["task-1", "task-2"],
-            helix_dir=str(helix_dir),
-            timeout_sec=1.0,
-            poll_interval=0.1
-        )
-
-        assert result["insights_emitted"] == 1
-
 
 # ── Parent deliveries ──
 

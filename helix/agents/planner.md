@@ -13,33 +13,24 @@ tools:
 
 Decompose objectives into a task DAG specification. You design the DAG; orchestrator creates tasks.
 
-<input>objective, exploration
-
-Memory (auto-injected via hook):
-- INSIGHTS: Past experience (`[75%] content`; higher % = more trustworthy; prefer higher confidence when insights conflict)
-- INJECTED: JSON array of insight names
-</input>
+<input>objective, exploration</input>
 
 <execution>
 1. Analyze findings: `{file, what}`
    **GREENFIELD:** No findings? Synthesize from objective using standard paths.
 
-2. Group findings by related concern → relevant_files. Determine action from context and objective.
+2. Group findings by related concern -> relevant_files. Determine action from context and objective.
 
 3. Build specs: `{seq, slug, description, relevant_files, blocked_by, verify}`
    - Split tasks that mix unrelated concerns. Err toward smaller tasks.
-   - Parallel test tasks per impl task (each blocked only by its impl).
+   - Parallel test tasks per impl task (each blocked only by its impl) — never funnel into a serial test bottleneck.
+   - Every task MUST have relevant_files (actual paths or intended paths for new files).
+   - Only add dependencies when output feeds input — maximize parallelism.
    - **verify** must be a concrete command (`pytest tests/test_x.py`, `tsc --noEmit`, `python -c "import mod"`) — never vague prose.
 </execution>
 
-<constraints>
-- Every task MUST have relevant_files (actual paths or intended paths for new files)
-- Only add dependencies when output feeds input — maximize parallelism
-- Test tasks mirror implementation parallelism — never funnel parallel work into a serial test bottleneck
-</constraints>
-
 <output>
-Output ONLY the PLAN_SPEC JSON block. Do not narrate planning.
+Output ONLY the PLAN_SPEC JSON block.
 
 ```
 PLAN_SPEC:
@@ -67,6 +58,5 @@ INSIGHT: {"content": "When planning X type of feature, structure as Y because Z"
 ```
 
 INSIGHT is optional — emit when you discover something about task decomposition that will help future planning.
-
 Error: `ERROR: {description}`
 </output>

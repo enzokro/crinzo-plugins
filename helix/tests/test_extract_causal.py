@@ -51,6 +51,24 @@ class TestFilterCausalInsights:
         result = filter_causal_insights(["nonexistent-insight"], "some TypeScript context")
         assert result == []
 
+    def test_null_embedding_excluded_from_causal(self):
+        """Insight with NULL embedding is excluded from causal names (erosion only)."""
+        from lib.db.connection import get_db, init_db
+        from lib.hooks.extract_learning import filter_causal_insights
+
+        # Ensure schema exists, then insert insight with NULL embedding
+        db = get_db()
+        init_db(db)
+        db.execute(
+            "INSERT OR REPLACE INTO insight (name, content, embedding, effectiveness, use_count, created_at) "
+            "VALUES (?, ?, NULL, 0.5, 1, datetime('now'))",
+            ("null-emb-insight", "Some insight without embedding")
+        )
+        db.commit()
+
+        result = filter_causal_insights(["null-emb-insight"], "any task context here")
+        assert "null-emb-insight" not in result
+
 
 class TestWriteTaskStatus:
     """Tests for enriched write_task_status."""

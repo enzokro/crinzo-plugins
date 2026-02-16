@@ -120,6 +120,13 @@ def to_blob(emb: Tuple[float, ...]) -> bytes:
     return struct.pack(f"{len(emb)}f", *emb)
 
 
+def build_embedding_matrix(blobs):
+    """Build numpy matrix from embedding BLOBs for vectorized similarity."""
+    import numpy as np
+    joined = b''.join(blobs)
+    count = len(joined) // (EMBED_DIM * 4)
+    return np.frombuffer(joined, dtype=np.float32).reshape(count, -1)
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "warmup":

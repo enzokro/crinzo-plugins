@@ -38,16 +38,18 @@ DECAY_RATE = 0.1                # Rate dormant insights drift toward neutral per
 EROSION_RATE = 0.10             # Rate non-causal insights drift toward neutral per feedback
 CAUSAL_ADJUSTMENT_FLOOR = 0.3   # Minimum multiplier for causal hit ratio
 CAUSAL_MIN_USES = 3             # Uses before causal adjustment kicks in
+RECENCY_DECAY_PER_DAY = 0.001  # 0.1% score penalty per day unused, floor 0.9
+RECENCY_FLOOR = 0.9             # Never-used floor multiplier
 
 # Support both module and script execution
 try:
     from ..db.connection import get_db, write_lock
-    from .embeddings import embed, to_blob
+    from .embeddings import embed, to_blob, build_embedding_matrix
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from db.connection import get_db, write_lock
     sys.path.insert(0, str(Path(__file__).parent))
-    from embeddings import embed, to_blob
+    from embeddings import embed, to_blob, build_embedding_matrix
 
 
 def _utcnow() -> datetime:
@@ -142,8 +144,7 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
             import numpy as np
             q_vec = np.array(new_emb, dtype=np.float32)
             names = [r["name"] for r in rows]
-            mat = np.frombuffer(b''.join(r["embedding"] for r in rows),
-                                dtype=np.float32).reshape(len(rows), -1)
+            mat = build_embedding_matrix(r["embedding"] for r in rows)
             sims = mat @ q_vec
             best_idx = int(np.argmax(sims))
             if sims[best_idx] >= DUPLICATE_THRESHOLD:
@@ -213,6 +214,9 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         min_effectiveness: Minimum effectiveness threshold
         min_relevance: Minimum cosine similarity (0.35 default). "No memory" beats "wrong memory."
 
+    Scoring: relevance * (0.5 + 0.5 * eff) * recency
+    Recency: 0.1% penalty per day since last use, floor 0.9.
+
     Returns list with _relevance, _score fields.
     """
     db = get_db()
@@ -250,8 +254,7 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
     # Vectorized cosine: single matrix multiply for all candidates
     import numpy as np
     q_vec = np.array(q_emb, dtype=np.float32)
-    mat = np.frombuffer(b''.join(r["embedding"] for r in candidates),
-                        dtype=np.float32).reshape(len(candidates), -1)
+    mat = build_embedding_matrix(r["embedding"] for r in candidates)
     similarities = mat @ q_vec
 
     # Score and filter by min_relevance
@@ -262,7 +265,18 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         if rel < min_relevance:
             continue
         eff = _causal_adjusted_effectiveness(r)
-        scored.append((rel * (0.5 + 0.5 * eff), rel, eff, i))
+        # Mild recency signal: 0.1% penalty per day since last use, floor 0.9
+        last_used = r["last_used"]
+        if last_used:
+            try:
+                days_unused = (_utcnow() - datetime.fromisoformat(last_used)).days
+                recency = max(RECENCY_FLOOR, 1.0 - RECENCY_DECAY_PER_DAY * days_unused)
+            except (ValueError, TypeError):
+                recency = 1.0
+        else:
+            recency = 0.95  # never-used insights: mild 5% penalty
+        base_score = rel * (0.5 + 0.5 * eff)
+        scored.append((base_score * recency, rel, eff, i))
 
     scored.sort(key=lambda x: -x[0])
     top = scored[:limit]
@@ -429,8 +443,8 @@ def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     ).fetchall()
     orphan_names = [r["name"] for r in orphans]
 
-    # Ghost cleanup: valid embedding, never used, older than 30 days
-    ghost_cutoff = (_utcnow() - timedelta(days=30)).isoformat()
+    # Ghost cleanup: valid embedding, never used, older than 60 days
+    ghost_cutoff = (_utcnow() - timedelta(days=60)).isoformat()
     ghosts = db.execute(
         "SELECT name FROM insight WHERE embedding IS NOT NULL AND use_count = 0 AND created_at < ?",
         (ghost_cutoff,)

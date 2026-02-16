@@ -26,7 +26,7 @@ def _reset_session_tracking():
 
 @pytest.fixture
 def test_db(tmp_path, monkeypatch):
-    """Fresh in-memory SQLite database per test.
+    """Fresh file-backed SQLite database per test.
 
     Isolates each test with its own database, preventing state leakage.
     Monkeypatches DB_PATH and resets singleton connection after test.

@@ -72,7 +72,7 @@ If PLAN_SPEC empty or ERROR — add exploration context, re-run planner.
 python3 "$HELIX/lib/injection.py" batch-inject --tasks '$OBJECTIVES_JSON' --limit 5
 ```
 
-Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. The `INJECTED` line in builder prompts enables feedback attribution. If `batch_inject` is skipped, the SubagentStart hook provides fallback injection.
+Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. The `INJECTED` line in builder prompts enables feedback attribution.
 
 #### Spawning Builders
 
@@ -88,28 +88,26 @@ Returns `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`. Crashed
 
 ```
 while pending tasks exist:
-    1. Get build status:
-       python3 "$HELIX/lib/build_loop.py" status --tasks "$(TaskList output as JSON)"
-       Returns: ready (task IDs), stalled (bool), stall_info
-    2. If stalled → STALLED recovery (see below)
-    3. Batch inject insights for ready tasks
-    4. Assemble PARENT_DELIVERIES from wave results (format "[task_id] summary" for each delivered blocker)
-    5. Spawn builders (cap at 6 per wave — more risks file contention)
-    6. Wait for wave completion
-    7. Process results, update task status
+    ready = build_loop.py status --tasks "$(TaskList as JSON)"  →  {ready, stalled, stall_info}
+    If stalled → STALLED recovery (below)
+    Batch inject → assemble PARENT_DELIVERIES ("[task_id] summary" per delivered blocker)
+    Spawn builders (cap 6/wave; deep DAGs: narrow 2-3 with rapid succession)
+    Wait → process results → sanity-check: did deliveries change downstream assumptions?
 ```
 
-**STALLED recovery:** Analyze the stall. If one task is blocked with an obvious workaround, SKIP it (`TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped"})`) and store the failure insight. If systemic, ABORT and store insight. If verify was unclear, REPLAN. After 3+ attempts on the same blocker, ABORT and escalate.
+**STALLED recovery:** Analyze the stall:
+- **One task, obvious workaround:** SKIP it (TaskUpdate status="completed", metadata={helix_outcome: "skipped"}) and store failure insight.
+- **Blocked subtree, fixable scope:** Re-plan the blocked task and its dependents only. Create replacement tasks wired to the same predecessors. Do NOT replan the entire DAG.
+- **Verify was unclear or wrong:** REPLAN with tighter verification constraints.
+- **Systemic or 3+ attempts on same blocker:** ABORT and escalate to user.
+
+**On PARTIAL:** Fold the REMAINING work into a new task in the next wave. Do not re-dispatch the entire original task.
 
 **On unknown/crashed:** Re-dispatch. If a task crashes twice, mark blocked and surface in LEARN.
 
 ### LEARN
 
-**Goal:** Capture session-level insights that builders cannot see.
-
-Builders see one task. You see the whole session: which plans worked, which stalled, what patterns emerged across tasks. **This is not optional.**
-
-If `insights_emitted > 0` from wait-for-builders, builders already stored task-level insights. Focus LEARN on cross-task patterns they couldn't see: plan failures, dependency ordering, scope issues.
+**Not optional.** You see cross-task patterns builders cannot: plan failures, dependency ordering, scope issues. Focus here; builders already store task-level insights.
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" store \
@@ -117,7 +115,7 @@ python3 "$HELIX/lib/memory/core.py" store \
   --tags '["testing", "auth"]'
 ```
 
-Store systemic patterns, planning insights, exploration gaps, session discoveries. Test: would this help a developer 3 months from now? **Minimum:** at least one insight per session that completed work.
+Test: would this help a developer 3 months from now? **Minimum:** one insight per session that completed work.
 
 ### COMPLETE
 

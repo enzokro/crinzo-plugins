@@ -8,16 +8,17 @@ import re
 from typing import Optional
 
 # Pre-compiled patterns for single-pass marker extraction
-_OUTCOME_RE = re.compile(r'(DELIVERED|BLOCKED|PLAN_COMPLETE):\s*(.+)', re.IGNORECASE)
+_OUTCOME_RE = re.compile(r'(DELIVERED|BLOCKED|PARTIAL|PLAN_COMPLETE|REMAINING):\s*(.+)', re.IGNORECASE)
 _TASK_RE = re.compile(r'(?:TASK|OBJECTIVE):\s*(.+)', re.IGNORECASE)
 _INJECTED_RE = re.compile(r'INJECTED:\s*(\[[^\]]*\])', re.IGNORECASE)
 
 
 def _extract_json_after(text: str, marker: str) -> Optional[dict]:
     """Extract first JSON object after marker using json.raw_decode."""
-    idx = text.lower().find(marker.lower())
-    if idx < 0:
+    m = re.search(re.escape(marker), text, re.IGNORECASE)
+    if m is None:
         return None
+    idx = m.start()
     start = text.find('{', idx)
     if start < 0:
         return None
@@ -54,12 +55,12 @@ def extract_insight(transcript: str, outcome: str = None,
                 "tags": data.get("tags", [])
             }
 
-    # Fallback ONLY for failures — derive insight from BLOCKED reason
+    # Fallback ONLY for failures — derive insight from BLOCKED/PARTIAL reason
     # When called from process_completion, use pre-extracted parts to avoid re-scanning
     if outcome is not None:
-        is_blocked = outcome == "blocked"
+        is_blocked = outcome in ("blocked", "partial")
     else:
-        is_blocked = bool(re.search(r'BLOCKED:', transcript, re.IGNORECASE))
+        is_blocked = bool(re.search(r'(?:BLOCKED|PARTIAL):', transcript, re.IGNORECASE))
 
     if not is_blocked:
         return None
@@ -67,7 +68,7 @@ def extract_insight(transcript: str, outcome: str = None,
     if summary_parts is not None:
         reason = summary_parts[-1].strip() if summary_parts else ""
     else:
-        blocked_matches = re.findall(r'BLOCKED:\s*(.+)', transcript, re.IGNORECASE)
+        blocked_matches = re.findall(r'(?:BLOCKED|PARTIAL|REMAINING):\s*(.+)', transcript, re.IGNORECASE)
         reason = blocked_matches[-1].strip() if blocked_matches else ""
 
     if not reason:
@@ -90,7 +91,7 @@ def extract_insight(transcript: str, outcome: str = None,
 def extract_outcome(transcript: str) -> str:
     """Extract outcome from transcript. Last match wins.
 
-    Returns: "delivered"|"blocked"|"plan_complete"|"unknown"
+    Returns: "delivered"|"blocked"|"partial"|"plan_complete"|"unknown"
     """
     outcome = "unknown"
     for m in _OUTCOME_RE.finditer(transcript):
@@ -99,17 +100,19 @@ def extract_outcome(transcript: str) -> str:
             outcome = "delivered"
         elif marker == "BLOCKED":
             outcome = "blocked"
+        elif marker == "PARTIAL":
+            outcome = "partial"
         elif marker == "PLAN_COMPLETE":
             outcome = "plan_complete"
     return outcome
 
 
 def extract_summary_parts(transcript: str) -> list:
-    """Extract DELIVERED/BLOCKED summary text from transcript.
+    """Extract DELIVERED/BLOCKED/PARTIAL summary text from transcript.
 
-    Returns list of matched text after DELIVERED: or BLOCKED: markers.
+    Returns list of matched text after DELIVERED:, BLOCKED:, or PARTIAL: markers.
     """
-    return re.findall(r'(?:DELIVERED|BLOCKED):\s*(.+)', transcript, re.IGNORECASE)
+    return re.findall(r'(?:DELIVERED|BLOCKED|PARTIAL):\s*(.+)', transcript, re.IGNORECASE)
 
 
 def extract_task_parts(transcript: str) -> list:
@@ -141,7 +144,7 @@ def process_completion(transcript: str) -> dict:
 
     Returns: {
         "insight": {...} | None,
-        "outcome": "delivered"|"blocked"|"plan_complete"|"unknown",
+        "outcome": "delivered"|"blocked"|"partial"|"plan_complete"|"unknown",
         "injected": ["name1", "name2"],
         "summary_parts": ["summary text after DELIVERED/BLOCKED markers"],
         "task_parts": ["text after TASK/OBJECTIVE markers"]
@@ -162,6 +165,8 @@ def process_completion(transcript: str) -> dict:
             outcome = "delivered"
         elif marker == "BLOCKED":
             outcome = "blocked"
+        elif marker == "PARTIAL":
+            outcome = "partial"
         elif marker == "PLAN_COMPLETE":
             outcome = "plan_complete"
         summary_parts.append(text)

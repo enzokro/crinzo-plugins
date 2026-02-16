@@ -723,3 +723,61 @@ class TestFeedbackRanking:
         assert r2["name"] in names, f"Expected {r2['name']} in recall results"
         # r1 should appear before r2 due to higher effectiveness
         assert names.index(r1["name"]) < names.index(r2["name"])
+
+
+class TestRecencyScoring:
+    """Tests for recency multiplier in recall scoring."""
+
+    def test_recent_scores_higher_than_stale(self, test_db, mock_embeddings):
+        """Recently-used insight scores higher than stale one at equal relevance/effectiveness."""
+        from lib.memory.core import store, recall, feedback, get_db, write_lock
+        from datetime import datetime, timedelta
+
+        # Store two insights with identical content structure
+        r1 = store(content="When database connections exhaust under load, increase pool size and add connection timeout")
+        r2 = store(content="When database connections leak during exceptions, use context manager and ensure cleanup in finally")
+
+        # Give both identical positive feedback
+        feedback([r1["name"]], "delivered")
+        feedback([r2["name"]], "delivered")
+
+        # Backdate r2's last_used to 200 days ago (max penalty: 0.9 floor)
+        db = get_db()
+        old_date = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=200)).isoformat()
+        with write_lock():
+            db.execute("UPDATE insight SET last_used=? WHERE name=?", (old_date, r2["name"]))
+            db.commit()
+
+        # r1 is recent (just had feedback), r2 is stale
+        results = recall("database connection issues", limit=5, min_relevance=0.0)
+        names = [r["name"] for r in results]
+
+        assert r1["name"] in names
+        assert r2["name"] in names
+        # r1 should rank higher due to recency (both have same effectiveness)
+        assert names.index(r1["name"]) < names.index(r2["name"])
+
+    def test_never_used_gets_mild_penalty(self, test_db, mock_embeddings):
+        """Never-used insight (last_used=NULL) gets 5% penalty vs just-used."""
+        from lib.memory.core import store, recall, get_db, write_lock
+
+        r1 = store(content="When database connections exhaust under load, increase pool size and add connection timeout")
+        r2 = store(content="When database connections leak during exceptions, use context manager and ensure cleanup in finally")
+
+        # Set r1 last_used to now (simulate recent use)
+        db = get_db()
+        from lib.memory.core import _utcnow
+        now = _utcnow().isoformat()
+        with write_lock():
+            db.execute("UPDATE insight SET last_used=? WHERE name=?", (now, r1["name"]))
+            # r2 has NULL last_used (never used)
+            db.execute("UPDATE insight SET last_used=NULL WHERE name=?", (r2["name"],))
+            db.commit()
+
+        results = recall("database connection issues", limit=5, min_relevance=0.0)
+        names = [r["name"] for r in results]
+
+        assert r1["name"] in names
+        assert r2["name"] in names
+        # r1 (recently used, recency=1.0) should rank above r2 (never used, recency=0.95)
+        assert names.index(r1["name"]) < names.index(r2["name"])

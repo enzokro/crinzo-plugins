@@ -10,10 +10,10 @@ import sys
 from typing import Optional, List, Tuple
 
 # Cold-start signal when no insights exist at all
-NO_PRIOR_MEMORY = "NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable."
+NO_PRIOR_MEMORY = "NO_PRIOR_MEMORY: Novel domain."
 
 # Signal when insights exist but none matched this task
-NO_MATCHING_MEMORY = "NO_MATCHING_INSIGHTS: No matching insights found for this task. Your INSIGHT output is especially valuable."
+NO_MATCHING_MEMORY = "NO_MATCHING_INSIGHTS: No matching insights found for this task."
 
 # Shared header for insight injection — used in format_prompt(), inject_memory hook, and transcript detection
 INSIGHTS_HEADER = "INSIGHTS (from past experience):"

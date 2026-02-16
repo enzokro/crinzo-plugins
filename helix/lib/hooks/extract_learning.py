@@ -197,6 +197,7 @@ def filter_causal_insights(injected_names: list, task_context: str,
     try:
         import numpy as np
         from memory.core import CAUSAL_SIMILARITY_THRESHOLD
+        from memory.embeddings import build_embedding_matrix
         from db.connection import get_db
 
         if context_embedding is not None:
@@ -228,13 +229,12 @@ def filter_causal_insights(injected_names: list, task_context: str,
             if not row:
                 continue  # insight doesn't exist in DB
             if not row["embedding"]:
-                causal.append(name)  # exists but no embedding, assume causal
-                continue
+                continue  # no embedding — cannot compute similarity, skip
             emb_data.append(row["embedding"])
             valid_names.append(name)
 
         if emb_data:
-            mat = np.frombuffer(b''.join(emb_data), dtype=np.float32).reshape(len(emb_data), -1)
+            mat = build_embedding_matrix(emb_data)
             sims = mat @ ctx_vec
             for i, name in enumerate(valid_names):
                 if sims[i] >= CAUSAL_SIMILARITY_THRESHOLD:

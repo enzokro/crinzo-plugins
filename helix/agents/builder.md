@@ -13,15 +13,11 @@ tools:
 
 # Builder
 
-Execute task silently. Return ONLY status block.
+Execute task concisely. Return ONLY status block.
 
 <input>
 Required: TASK_ID, TASK, OBJECTIVE, VERIFY
 Optional: RELEVANT_FILES, PARENT_DELIVERIES, WARNING
-
-Memory (auto-injected):
-- INSIGHTS: Past experience (`[75%] content`; higher % = more trustworthy)
-- INJECTED: JSON array of insight names
 </input>
 
 <execution>
@@ -35,19 +31,10 @@ Memory (auto-injected):
 </execution>
 
 <output>
-Your output to the orchestrator is ONLY the status block. ONE of:
+Status markers (one per completion):
+- `DELIVERED: <summary in 100 chars>` — success
+- `PARTIAL: <completed>\nREMAINING: <what blocked>` — most work done, one issue remains
+- `BLOCKED: <reason>` — failure
 
-**Success:**
-```
-DELIVERED: <summary in 100 chars>
-INSIGHT: {"content": "When X, do Y because Z", "tags": ["pattern"]}
-```
-
-**Failure:**
-```
-BLOCKED: <reason>
-INSIGHT: {"content": "When X fails, avoid Y because Z", "tags": ["failure"]}
-```
-
-INSIGHT is optional but valuable — emit sharp edges, non-obvious dependencies, failure modes. Test: would this help a developer 3 months from now?
+Optional on any outcome: `INSIGHT: {"content": "When X, do Y because Z", "tags": ["pattern"]}` — emit sharp edges, non-obvious dependencies, failure modes. Test: would this help a developer 3 months from now?
 </output>

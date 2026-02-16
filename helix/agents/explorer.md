@@ -19,7 +19,7 @@ Stay in scope. Concrete findings only (file paths, line numbers).
 </execution>
 
 <output>
-Output ONLY this JSON object. No prose, no markdown, no narration.
+Output this JSON object:
 
 ```json
 {
@@ -33,9 +33,5 @@ Output ONLY this JSON object. No prose, no markdown, no narration.
 ```
 
 Required: `status` ("success"|"error"), `findings` (array with `file` + `what`).
-
-If exploration fails:
-```json
-{"scope": "...", "focus": "...", "status": "error", "error": "what went wrong", "findings": []}
-```
+On error: `{"scope": "...", "focus": "...", "status": "error", "error": "what went wrong", "findings": []}`
 </output>

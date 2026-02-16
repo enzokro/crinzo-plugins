@@ -351,3 +351,68 @@ class TestProcessCompletion:
         assert result["insight"] is not None
         assert "token management" in result["insight"]["content"]
         assert result["injected"] == ["auth-insight-1"]
+
+
+class TestPartialOutcome:
+    """Tests for PARTIAL outcome support."""
+
+    def test_partial_outcome_detected(self):
+        """PARTIAL marker is recognized as an outcome."""
+        transcript = "PARTIAL: Implemented the API endpoints"
+        assert extract_outcome(transcript) == "partial"
+
+    def test_partial_case_insensitive(self):
+        """PARTIAL detection is case-insensitive."""
+        assert extract_outcome("partial: Most work done") == "partial"
+        assert extract_outcome("Partial: Some progress") == "partial"
+
+    def test_partial_derives_insight(self):
+        """PARTIAL without explicit INSIGHT derives from REMAINING."""
+        transcript = '''
+        TASK: Implement user auth
+        PARTIAL: Added login endpoint
+        REMAINING: Token refresh not implemented due to missing config
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert result.get("derived") is True
+        assert "failure" in result["tags"]
+
+    def test_partial_with_explicit_insight(self):
+        """PARTIAL with explicit INSIGHT uses the explicit one."""
+        transcript = '''
+        PARTIAL: Added login endpoint
+        REMAINING: Token refresh pending
+        INSIGHT: {"content": "When implementing OAuth, the token endpoint requires PKCE because the spec mandates it", "tags": ["auth"]}
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert "PKCE" in result["content"]
+        assert "derived" not in result
+
+    def test_partial_process_completion(self):
+        """process_completion handles PARTIAL outcome end-to-end — derived insight uses REMAINING text."""
+        transcript = '''
+        TASK: Build payment integration
+        PARTIAL: Stripe webhook handler working
+        REMAINING: Idempotency keys not yet implemented
+        INJECTED: ["payment-insight-1"]
+        '''
+        result = process_completion(transcript)
+
+        assert result["outcome"] == "partial"
+        assert result["injected"] == ["payment-insight-1"]
+        # Derived insight should use REMAINING text (last summary_part), not PARTIAL text
+        assert result["insight"] is not None
+        assert "Idempotency" in result["insight"]["content"]
+
+    def test_partial_last_match_wins(self):
+        """PARTIAL after DELIVERED → partial wins (last match)."""
+        transcript = '''
+        DELIVERED: Initial attempt
+        PARTIAL: Actually only half done
+        REMAINING: Second half pending
+        '''
+        assert extract_outcome(transcript) == "partial"
