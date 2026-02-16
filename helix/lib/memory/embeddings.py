@@ -120,21 +120,6 @@ def to_blob(emb: Tuple[float, ...]) -> bytes:
     return struct.pack(f"{len(emb)}f", *emb)
 
 
-def from_blob(blob: bytes) -> Tuple[float, ...]:
-    """Convert SQLite BLOB to embedding tuple."""
-    return struct.unpack(f"{len(blob)//4}f", blob)
-
-
-def cosine(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
-    """Cosine similarity between L2-normalized embeddings.
-
-    Since arctic-embed produces normalized vectors (normalize_embeddings=True),
-    cosine similarity reduces to the dot product. Uses numpy for ~10-50x speedup
-    over pure Python (numpy is transitively available via sentence-transformers).
-    """
-    import numpy as np  # available via sentence-transformers
-    return float(np.dot(a, b))  # pragma: no cover - only used by extract_learning
-
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "warmup":

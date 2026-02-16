@@ -108,24 +108,13 @@ def mock_embeddings(monkeypatch):
             embedding.append((h[byte_idx] + i) / 255.0 - 0.5)
         return embedding
 
-    def mock_cosine(a, b):
-        import math
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = math.sqrt(sum(x * x for x in a))
-        norm_b = math.sqrt(sum(x * x for x in b))
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return dot / (norm_a * norm_b)
-
-    # Patch embeddings module — only embed and cosine need mocking.
-    # to_blob/from_blob are trivial struct pack/unpack and don't need replacement.
+    # Patch embeddings module — only embed needs mocking.
+    # to_blob is trivial struct pack and doesn't need replacement.
     from lib.memory import embeddings
     monkeypatch.setattr(embeddings, "embed", deterministic_embed)
-    monkeypatch.setattr(embeddings, "cosine", mock_cosine)
 
     return {
         "embed": deterministic_embed,
-        "cosine": mock_cosine,
     }
 
 

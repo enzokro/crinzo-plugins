@@ -391,6 +391,7 @@ def process_hook_input(hook_input: dict) -> dict:
                 transcript_text = reparsed.full_text
                 result = process_completion(transcript_text)
                 if result["outcome"] != "unknown":
+                    _log_error("transcript_retry", f"retry {delay}s resolved outcome to {result['outcome']}")
                     break
 
     summary_parts = result.get("summary_parts", [])
@@ -408,11 +409,8 @@ def process_hook_input(hook_input: dict) -> dict:
     # --- Phase 3: Optional insight processing (best-effort, independent error boundaries) ---
 
     # 3a: Store extracted insight
-    try:
-        if result.get("insight"):
-            store_insight(result["insight"])
-    except Exception as e:
-        _log_error("store_insight", e)
+    if result.get("insight"):
+        store_insight(result["insight"])
 
     # 3b: Feedback attribution (independent of store success)
     feedback_applied = None

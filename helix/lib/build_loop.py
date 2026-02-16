@@ -247,12 +247,9 @@ def detect_cycles(dependencies: Dict[str, List[str]]) -> List[List[str]]:
 
     def dfs(node: str, path: List[str]) -> None:
         if node in rec_stack:
-            try:
-                cycle_start = path.index(node)
-                cycle = path[cycle_start:] + [node]
-                cycles.append(cycle)
-            except ValueError:
-                pass
+            cycle_start = path.index(node)
+            cycle = path[cycle_start:] + [node]
+            cycles.append(cycle)
             return
 
         if node in visited:

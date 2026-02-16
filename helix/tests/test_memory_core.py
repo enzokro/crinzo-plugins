@@ -669,6 +669,20 @@ class TestHealth:
         assert "effectiveness" in h
         assert isinstance(h["by_tag"], dict)
 
+    def test_health_by_tag_populated(self, test_db, mock_embeddings):
+        """by_tag counts insights per tag when tagged insights exist."""
+        from lib.memory.core import store, health
+
+        store(content="When debugging Python imports, check sys.path first because module resolution depends on it",
+              tags=["python", "debugging"])
+        store(content="When database connections leak during exceptions, use context manager to ensure cleanup",
+              tags=["python", "database"])
+
+        h = health()
+        assert h["by_tag"]["python"] == 2
+        assert h["by_tag"]["debugging"] == 1
+        assert h["by_tag"]["database"] == 1
+
     def test_health_reports_no_insights(self, test_db):
         """Health reports when no insights exist."""
         from lib.memory.core import health

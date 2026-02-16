@@ -216,13 +216,13 @@ def process_hook_input(hook_input: dict) -> dict:
         return {}
 
     # Collect already-injected names from sibling agents for cross-agent diversity
-    already_injected = _collect_already_injected()
+    suppress_names = _collect_already_injected()
 
     # Recall relevant insights
     total_insights = 0
     try:
         from memory.core import recall
-        memories = recall(objective, limit=5, suppress_names=already_injected or None)
+        memories = recall(objective, limit=5, suppress_names=suppress_names or None)
         if not memories:
             from memory.core import count
             total_insights = count()

@@ -485,7 +485,15 @@ def health() -> dict:
     total_uses = agg["uc"] or 0
     causal_ratio = round(total_causal / total_uses, 3) if total_uses > 0 else 0.0
 
-    by_tag = {}
+    # Tag distribution (lightweight — tags stored as JSON arrays)
+    tag_rows = db.execute("""
+        SELECT j.value as tag, COUNT(*) as cnt
+        FROM insight, json_each(insight.tags) j
+        WHERE insight.tags IS NOT NULL AND insight.tags != '[]'
+        GROUP BY j.value
+        ORDER BY cnt DESC
+    """).fetchall()
+    by_tag = {r["tag"]: r["cnt"] for r in tag_rows}
 
     loop_closed = total > 0 and with_feedback > 0
     issues = []
