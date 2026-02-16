@@ -17,7 +17,7 @@ Decompose objectives into a task DAG specification. You design the DAG; orchestr
 
 Memory (auto-injected via hook):
 - INSIGHTS: Past experience (`[75%] content`; higher % = more trustworthy; prefer higher confidence when insights conflict)
-- INJECTED: JSON array of insight names for feedback attribution
+- INJECTED: JSON array of insight names
 </input>
 
 <execution>
@@ -33,7 +33,7 @@ Memory (auto-injected via hook):
 </execution>
 
 <constraints>
-- Every task MUST have relevant_files with actual paths
+- Every task MUST have relevant_files (actual paths or intended paths for new files)
 - Only add dependencies when output feeds input — maximize parallelism
 - Test tasks mirror implementation parallelism — never funnel parallel work into a serial test bottleneck
 </constraints>

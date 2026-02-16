@@ -392,7 +392,7 @@ class TestProcessHookInput:
         monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Add user authentication", False))
 
         mock_memory_core = MagicMock()
-        mock_memory_core.recall = lambda q, limit=5: mock_memories
+        mock_memory_core.recall = lambda q, limit=5, suppress_names=None: mock_memories
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 
         result = inject_memory.process_hook_input({
@@ -444,7 +444,7 @@ class TestProcessHookInput:
         monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Optimize database queries", False))
 
         mock_memory_core = MagicMock()
-        mock_memory_core.recall = lambda q, limit=5: mock_memories
+        mock_memory_core.recall = lambda q, limit=5, suppress_names=None: mock_memories
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 
         result = inject_memory.process_hook_input({
@@ -466,7 +466,7 @@ class TestProcessHookInput:
         monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Some objective", False))
 
         mock_memory_core = MagicMock()
-        mock_memory_core.recall = lambda q, limit=5: []
+        mock_memory_core.recall = lambda q, limit=5, suppress_names=None: []
         mock_memory_core.count = lambda: 0
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 
@@ -490,7 +490,7 @@ class TestProcessHookInput:
         monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Niche objective", False))
 
         mock_memory_core = MagicMock()
-        mock_memory_core.recall = lambda q, limit=5: []
+        mock_memory_core.recall = lambda q, limit=5, suppress_names=None: []
         mock_memory_core.count = lambda: 12
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 

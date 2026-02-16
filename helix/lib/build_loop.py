@@ -9,8 +9,6 @@ Provides 7 CLI subcommands for the BUILD phase:
 - check-stalled: Detect build impasse
 - get-ready: Identify unblocked tasks ready for execution
 - status: Unified get-ready + check-stalled in one call
-
-NEVER use TaskOutput — dumps 70KB+ into context.
 """
 
 import json

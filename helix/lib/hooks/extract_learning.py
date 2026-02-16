@@ -192,7 +192,8 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
         return injected_names  # graceful fallback
 
     try:
-        from memory.embeddings import embed, cosine, from_blob
+        import numpy as np
+        from memory.embeddings import embed
         from memory.core import CAUSAL_SIMILARITY_THRESHOLD
         from db.connection import get_db
 
@@ -210,7 +211,10 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
             ).fetchall()
         }
 
+        # Vectorized: single matmul instead of per-insight cosine()
         causal = []
+        emb_data = []
+        valid_names = []
         for name in injected_names:
             row = rows_by_name.get(name)
             if not row:
@@ -218,9 +222,16 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
             if not row["embedding"]:
                 causal.append(name)  # exists but no embedding, assume causal
                 continue
-            insight_emb = from_blob(row["embedding"])
-            if cosine(context_emb, insight_emb) >= CAUSAL_SIMILARITY_THRESHOLD:
-                causal.append(name)
+            emb_data.append(row["embedding"])
+            valid_names.append(name)
+
+        if emb_data:
+            mat = np.frombuffer(b''.join(emb_data), dtype=np.float32).reshape(len(emb_data), -1)
+            ctx_vec = np.array(context_emb, dtype=np.float32)
+            sims = mat @ ctx_vec
+            for i, name in enumerate(valid_names):
+                if sims[i] >= CAUSAL_SIMILARITY_THRESHOLD:
+                    causal.append(name)
 
         return causal
     except Exception as e:

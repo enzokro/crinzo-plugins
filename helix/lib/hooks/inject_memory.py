@@ -157,6 +157,29 @@ def _format_additional_context(memories: list, total_insights: int = 0) -> dict:
     return {"additionalContext": "\n".join(lines)}
 
 
+def _collect_already_injected() -> list:
+    """Read names from existing sideband files for cross-agent diversity.
+
+    During a wave, earlier-spawned agents write sideband files before later ones
+    start. Reading these gives later agents different insight coverage without
+    requiring process-level shared state.
+    """
+    try:
+        injected_dir = get_helix_dir() / "injected"
+        if not injected_dir.exists():
+            return []
+        names = []
+        for f in injected_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                names.extend(data.get("names", []))
+            except Exception:
+                continue
+        return names
+    except Exception:
+        return []
+
+
 def process_hook_input(hook_input: dict) -> dict:
     """Process SubagentStart hook input.
 
@@ -192,11 +215,14 @@ def process_hook_input(hook_input: dict) -> dict:
         _log_injection(agent_id, agent_type, 0, False, False)
         return {}
 
+    # Collect already-injected names from sibling agents for cross-agent diversity
+    already_injected = _collect_already_injected()
+
     # Recall relevant insights
     total_insights = 0
     try:
         from memory.core import recall
-        memories = recall(objective, limit=5)
+        memories = recall(objective, limit=5, suppress_names=already_injected or None)
         if not memories:
             from memory.core import count
             total_insights = count()

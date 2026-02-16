@@ -1,6 +1,5 @@
 #!/bin/bash
-# Helix session startup - fast env persistence and health check
-# Heavy operations delegated to init.sh (Setup hook or self-heal)
+# Helix session startup - env persistence, venv management, and health check
 set -e
 set -o pipefail
 
@@ -24,12 +23,41 @@ rm -f .helix/task-status.jsonl
 rm -rf .helix/explorer-results/
 
 VENV_PATH="$HELIX_ROOT/.venv"
+REQUIREMENTS="$HELIX_ROOT/requirements.txt"
 
-# Self-heal: trigger init if venv missing or corrupted
-if [ ! -d "$VENV_PATH" ] || [ ! -x "$VENV_PATH/bin/python3" ]; then
-    echo "[helix] venv missing or corrupted, initializing..."
-    source "$HELIX_ROOT/scripts/init.sh"
+# Inline venv management (was init.sh — kept as standalone for manual --init)
+create_venv() {
+    echo "[helix] Creating virtual environment..."
+    python3 -m venv "$VENV_PATH"
+    echo "[helix] Installing dependencies..."
+    "$VENV_PATH/bin/pip" install --upgrade pip --quiet --progress-bar off 2>&1 | grep -v "already satisfied" || true
+    "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS" --progress-bar off 2>&1
+    echo "[helix] Dependencies installed"
+}
+
+if [ ! -d "$VENV_PATH" ]; then
+    create_venv
+elif [ ! -x "$VENV_PATH/bin/python3" ]; then
+    echo "[helix] venv corrupted (python3 not executable), recreating..."
+    rm -rf "$VENV_PATH"
+    create_venv
+else
+    # Venv exists and is valid - check if requirements changed
+    if [ -f "$REQUIREMENTS" ] && [ "$REQUIREMENTS" -nt "$VENV_PATH" ]; then
+        echo "[helix] Requirements updated, syncing dependencies..."
+        "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS" --progress-bar off 2>&1
+        touch "$VENV_PATH"
+    else
+        echo "[helix] venv already initialized"
+    fi
 fi
+
+# Verify installation
+if ! "$VENV_PATH/bin/python3" -c "import sentence_transformers" 2>/dev/null; then
+    echo "[helix] WARNING: sentence-transformers import failed"
+    exit 1
+fi
+echo "[helix] Initialization complete (sentence-transformers ready)"
 
 # Persist environment for Claude's bash commands
 # PYTHONPATH enables sub-agents to import lib modules from any working directory
@@ -46,10 +74,12 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
     echo "export HELIX_PROJECT_DIR='$PROJECT_ROOT'" >> "$CLAUDE_ENV_FILE"
 fi
 
-# Quick health check
-HEALTH=$("$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/memory/core.py" health 2>/dev/null || echo '{"status":"INIT","total":0}')
-STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','INIT'))" 2>/dev/null || echo "INIT")
-TOTAL=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_insights',0))" 2>/dev/null || echo "0")
+# Quick health check (single python3 -c for both fields)
+HEALTH=$("$VENV_PATH/bin/python3" "$HELIX_ROOT/lib/memory/core.py" health 2>/dev/null || echo '{"status":"INIT","total_insights":0}')
+read STATUS TOTAL <<< $("$VENV_PATH/bin/python3" -c "
+import sys,json; d=json.load(sys.stdin)
+print(d.get('status','INIT'), d.get('total_insights',0))
+" <<< "$HEALTH" 2>/dev/null || echo "INIT 0")
 
 # Background warmup: prime OS page cache with embedding model files
 # By the time the orchestrator needs inject_context (after planning phase),

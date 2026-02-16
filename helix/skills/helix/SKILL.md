@@ -52,7 +52,11 @@ Phases: `EXPLORE → PLAN → BUILD (loop with stall recovery) → LEARN → COM
 
 4. **Set dependencies:** `TaskUpdate(taskId=seq_to_id[spec.seq], addBlockedBy=[seq_to_id[b], ...])`.
 
-5. **Validate DAG** (in-context, no CLI): verify acyclic (walk dependencies), confirm `relevant_files` reference paths from exploration findings.
+5. **Validate DAG:**
+   ```bash
+   python3 "$HELIX/lib/build_loop.py" detect-cycles --dependencies '$DEPS_JSON'
+   ```
+   Confirm `relevant_files` reference paths from exploration findings.
 
 If PLAN_SPEC empty or ERROR — add exploration context, re-run planner.
 
@@ -84,14 +88,15 @@ Returns `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`. Crashed
 
 ```
 while pending tasks exist:
-    1. Identify ready tasks: pending tasks whose blockedBy are all delivered (in-context filter)
-    2. If none ready but pending remain → STALLED recovery (see below)
+    1. Get build status:
+       python3 "$HELIX/lib/build_loop.py" status --tasks "$(TaskList output as JSON)"
+       Returns: ready (task IDs), stalled (bool), stall_info
+    2. If stalled → STALLED recovery (see below)
     3. Batch inject insights for ready tasks
-    4. Assemble PARENT_DELIVERIES from wave results (in-context: format "[task_id] summary" for each delivered blocker)
+    4. Assemble PARENT_DELIVERIES from wave results (format "[task_id] summary" for each delivered blocker)
     5. Spawn builders (cap at 6 per wave — more risks file contention)
     6. Wait for wave completion
-    7. If `insights_emitted > 0` in wait result, builders already captured task-level insights
-    8. Process results, update task status
+    7. Process results, update task status
 ```
 
 **STALLED recovery:** Analyze the stall. If one task is blocked with an obvious workaround, SKIP it (`TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped"})`) and store the failure insight. If systemic, ABORT and store insight. If verify was unclear, REPLAN. After 3+ attempts on the same blocker, ABORT and escalate.
@@ -116,7 +121,7 @@ Store systemic patterns, planning insights, exploration gaps, session discoverie
 
 ### COMPLETE
 
-Verify: run `health` — confirm `recent_feedback > 0`. If 0 despite injection, check `extraction.log`.
+Summarize: tasks delivered, tasks blocked, insights stored. If all tasks blocked, surface the pattern.
 
 ---
 

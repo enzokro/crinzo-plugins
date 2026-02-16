@@ -3,15 +3,18 @@
 
 Core API (8 primitives):
 - store(content, tags) -> {"status": "added"|"merged", "name": str}
-- recall(query, limit, suppress_names) -> insights sorted by 0.78*relevance + 0.22*causal_eff
+- recall(query, limit, suppress_names) -> insights sorted by relevance * (0.5 + 0.5 * causal_eff)
 - feedback(names, outcome, causal_names) -> update effectiveness with causal filtering
 - decay(unused_days) -> decay dormant insights
 - prune(min_effectiveness, min_uses) -> remove low-performing insights
 - count() -> total insight count (lightweight)
 - health() -> system status
 
-Scoring formula:
-    score = (0.78 * relevance) + (0.22 * effectiveness)
+Scoring formula (multiplicative):
+    score = relevance * (0.5 + 0.5 * effectiveness)
+    eff=1.0 (proven): score = relevance * 1.0
+    eff=0.5 (neutral): score = relevance * 0.75
+    eff=0.0 (bad): score = relevance * 0.5
 Feedback EMA weight: 0.2 (~3 positive outcomes to move 0.5 → 0.6)
 """
 
@@ -25,11 +28,11 @@ from typing import Optional, List
 
 import numpy as np
 
-# Scoring constants
-SCORE_WEIGHTS = {'relevance': 0.78, 'effectiveness': 0.22}
+# Scoring: multiplicative — effectiveness modulates relevance, not competes with it
+# score = relevance * (0.5 + 0.5 * effectiveness)
 DUPLICATE_THRESHOLD = 0.85
 MIN_RELEVANCE_DEFAULT = 0.35  # arctic-embed-m-v1.5: unrelated 0.05-0.25, related 0.35+
-CAUSAL_SIMILARITY_THRESHOLD = 0.40  # For feedback attribution filtering
+CAUSAL_SIMILARITY_THRESHOLD = 0.50  # For feedback attribution filtering (tighter than 0.40)
 
 # Tuning parameters — extracted from inline for visibility
 FEEDBACK_EMA_WEIGHT = 0.2       # Learning rate for causal feedback (was 0.1; ~3 outcomes to move 0.5→0.6)
@@ -157,9 +160,10 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
                         len(content) > len(existing["content"])
                         or (existing["effectiveness"] or 0.5) < 0.5
                     ):
+                        tags_json = json.dumps(tags)
                         db.execute(
-                            "UPDATE insight SET content=?, embedding=?, last_used=? WHERE name=?",
-                            (content, to_blob(new_emb), now, match_name)
+                            "UPDATE insight SET content=?, embedding=?, tags=?, last_used=? WHERE name=?",
+                            (content, to_blob(new_emb), tags_json, now, match_name)
                         )
                     else:
                         db.execute(
@@ -251,14 +255,14 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
     similarities = mat @ q_vec
 
     # Score and filter by min_relevance
+    # Multiplicative: score = relevance * (0.5 + 0.5 * effectiveness)
     scored = []
-    w_rel, w_eff = SCORE_WEIGHTS['relevance'], SCORE_WEIGHTS['effectiveness']
     for i, r in enumerate(candidates):
         rel = float(similarities[i])
         if rel < min_relevance:
             continue
         eff = _causal_adjusted_effectiveness(r)
-        scored.append((w_rel * rel + w_eff * eff, rel, eff, i))
+        scored.append((rel * (0.5 + 0.5 * eff), rel, eff, i))
 
     scored.sort(key=lambda x: -x[0])
     top = scored[:limit]
@@ -425,7 +429,15 @@ def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     ).fetchall()
     orphan_names = [r["name"] for r in orphans]
 
-    all_remove = to_remove + orphan_names
+    # Ghost cleanup: valid embedding, never used, older than 30 days
+    ghost_cutoff = (_utcnow() - timedelta(days=30)).isoformat()
+    ghosts = db.execute(
+        "SELECT name FROM insight WHERE embedding IS NOT NULL AND use_count = 0 AND created_at < ?",
+        (ghost_cutoff,)
+    ).fetchall()
+    ghost_names = [r["name"] for r in ghosts]
+
+    all_remove = to_remove + orphan_names + ghost_names
     with write_lock():
         if all_remove:
             placeholders = ",".join("?" for _ in all_remove)
@@ -436,8 +448,9 @@ def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     return {
         "pruned": len(to_remove),
         "orphans_cleaned": len(orphan_names),
+        "ghosts_cleaned": len(ghost_names),
         "remaining": remaining,
-        "removed": to_remove + orphan_names
+        "removed": to_remove + orphan_names + ghost_names
     }
 
 

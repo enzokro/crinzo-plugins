@@ -21,7 +21,7 @@ Optional: RELEVANT_FILES, PARENT_DELIVERIES, WARNING
 
 Memory (auto-injected):
 - INSIGHTS: Past experience (`[75%] content`; higher % = more trustworthy)
-- INJECTED: JSON array of insight names for feedback attribution
+- INJECTED: JSON array of insight names
 </input>
 
 <execution>
@@ -30,7 +30,7 @@ Memory (auto-injected):
 3. Read RELEVANT_FILES; check INSIGHTS for relevant guidance
 4. Implement
 5. **Run VERIFY steps. If verification fails, you MUST report BLOCKED**
-6. If test fails: retry once with different approach
+6. If test fails: retry once
 7. Report only after verification passes
 </execution>
 
