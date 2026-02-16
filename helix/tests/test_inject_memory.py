@@ -3,21 +3,19 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock
 
 # Ensure lib is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 
 
-class TestExtractObjective:
-    """Tests for extracting objective from parent transcript."""
+class TestParseParentTranscript:
+    """Tests for parsing parent transcript (objective + injection state)."""
 
     def test_extracts_objective_from_task_tool_use(self, tmp_path):
         """Finds OBJECTIVE in Task tool_use prompt."""
-        from lib.hooks.inject_memory import _extract_objective
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -35,12 +33,13 @@ class TestExtractObjective:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        result = _extract_objective(str(transcript))
-        assert result == "Implement JWT authentication"
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective == "Implement JWT authentication"
+        assert has_insights is False
 
     def test_uses_last_task_tool_use(self, tmp_path):
         """When multiple Task tool_uses exist, uses the last one."""
-        from lib.hooks.inject_memory import _extract_objective
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entries = [
@@ -59,12 +58,13 @@ class TestExtractObjective:
         ]
         transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
-        result = _extract_objective(str(transcript))
-        assert result == "Build the API layer"
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective == "Build the API layer"
+        assert has_insights is False
 
     def test_skips_non_helix_agents(self, tmp_path):
         """Ignores Task tool_use for non-helix agents."""
-        from lib.hooks.inject_memory import _extract_objective
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -82,18 +82,20 @@ class TestExtractObjective:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        result = _extract_objective(str(transcript))
-        assert result is None
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective is None
+        assert has_insights is False
 
     def test_missing_file_returns_none(self):
-        """Returns None for non-existent transcript."""
-        from lib.hooks.inject_memory import _extract_objective
-        result = _extract_objective("/nonexistent/path.jsonl")
-        assert result is None
+        """Returns (None, False) for non-existent transcript."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
+        objective, has_insights = _parse_parent_transcript("/nonexistent/path.jsonl")
+        assert objective is None
+        assert has_insights is False
 
-    def test_fallback_to_prompt_substring(self, tmp_path):
-        """Falls back to first 500 chars when no OBJECTIVE field."""
-        from lib.hooks.inject_memory import _extract_objective
+    def test_no_objective_returns_none(self, tmp_path):
+        """Returns None when no OBJECTIVE field — avoids noisy recall queries."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -111,12 +113,13 @@ class TestExtractObjective:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        result = _extract_objective(str(transcript))
-        assert result == "Some planner prompt without standard fields"
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective is None
+        assert has_insights is False
 
     def test_skips_non_tool_use_content(self, tmp_path):
         """Handles entries with string content (not tool_use blocks)."""
-        from lib.hooks.inject_memory import _extract_objective
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entries = [
@@ -131,26 +134,24 @@ class TestExtractObjective:
         ]
         transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
-        result = _extract_objective(str(transcript))
-        assert result == "The actual objective"
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective == "The actual objective"
+        assert has_insights is False
 
     def test_empty_transcript_returns_none(self, tmp_path):
-        """Returns None for empty transcript file."""
-        from lib.hooks.inject_memory import _extract_objective
+        """Returns (None, False) for empty transcript file."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         transcript.write_text("")
 
-        result = _extract_objective(str(transcript))
-        assert result is None
-
-
-class TestPromptHasInsights:
-    """Tests for detecting existing INSIGHTS in spawn prompt."""
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective is None
+        assert has_insights is False
 
     def test_detects_insights_in_prompt(self, tmp_path):
-        """Returns True when INSIGHTS section exists."""
-        from lib.hooks.inject_memory import _prompt_has_insights
+        """Returns has_insights=True when INSIGHTS section exists."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -161,18 +162,20 @@ class TestPromptHasInsights:
                     "name": "Task",
                     "input": {
                         "subagent_type": "helix:helix-builder",
-                        "prompt": "TASK: Build\nINSIGHTS (from past experience):\n  - [72%] Use JWT\nINJECTED: [\"insight-1\"]"
+                        "prompt": "TASK: Build\nOBJECTIVE: Build it\nINSIGHTS (from past experience):\n  - [72%] Use JWT\nINJECTED: [\"insight-1\"]"
                     }
                 }]
             }
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        assert _prompt_has_insights(str(transcript)) is True
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert has_insights is True
+        assert objective is not None
 
     def test_returns_false_without_insights(self, tmp_path):
-        """Returns False when no INSIGHTS section."""
-        from lib.hooks.inject_memory import _prompt_has_insights
+        """Returns has_insights=False when no INSIGHTS section."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -190,16 +193,12 @@ class TestPromptHasInsights:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        assert _prompt_has_insights(str(transcript)) is False
+        _, has_insights = _parse_parent_transcript(str(transcript))
+        assert has_insights is False
 
-    def test_returns_false_for_missing_file(self):
-        """Returns False when transcript doesn't exist."""
-        from lib.hooks.inject_memory import _prompt_has_insights
-        assert _prompt_has_insights("/nonexistent/path") is False
-
-    def test_returns_false_for_non_helix_agent(self, tmp_path):
-        """Returns False when last Task isn't a helix agent."""
-        from lib.hooks.inject_memory import _prompt_has_insights
+    def test_non_helix_agent_insights_ignored(self, tmp_path):
+        """Returns (None, False) when last Task isn't a helix agent even with INSIGHTS."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
 
         transcript = tmp_path / "transcript.jsonl"
         entry = {
@@ -217,14 +216,16 @@ class TestPromptHasInsights:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        assert _prompt_has_insights(str(transcript)) is False
+        objective, has_insights = _parse_parent_transcript(str(transcript))
+        assert objective is None
+        assert has_insights is False
 
 
 class TestSideband:
     """Tests for sideband file write/read/cleanup."""
 
     def test_write_and_read_sideband(self, tmp_path, monkeypatch):
-        """Write sideband, read back names, verify cleanup."""
+        """Write sideband, read back names + objective, verify cleanup."""
         from lib.hooks import inject_memory
         from lib.hooks import extract_learning
 
@@ -232,7 +233,8 @@ class TestSideband:
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
 
-        inject_memory._write_sideband("agent-123", ["insight-a", "insight-b"])
+        inject_memory._write_sideband("agent-123", ["insight-a", "insight-b"],
+                                       objective="Implement JWT authentication")
 
         # Verify file exists
         sideband_file = tmp_path / "injected" / "agent-123.json"
@@ -241,34 +243,38 @@ class TestSideband:
         # Verify content
         data = json.loads(sideband_file.read_text())
         assert set(data["names"]) == {"insight-a", "insight-b"}
-        assert "ts" in data
+        assert data["objective"] == "Implement JWT authentication"
 
         # Read and verify
-        names = extract_learning._read_sideband("agent-123")
+        names, objective = extract_learning._read_sideband("agent-123")
         assert set(names) == {"insight-a", "insight-b"}
+        assert objective == "Implement JWT authentication"
 
         # File should be cleaned up after read
         assert not sideband_file.exists()
 
     def test_read_missing_sideband_returns_empty(self, tmp_path, monkeypatch):
-        """Returns empty list when sideband file doesn't exist."""
+        """Returns empty tuple when sideband file doesn't exist."""
         from lib.hooks import extract_learning
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
 
-        names = extract_learning._read_sideband("nonexistent-agent")
+        names, objective = extract_learning._read_sideband("nonexistent-agent")
         assert names == []
+        assert objective is None
 
     def test_write_creates_directory(self, tmp_path, monkeypatch):
         """_write_sideband creates injected/ directory if missing."""
         from lib.hooks import inject_memory
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
 
-        inject_memory._write_sideband("agent-abc", ["name-1"])
+        inject_memory._write_sideband("agent-abc", ["name-1"], objective="Build feature")
 
         assert (tmp_path / "injected" / "agent-abc.json").exists()
+        data = json.loads((tmp_path / "injected" / "agent-abc.json").read_text())
+        assert data["objective"] == "Build feature"
 
     def test_read_handles_corrupt_json(self, tmp_path, monkeypatch):
-        """Returns empty list for corrupt sideband file."""
+        """Returns empty tuple for corrupt sideband file."""
         from lib.hooks import extract_learning
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
 
@@ -276,8 +282,9 @@ class TestSideband:
         injected_dir.mkdir()
         (injected_dir / "agent-bad.json").write_text("not json")
 
-        names = extract_learning._read_sideband("agent-bad")
+        names, objective = extract_learning._read_sideband("agent-bad")
         assert names == []
+        assert objective is None
 
 
 class TestFormatAdditionalContext:
@@ -377,63 +384,23 @@ class TestProcessHookInput:
         """Planner without existing insights gets additionalContext."""
         from lib.hooks import inject_memory
 
-        # Create parent transcript with planner spawn
-        transcript = tmp_path / "transcript.jsonl"
-        entry = {
-            "message": {
-                "role": "assistant",
-                "content": [{
-                    "type": "tool_use",
-                    "name": "Task",
-                    "input": {
-                        "subagent_type": "helix:helix-planner",
-                        "prompt": "OBJECTIVE: Add user authentication to the API"
-                    }
-                }]
-            }
-        }
-        transcript.write_text(json.dumps(entry) + "\n")
-
-        # Mock recall to return some insights
         mock_memories = [
             {"name": "planning-insight-1", "content": "Separate migration tasks", "_effectiveness": 0.65},
         ]
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Add user authentication", False))
 
-        with patch.dict("sys.modules", {}):
-            with patch("lib.hooks.inject_memory.process_hook_input") as _:
-                pass  # clear any cached imports
-
-        # Directly test with mocked recall
-        original_process = inject_memory.process_hook_input
-
-        def mock_recall(query, limit=5):
-            return mock_memories
-
-        with patch.object(sys.modules.get("memory.core", MagicMock()), "recall", mock_recall, create=True):
-            # Patch at the import point
-            import importlib
-            with patch("builtins.__import__", wraps=__builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__) as mock_import:
-                # Simpler approach: just mock at module level
-                pass
-
-        # Use a cleaner approach - patch the recall call inside process_hook_input
-        monkeypatch.setattr(inject_memory, "_extract_objective", lambda tp: "Add user authentication")
-        monkeypatch.setattr(inject_memory, "_prompt_has_insights", lambda tp: False)
-
-        # Mock the recall import inside the function
         mock_memory_core = MagicMock()
-        mock_memory_core.recall = mock_recall
+        mock_memory_core.recall = lambda q, limit=5: mock_memories
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 
         result = inject_memory.process_hook_input({
             "agent_type": "helix:helix-planner",
             "agent_id": "planner-001",
-            "transcript_path": str(transcript)
+            "transcript_path": "/fake/transcript"
         })
 
-        # Should have additionalContext with insights
         assert "additionalContext" in result
         assert "INSIGHTS" in result["additionalContext"]
         assert "Separate migration tasks" in result["additionalContext"]
@@ -441,10 +408,6 @@ class TestProcessHookInput:
         # Sideband file should exist
         sideband = tmp_path / "injected" / "planner-001.json"
         assert sideband.exists()
-
-        # Clean up sys.modules
-        if "memory.core" in sys.modules:
-            del sys.modules["memory.core"]
 
     def test_builder_with_existing_insights_skips_entirely(self, tmp_path, monkeypatch):
         """Builder with orchestrator-injected insights: no sideband, no additionalContext.
@@ -456,8 +419,7 @@ class TestProcessHookInput:
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_extract_objective", lambda tp: "Implement authentication")
-        monkeypatch.setattr(inject_memory, "_prompt_has_insights", lambda tp: True)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Implement authentication", True))
 
         # recall should NOT be called — no mock needed
         result = inject_memory.process_hook_input({
@@ -479,8 +441,7 @@ class TestProcessHookInput:
         ]
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_extract_objective", lambda tp: "Optimize database queries")
-        monkeypatch.setattr(inject_memory, "_prompt_has_insights", lambda tp: False)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Optimize database queries", False))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5: mock_memories
@@ -497,20 +458,16 @@ class TestProcessHookInput:
         assert "Use indexes for queries" in result["additionalContext"]
         assert "INJECTED" in result["additionalContext"]
 
-        # Clean up
-        if "memory.core" in sys.modules:
-            del sys.modules["memory.core"]
-
     def test_empty_recall_returns_cold_start(self, tmp_path, monkeypatch):
-        """Empty recall result produces NO_PRIOR_MEMORY signal."""
+        """Empty recall result with zero total insights produces NO_PRIOR_MEMORY signal."""
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_extract_objective", lambda tp: "Some objective")
-        monkeypatch.setattr(inject_memory, "_prompt_has_insights", lambda tp: False)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Some objective", False))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5: []
+        mock_memory_core.count = lambda: 0
         monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
 
         result = inject_memory.process_hook_input({
@@ -525,17 +482,34 @@ class TestProcessHookInput:
         # No sideband file (no names to write)
         assert not (tmp_path / "injected" / "planner-002.json").exists()
 
-        # Clean up
-        if "memory.core" in sys.modules:
-            del sys.modules["memory.core"]
+    def test_empty_recall_with_existing_insights_returns_no_matching(self, tmp_path, monkeypatch):
+        """Empty recall with total_insights > 0 produces NO_MATCHING_INSIGHTS signal."""
+        from lib.hooks import inject_memory
+
+        monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Niche objective", False))
+
+        mock_memory_core = MagicMock()
+        mock_memory_core.recall = lambda q, limit=5: []
+        mock_memory_core.count = lambda: 12
+        monkeypatch.setitem(sys.modules, "memory.core", mock_memory_core)
+
+        result = inject_memory.process_hook_input({
+            "agent_type": "helix:helix-planner",
+            "agent_id": "planner-003",
+            "transcript_path": "/fake/transcript"
+        })
+
+        assert "additionalContext" in result
+        assert "NO_MATCHING_INSIGHTS" in result["additionalContext"]
+        assert "NO_PRIOR_MEMORY" not in result["additionalContext"]
 
     def test_recall_error_returns_empty_gracefully(self, tmp_path, monkeypatch):
         """Recall failure degrades gracefully to cold start."""
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_extract_objective", lambda tp: "Some objective")
-        monkeypatch.setattr(inject_memory, "_prompt_has_insights", lambda tp: False)
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Some objective", False))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = MagicMock(side_effect=Exception("DB error"))
@@ -550,7 +524,3 @@ class TestProcessHookInput:
         # Should degrade to cold start, not crash
         assert "additionalContext" in result
         assert "NO_PRIOR_MEMORY" in result["additionalContext"]
-
-        # Clean up
-        if "memory.core" in sys.modules:
-            del sys.modules["memory.core"]

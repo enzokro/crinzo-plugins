@@ -3,26 +3,10 @@
 Verifies that recall() filters insights below min_relevance threshold.
 """
 
-import os
-
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    """Each test gets its own isolated database."""
-    db_path = str(tmp_path / "test.db")
-    os.environ["HELIX_DB_PATH"] = db_path
-
-    import lib.db.connection as conn_module
-    conn_module.DB_PATH = db_path
-    conn_module.reset_db()
-
-    yield db_path
-
-    conn_module.reset_db()
-    if "HELIX_DB_PATH" in os.environ:
-        del os.environ["HELIX_DB_PATH"]
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 class TestRelevanceGate:
@@ -31,7 +15,6 @@ class TestRelevanceGate:
     def test_recall_filters_low_relevance(self):
         """Insights below min_relevance are excluded."""
         from lib.memory.core import store, recall
-        from lib.memory.embeddings import embed
 
         # Store two insights - one related, one not
         store("When testing TypeScript barrel exports, check index.ts re-exports all modules", tags=["typescript"])
@@ -40,8 +23,9 @@ class TestRelevanceGate:
         # Recall with TypeScript query - cooking insight should be filtered
         results = recall("TypeScript barrel export testing", limit=5, min_relevance=0.35)
 
+        assert len(results) > 0, "Expected recall to return results for a matching query"
         contents = [r["content"] for r in results]
-        assert any("TypeScript" in c for c in contents) or len(results) == 0  # TS might pass
+        assert any("TypeScript" in c for c in contents), "Expected TypeScript insight in results"
         assert not any("pasta" in c for c in contents)  # cooking should never pass
 
     def test_recall_returns_empty_for_novel_domain(self):
@@ -82,15 +66,4 @@ class TestRelevanceGate:
         results = recall("TypeScript actors", limit=5, min_relevance=0.99)
         assert len(results) == 0
 
-    def test_recall_cli_min_relevance(self):
-        """CLI --min-relevance argument is parsed correctly."""
-        import argparse
-        from lib.memory.core import MIN_RELEVANCE_DEFAULT
-
-        # Verify the argument exists in the parser
-        from lib.memory import core
-        # The CLI is tested by verifying the function signature accepts the param
-        import inspect
-        sig = inspect.signature(core.recall)
-        assert "min_relevance" in sig.parameters
-        assert sig.parameters["min_relevance"].default == MIN_RELEVANCE_DEFAULT
+    # test_recall_cli_min_relevance removed: signature introspection isn't behavioral coverage

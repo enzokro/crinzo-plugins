@@ -27,19 +27,9 @@ from typing import Optional
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from extraction import extract_insight, extract_outcome, extract_injected_names, process_completion
+from extraction import process_completion
 from paths import get_helix_dir
-
-
-def _log_error(context: str, error: Exception):
-    """Log error to extraction.log for diagnostics."""
-    try:
-        log_file = get_helix_dir() / "extraction.log"
-        ts = datetime.now(timezone.utc).isoformat()
-        with open(log_file, 'a') as f:
-            f.write(f"{ts} | ERROR | {context} | {type(error).__name__}: {error}\n")
-    except Exception:
-        pass  # logging must never crash the hook
+from log import log_error as _log_error
 
 
 def _get_text_content(entry: dict) -> str:
@@ -56,58 +46,63 @@ def _get_text_content(entry: dict) -> str:
     return str(content) if content else ''
 
 
-def _transcript_has_error(transcript_raw: str) -> bool:
-    """Check if transcript's last entry indicates agent crash/API error."""
-    lines = [l for l in transcript_raw.strip().splitlines() if l.strip()]
-    if not lines:
-        return True  # empty transcript = crashed
-    try:
-        last = json.loads(lines[-1])
-        # Check for error indicators in last entry
-        if last.get("type") == "error" or last.get("error"):
-            return True
-        # Check for API error in message content
-        msg = last.get("message", {})
-        if msg.get("stop_reason") == "error":
-            return True
-    except json.JSONDecodeError:
-        pass
-    return False
+class _ParsedTranscript:
+    """Result of single-pass JSONL transcript parsing."""
+    __slots__ = ('full_text', 'last_assistant_text', 'task_id', 'has_error')
+
+    def __init__(self):
+        self.full_text = ""
+        self.last_assistant_text = None
+        self.task_id = None
+        self.has_error = True  # default: empty = crashed
 
 
-def extract_task_id(transcript: str) -> Optional[str]:
-    """Extract TASK_ID from transcript."""
-    for line in transcript.split('\n'):
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-            role = entry.get('message', {}).get('role', entry.get('role', ''))
-            if role == 'user':
-                content = _get_text_content(entry)
-                if content:
-                    match = re.search(r'TASK_ID:\s*(\S+)', content)
-                    if match:
-                        return match.group(1)
-        except json.JSONDecodeError:
-            continue
-    return None
+def _parse_transcript(transcript_raw: str) -> _ParsedTranscript:
+    """Parse JSONL transcript in a single pass, extracting all needed fields.
 
-
-def get_full_transcript_text(transcript: str) -> str:
-    """Extract full text from JSONL transcript."""
+    Returns _ParsedTranscript with:
+        - full_text: concatenated text from all entries
+        - last_assistant_text: text from the final assistant message
+        - task_id: TASK_ID from first user message containing it
+        - has_error: whether the last entry indicates a crash/API error
+    """
+    result = _ParsedTranscript()
     text_parts = []
-    for line in transcript.split('\n'):
-        if not line.strip():
-            continue
+    lines = [l for l in transcript_raw.strip().splitlines() if l.strip()]
+
+    if not lines:
+        return result
+
+    for i, line in enumerate(lines):
         try:
             entry = json.loads(line)
-            content = _get_text_content(entry)
-            if content:
-                text_parts.append(content)
         except json.JSONDecodeError:
             continue
-    return '\n'.join(text_parts)
+
+        # Check for error in last entry
+        if i == len(lines) - 1:
+            result.has_error = False
+            if entry.get("type") == "error" or entry.get("error"):
+                result.has_error = True
+            elif entry.get("message", {}).get("stop_reason") == "error":
+                result.has_error = True
+
+        role = entry.get('message', {}).get('role', entry.get('role', ''))
+        content = _get_text_content(entry)
+
+        if content:
+            text_parts.append(content)
+
+        if role == 'user' and content and result.task_id is None:
+            match = re.search(r'TASK_ID:\s*(\S+)', content)
+            if match:
+                result.task_id = match.group(1)
+
+        if role == 'assistant' and content and content.strip():
+            result.last_assistant_text = content.strip()
+
+    result.full_text = '\n'.join(text_parts)
+    return result
 
 
 def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Optional[str],
@@ -133,24 +128,6 @@ def write_task_status(task_id: str, agent_id: str, outcome: str, summary: Option
         entry["insight"] = insight_content
     with open(status_file, 'a') as f:
         f.write(json.dumps(entry) + '\n')
-
-
-def _get_last_assistant_text(transcript_raw: str) -> Optional[str]:
-    """Extract text content from the last assistant message in JSONL transcript."""
-    last_text = None
-    for line in transcript_raw.strip().splitlines():
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-            role = entry.get('message', {}).get('role', entry.get('role', ''))
-            if role == 'assistant':
-                content = _get_text_content(entry)
-                if content.strip():
-                    last_text = content.strip()
-        except json.JSONDecodeError:
-            continue
-    return last_text
 
 
 def extract_explorer_findings(transcript_text: str) -> Optional[dict]:
@@ -215,53 +192,65 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
         return injected_names  # graceful fallback
 
     try:
-        from memory.embeddings import embed, cosine
-        from memory.core import get, CAUSAL_SIMILARITY_THRESHOLD
+        from memory.embeddings import embed, cosine, from_blob
+        from memory.core import CAUSAL_SIMILARITY_THRESHOLD
+        from db.connection import get_db
 
         context_emb = embed(task_context, is_query=True)
         if not context_emb:
-            return injected_names  # no embeddings available, treat all as causal
+            return []  # embeddings unavailable — conservative: no feedback rather than undiscriminating
+
+        # Batch-fetch all embeddings in one query instead of N individual SELECTs
+        db = get_db()
+        placeholders = ",".join("?" for _ in injected_names)
+        rows_by_name = {
+            r["name"]: r for r in db.execute(
+                f"SELECT name, embedding FROM insight WHERE name IN ({placeholders})",
+                injected_names
+            ).fetchall()
+        }
 
         causal = []
         for name in injected_names:
-            insight = get(name)
-            if not insight:
+            row = rows_by_name.get(name)
+            if not row:
+                continue  # insight doesn't exist in DB
+            if not row["embedding"]:
+                causal.append(name)  # exists but no embedding, assume causal
                 continue
-            insight_emb = embed(insight["content"], is_query=False)
-            if not insight_emb:
-                causal.append(name)  # can't check, assume causal
-                continue
+            insight_emb = from_blob(row["embedding"])
             if cosine(context_emb, insight_emb) >= CAUSAL_SIMILARITY_THRESHOLD:
                 causal.append(name)
 
         return causal
     except Exception as e:
         _log_error("filter_causal_insights", e)
-        return injected_names  # on any error, treat all as causal
+        return []  # on error, conservative: no feedback rather than undiscriminating
 
 
-def _read_sideband(agent_id: str) -> list:
+def _read_sideband(agent_id: str) -> tuple:
     """Read and clean up sideband file written by SubagentStart hook.
 
     File: .helix/injected/{agent_id}.json
-    Returns: list of insight names, or empty list if not found.
+    Returns: (names: list, objective: str|None)
     Deletes file after reading.
     """
     try:
         sideband_file = get_helix_dir() / "injected" / f"{agent_id}.json"
         if not sideband_file.exists():
-            return []
+            return [], None
 
         data = json.loads(sideband_file.read_text())
         names = data.get("names", [])
+        objective = data.get("objective")
 
         # Clean up
         sideband_file.unlink(missing_ok=True)
 
-        return names
+        return names, objective
     except Exception as e:
         _log_error("_read_sideband", e)
-        return []
+        return [], None
 
 
 def apply_feedback(injected_names: list, outcome: str, causal_names: list = None) -> bool:
@@ -285,13 +274,20 @@ def apply_feedback(injected_names: list, outcome: str, causal_names: list = None
 
 
 def store_insight(insight: dict) -> Optional[str]:
-    """Store extracted insight."""
+    """Store extracted insight.
+
+    Derived insights (from BLOCKED fallback) start at lower effectiveness (0.35)
+    so they rank below explicit INSIGHT: extractions until proven by causal feedback.
+    """
     if not insight or not insight.get("content"):
         return None
 
     try:
         from memory import store
-        result = store(content=insight["content"], tags=insight.get("tags", []))
+        kwargs = {"content": insight["content"], "tags": insight.get("tags", [])}
+        if insight.get("derived"):
+            kwargs["initial_effectiveness"] = 0.35
+        result = store(**kwargs)
         if result.get("status") in ("added", "merged"):
             return result.get("name")
     except Exception as e:
@@ -329,86 +325,117 @@ def log_extraction_result(agent_id: str, agent_type: str, result: dict,
 
 
 def process_hook_input(hook_input: dict) -> dict:
-    """Process SubagentStop hook input."""
+    """Process SubagentStop hook input.
+
+    Three-phase pipeline — handoff files written before any embedding/DB work:
+      Phase 1: Explorer results (transcript parsing only)
+      Phase 2: Outcome determination + task status write
+      Phase 3: Optional insight storage, causal filtering, feedback (best-effort)
+    """
     agent_type = hook_input.get("agent_type", "")
 
     if not agent_type.startswith("helix:helix-"):
         return {}
 
     agent_id = hook_input.get("agent_id", "")
+    if not agent_id:
+        return {}
+
     transcript_path = hook_input.get("agent_transcript_path", "")
 
     if not transcript_path or not Path(transcript_path).exists():
         return {}
 
-    # Read and parse transcript
+    # Read and parse transcript — single pass extracts all fields
     transcript_raw = Path(transcript_path).read_text()
-    transcript_text = get_full_transcript_text(transcript_raw)
+    parsed = _parse_transcript(transcript_raw)
+    transcript_text = parsed.full_text
+    agent_short = agent_type.replace("helix:helix-", "")
 
-    # Process with unified extraction
+    # --- Phase 1: Write explorer results (transcript parsing only, no DB) ---
+    if agent_short == "explorer":
+        try:
+            findings = extract_explorer_findings(parsed.last_assistant_text) if parsed.last_assistant_text else None
+            if not findings:
+                findings = extract_explorer_findings(transcript_text)
+            if findings:
+                write_explorer_results(agent_id, findings)
+            else:
+                log_extraction_result(agent_id, agent_type,
+                                      {"outcome": "explorer_extraction_failed"})
+        except Exception as e:
+            _log_error("explorer_results_write", e)
+
+    # --- Phase 2: Outcome determination + task status write ---
     result = process_completion(transcript_text)
 
-    # Retry for builders if outcome not yet flushed
-    agent_short = agent_type.replace("helix:helix-", "")
     if agent_short in ("builder", "planner") and result["outcome"] == "unknown":
-        if _transcript_has_error(transcript_raw):
+        if parsed.has_error:
             result["outcome"] = "crashed"
         else:
             for delay in [0.15, 0.35, 0.75]:
                 time.sleep(delay)
                 transcript_raw = Path(transcript_path).read_text()
-                transcript_text = get_full_transcript_text(transcript_raw)
+                reparsed = _parse_transcript(transcript_raw)
+                transcript_text = reparsed.full_text
                 result = process_completion(transcript_text)
                 if result["outcome"] != "unknown":
                     break
 
-    # Store insight if extracted
-    if result.get("insight"):
-        store_insight(result["insight"])
+    summary_parts = result.get("summary_parts", [])
+    task_id = parsed.task_id
 
-    # Merge INJECTED names: sideband (SubagentStart hook) + transcript (orchestrator)
-    injected_from_sideband = _read_sideband(agent_id)
-    all_injected = list(set(injected_from_sideband + result["injected"]))
+    if task_id:
+        try:
+            summary = summary_parts[-1].strip()[:200] if summary_parts else None
+            insight_content = result["insight"]["content"] if result.get("insight") else None
+            write_task_status(task_id, agent_id, result["outcome"], summary,
+                              insight_content=insight_content)
+        except Exception as e:
+            _log_error("task_status_write", e)
 
-    # Build task context for causal filtering
-    task_parts = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript_text, re.IGNORECASE)
-    summary_parts = re.findall(r'(?:DELIVERED|BLOCKED):\s*(.+)', transcript_text, re.IGNORECASE)
-    task_context = " ".join(task_parts[-2:]) + " " + (summary_parts[-1] if summary_parts else "")
+    # --- Phase 3: Optional insight processing (best-effort, independent error boundaries) ---
 
-    # Filter to causally relevant insights, then apply feedback
+    # 3a: Store extracted insight
+    try:
+        if result.get("insight"):
+            store_insight(result["insight"])
+    except Exception as e:
+        _log_error("store_insight", e)
+
+    # 3b: Feedback attribution (independent of store success)
     feedback_applied = None
     causal_names = None
-    if all_injected and result["outcome"] in ("delivered", "blocked", "plan_complete"):
-        causal_names = filter_causal_insights(all_injected, task_context.strip())
-        feedback_applied = apply_feedback(all_injected, result["outcome"], causal_names=causal_names)
+    all_injected = []
+    try:
+        injected_from_sideband, sideband_objective = _read_sideband(agent_id)
+        all_injected = list(set(injected_from_sideband + result["injected"]))
 
-    # Log result with causal stats
-    n_causal = len(causal_names) if causal_names is not None else None
-    n_injected = len(all_injected)
-    log_extraction_result(agent_id, agent_type, result, feedback_applied,
-                          causal_count=n_causal, total_injected=n_injected)
-
-    # Write task status for orchestrator polling (with insight content for wave synthesis)
-    task_id = extract_task_id(transcript_raw)
-    if task_id:
-        summary = summary_parts[-1].strip()[:200] if summary_parts else None
-        insight_content = result["insight"]["content"] if result.get("insight") else None
-        write_task_status(task_id, agent_id, result["outcome"], summary,
-                          insight_content=insight_content)
-
-    # Write explorer results for orchestrator
-    if agent_short == "explorer":
-        # Primary: extract from last assistant message (isolated from prompt noise)
-        last_msg = _get_last_assistant_text(transcript_raw)
-        findings = extract_explorer_findings(last_msg) if last_msg else None
-        # Fallback: search flattened text (backward scan)
-        if not findings:
-            findings = extract_explorer_findings(transcript_text)
-        if findings:
-            write_explorer_results(agent_id, findings)
+        # Prefer sideband objective (exact recall query) over transcript reconstruction
+        if sideband_objective:
+            task_context = sideband_objective
         else:
-            log_extraction_result(agent_id, agent_type,
-                                  {"outcome": "explorer_extraction_failed"})
+            task_parts = result.get("task_parts", [])
+            task_context = " ".join(task_parts[-2:]) + " " + (summary_parts[-1] if summary_parts else "")
+
+        feedback_outcome = result["outcome"]
+        # Treat crashed agents as blocked — insights correlated with crashes should be penalized
+        if feedback_outcome == "crashed":
+            feedback_outcome = "blocked"
+        if all_injected and feedback_outcome in ("delivered", "blocked", "plan_complete"):
+            causal_names = filter_causal_insights(all_injected, task_context.strip())
+            feedback_applied = apply_feedback(all_injected, feedback_outcome, causal_names=causal_names)
+    except Exception as e:
+        _log_error("feedback_attribution", e)
+
+    # 3c: Log result (independent of store/feedback success)
+    try:
+        n_causal = len(causal_names) if causal_names is not None else None
+        n_injected = len(all_injected)
+        log_extraction_result(agent_id, agent_type, result, feedback_applied,
+                              causal_count=n_causal, total_injected=n_injected)
+    except Exception as e:
+        _log_error("log_extraction_result", e)
 
     return {}
 

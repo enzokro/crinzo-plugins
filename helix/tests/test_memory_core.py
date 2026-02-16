@@ -4,8 +4,7 @@ Critical path: The memory feedback loop is the core learning mechanism.
 These tests verify store/recall/feedback work correctly with the new unified API.
 """
 
-import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import timezone
 
 
 class TestStore:
@@ -89,7 +88,6 @@ class TestRecall:
         # All results should have score fields
         for r in results:
             assert "_relevance" in r
-            assert "_recency" in r
             assert "_score" in r
 
         # Results should be sorted by score descending
@@ -258,7 +256,7 @@ class TestRecallSuppressNames:
 class TestCausalAdjustedEffectiveness:
     """Tests for _causal_adjusted_effectiveness read-time penalty."""
 
-    def test_causal_adjusted_zero_causal(self, test_db, mock_embeddings):
+    def test_causal_adjusted_zero_causal(self):
         """High use, zero causal hits → floor multiplier (0.3)."""
         from lib.memory.core import _causal_adjusted_effectiveness
 
@@ -266,7 +264,7 @@ class TestCausalAdjustedEffectiveness:
         result = _causal_adjusted_effectiveness(row)
         assert abs(result - 0.99 * 0.3) < 0.001
 
-    def test_causal_adjusted_full_causal(self, test_db, mock_embeddings):
+    def test_causal_adjusted_full_causal(self):
         """All uses are causal → no penalty."""
         from lib.memory.core import _causal_adjusted_effectiveness
 
@@ -274,7 +272,7 @@ class TestCausalAdjustedEffectiveness:
         result = _causal_adjusted_effectiveness(row)
         assert abs(result - 0.75) < 0.001
 
-    def test_causal_adjusted_low_use_count(self, test_db, mock_embeddings):
+    def test_causal_adjusted_low_use_count(self):
         """use_count < 3 → raw effectiveness unchanged."""
         from lib.memory.core import _causal_adjusted_effectiveness
 
@@ -282,7 +280,7 @@ class TestCausalAdjustedEffectiveness:
         result = _causal_adjusted_effectiveness(row)
         assert abs(result - 0.99) < 0.001
 
-    def test_causal_adjusted_partial(self, test_db, mock_embeddings):
+    def test_causal_adjusted_partial(self):
         """Partial causal ratio → proportional penalty."""
         from lib.memory.core import _causal_adjusted_effectiveness
 
@@ -333,9 +331,9 @@ class TestPrune:
         # Store insight and make it fail repeatedly
         result = store(content="When A happens, do B - but this advice is bad")
 
-        # Give negative feedback many times to drive effectiveness down
-        # EMA: new_eff = old * 0.9 + 0 * 0.1, so need ~15 to get below 0.25
-        for _ in range(15):
+        # Give negative feedback to drive effectiveness down
+        # EMA: new_eff = old * 0.8 + 0 * 0.2, so need ~6 to get below 0.25
+        for _ in range(6):
             feedback([result["name"]], "blocked")
 
         insight = get(result["name"])
@@ -348,6 +346,308 @@ class TestPrune:
 
         # Insight should be gone
         assert get(result["name"]) is None
+
+
+class TestMergeUseCount:
+    """Tests for merge behavior on duplicate store."""
+
+    def test_merge_does_not_increment_use_count(self, test_db, mock_embeddings):
+        """Re-encountering an insight (dedup merge) should not increment use_count.
+
+        A re-encounter is not a "use" — incrementing poisons the causal_hits/use_count ratio.
+        """
+        from lib.memory.core import store, get
+
+        result1 = store(
+            content="When debugging Python imports, check sys.path first because module resolution depends on it"
+        )
+        assert result1["status"] == "added"
+
+        # Verify initial use_count is 0
+        insight = get(result1["name"])
+        assert insight["use_count"] == 0
+
+        # Store duplicate — should merge
+        result2 = store(
+            content="When debugging Python imports, check sys.path first because module resolution depends on it"
+        )
+        assert result2["status"] == "merged"
+
+        # use_count should still be 0
+        insight_after = get(result1["name"])
+        assert insight_after["use_count"] == 0
+
+
+class TestMergeContentUpdate:
+    """Tests for merge updating content when new version is better."""
+
+    def test_merge_updates_content_when_longer(self, test_db, mock_embeddings):
+        """Merge replaces content when new version is longer (better articulation)."""
+        from lib.memory.core import store, get
+
+        short = "When debugging Python imports, check sys.path first because it matters"
+        long = "When debugging Python imports, check sys.path first because module resolution depends on it and virtual environments can shadow system packages"
+
+        r1 = store(content=short)
+        assert r1["status"] == "added"
+
+        r2 = store(content=long)
+        assert r2["status"] == "merged"
+        assert r2["name"] == r1["name"]
+
+        # Content should now be the longer version
+        insight = get(r1["name"])
+        assert insight["content"] == long
+
+    def test_merge_updates_content_when_low_effectiveness(self, test_db, mock_embeddings):
+        """Merge replaces content when existing insight has low effectiveness."""
+        from lib.memory.core import store, get, feedback
+
+        r1 = store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+        name = r1["name"]
+
+        # Drive effectiveness below 0.5
+        for _ in range(5):
+            feedback([name], "blocked")
+
+        insight = get(name)
+        assert insight["effectiveness"] < 0.5
+
+        # Store same-length content — should update because low effectiveness
+        r2 = store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+        assert r2["status"] == "merged"
+
+    def test_merge_preserves_content_when_shorter_and_effective(self, test_db, mock_embeddings):
+        """Merge does NOT replace content when new version is shorter and existing is effective."""
+        from lib.memory.core import store, get
+
+        original = "When debugging Python imports, check sys.path first because module resolution depends on it"
+        shorter = "When debugging Python imports check sys.path first because it matters"
+
+        r1 = store(content=original)
+        r2 = store(content=shorter)
+        assert r2["status"] == "merged"
+
+        # Content should be preserved (original was longer and effectiveness >= 0.5)
+        insight = get(r1["name"])
+        assert insight["content"] == original
+
+
+class TestAsymmetricErosion:
+    """Tests for asymmetric non-causal erosion."""
+
+    def test_erosion_does_not_rehabilitate_bad_insights(self, test_db, mock_embeddings):
+        """Below-0.5 effectiveness should NOT be pulled up by non-causal erosion.
+
+        Bad insights stay bad until positive causal feedback proves otherwise.
+        """
+        from lib.memory.core import store, get, feedback
+
+        result = store(
+            content="When connection times out, just ignore it because timeouts resolve themselves"
+        )
+        name = result["name"]
+
+        # Drive effectiveness below 0.5 with causal negative feedback
+        for _ in range(10):
+            feedback([name], "blocked")
+
+        insight = get(name)
+        assert insight["effectiveness"] < 0.5
+        eff_before = insight["effectiveness"]
+
+        # Now apply non-causal erosion (names present but not in causal_names)
+        feedback([name], "delivered", causal_names=[])
+
+        insight_after = get(name)
+        # Below-0.5 insight should NOT have been pulled up
+        assert insight_after["effectiveness"] == eff_before
+
+
+class TestAsymmetricDecay:
+    """Tests for asymmetric decay."""
+
+    def test_decay_does_not_rehabilitate_bad_insights(self, test_db, mock_embeddings):
+        """Below-0.5 effectiveness should NOT drift upward during decay."""
+        from lib.memory.core import store, get, feedback, decay, get_db, write_lock
+        from datetime import datetime, timedelta
+
+        result = store(
+            content="When X happens, do Y because Z - this advice turned out bad"
+        )
+        name = result["name"]
+
+        # Drive below 0.5 with negative feedback
+        for _ in range(10):
+            feedback([name], "blocked")
+
+        insight = get(name)
+        assert insight["effectiveness"] < 0.5
+        eff_before = insight["effectiveness"]
+
+        # Backdate so decay applies
+        db = get_db()
+        old_date = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=60)).isoformat()
+        with write_lock():
+            db.execute("UPDATE insight SET last_used=? WHERE name=?", (old_date, name))
+            db.commit()
+
+        # Run decay
+        decay(unused_days=30)
+
+        insight_after = get(name)
+        # Should NOT have moved toward 0.5 (upward)
+        assert insight_after["effectiveness"] == eff_before
+
+
+class TestCausalAdjustedPrune:
+    """Tests for prune using causal-adjusted effectiveness."""
+
+    def test_prune_uses_causal_adjusted_effectiveness(self, test_db, mock_embeddings):
+        """Insight with raw eff 0.50 but low causal ratio gets pruned.
+
+        use_count=20, causal_hits=0 → adjusted eff = 0.50 * 0.3 = 0.15 → below 0.25 → pruned.
+        """
+        from lib.memory.core import store, get, prune, get_db, write_lock
+
+        result = store(
+            content="When optimizing, use indexes on all columns because it speeds queries"
+        )
+        name = result["name"]
+
+        # Manually set use_count high with zero causal hits
+        db = get_db()
+        with write_lock():
+            db.execute(
+                "UPDATE insight SET effectiveness=0.50, use_count=20, causal_hits=0 WHERE name=?",
+                (name,)
+            )
+            db.commit()
+
+        # Raw eff is 0.50 (above 0.25 threshold)
+        # But causal-adjusted: 0.50 * max(0.3, 0/20) = 0.50 * 0.3 = 0.15
+        prune_result = prune(min_effectiveness=0.25, min_uses=3)
+        assert name in prune_result["removed"]
+        assert get(name) is None
+
+
+class TestOrphanCleanup:
+    """Tests for orphan insight cleanup in prune."""
+
+    def test_prune_cleans_orphan_insights(self, test_db, mock_embeddings):
+        """NULL-embedding, never-used insights older than 7 days are cleaned."""
+        from lib.memory.core import prune, get_db, write_lock, _utcnow
+        from datetime import timedelta
+
+        db = get_db()
+
+        # Insert orphan insight (NULL embedding, use_count=0, old)
+        old_date = (_utcnow() - timedelta(days=10)).isoformat()
+        with write_lock():
+            db.execute(
+                "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) "
+                "VALUES (?,?,?,?,?,?,?)",
+                ("orphan-test", "Orphan insight content that nobody uses", None, 0.5, 0, old_date, "[]")
+            )
+            db.commit()
+
+        # Verify it exists
+        row = db.execute("SELECT * FROM insight WHERE name='orphan-test'").fetchone()
+        assert row is not None
+
+        result = prune()
+        assert "orphan-test" in result["removed"]
+        assert result["orphans_cleaned"] >= 1
+
+        # Should be gone
+        row = db.execute("SELECT * FROM insight WHERE name='orphan-test'").fetchone()
+        assert row is None
+
+    def test_prune_preserves_recent_orphans(self, test_db, mock_embeddings):
+        """NULL-embedding insights less than 7 days old are kept (may still get embedded)."""
+        from lib.memory.core import prune, get_db, write_lock, _utcnow
+        from datetime import timedelta
+
+        db = get_db()
+
+        # Insert recent orphan (2 days old)
+        recent_date = (_utcnow() - timedelta(days=2)).isoformat()
+        with write_lock():
+            db.execute(
+                "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) "
+                "VALUES (?,?,?,?,?,?,?)",
+                ("recent-orphan", "Recent orphan insight content here", None, 0.5, 0, recent_date, "[]")
+            )
+            db.commit()
+
+        result = prune()
+        assert "recent-orphan" not in result["removed"]
+
+
+class TestStoreInitialEffectiveness:
+    """Tests for custom initial effectiveness on store."""
+
+    def test_store_initial_effectiveness(self, test_db, mock_embeddings):
+        """Custom initial_effectiveness is respected."""
+        from lib.memory.core import store, get
+
+        result = store(
+            content="When attempting something risky, this derived insight was auto-generated",
+            tags=["derived"],
+            initial_effectiveness=0.35
+        )
+        assert result["status"] == "added"
+
+        insight = get(result["name"])
+        assert insight["effectiveness"] == 0.35
+
+    def test_store_default_effectiveness(self, test_db, mock_embeddings):
+        """Default initial_effectiveness is 0.5."""
+        from lib.memory.core import store, get
+
+        result = store(
+            content="When doing standard things, default effectiveness should be neutral"
+        )
+
+        insight = get(result["name"])
+        assert insight["effectiveness"] == 0.5
+
+
+class TestCount:
+    """Tests for count() primitive."""
+
+    def test_count_returns_total(self, test_db, mock_embeddings):
+        """count() returns total number of insights."""
+        from lib.memory.core import store, count
+
+        assert count() == 0
+
+        store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+        assert count() == 1
+
+        store(content="When database connection times out, add retry with exponential backoff because transient failures are common")
+        assert count() == 2
+
+    def test_count_empty_db(self, test_db):
+        """count() returns 0 on empty database."""
+        from lib.memory.core import count
+
+        assert count() == 0
+
+
+class TestFeedbackMixedNames:
+    """Tests for feedback with mix of existing and non-existing names."""
+
+    def test_feedback_mixed_existing_and_nonexistent(self, test_db, mock_embeddings):
+        """Feedback with mix of real and fake names updates only existing ones."""
+        from lib.memory.core import store, feedback
+
+        r = store(content="When testing payment API, mock at service boundary because it improves isolation")
+
+        result = feedback([r["name"], "nonexistent-name", "also-fake"], "delivered")
+
+        assert result["updated"] == 1  # only the real insight
+        assert result["causal"] == 1
 
 
 class TestHealth:
@@ -377,3 +677,35 @@ class TestHealth:
 
         assert h["status"] == "NEEDS_ATTENTION"
         assert "No insights" in h["issues"][0]
+
+
+class TestFeedbackRanking:
+    """Tests for feedback affecting recall ranking."""
+
+    def test_context_feedback_ranking(self, test_db, mock_embeddings):
+        """Higher effectiveness insights rank higher on next recall."""
+        from lib.memory.core import store, recall, feedback
+
+        # Store two similar insights
+        r1 = store(
+            content="When database connections exhaust under load, increase pool size and add connection timeout"
+        )
+        r2 = store(
+            content="When database connections leak during exceptions, use context manager and ensure cleanup in finally"
+        )
+
+        # Give r1 positive feedback
+        feedback([r1["name"]], "delivered")
+        feedback([r1["name"]], "delivered")
+
+        # Give r2 negative feedback
+        feedback([r2["name"]], "blocked")
+
+        # Recall should rank r1 higher
+        results = recall("database connection issues", limit=5, min_relevance=0.0)
+        names = [r["name"] for r in results]
+
+        assert r1["name"] in names, f"Expected {r1['name']} in recall results"
+        assert r2["name"] in names, f"Expected {r2['name']} in recall results"
+        # r1 should appear before r2 due to higher effectiveness
+        assert names.index(r1["name"]) < names.index(r2["name"])

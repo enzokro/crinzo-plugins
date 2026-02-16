@@ -1,7 +1,6 @@
 """Tests for lib/injection.py - insight injection for agents."""
 
-import pytest
-from lib.injection import inject_context, format_prompt, reset_session_tracking, batch_inject
+from lib.injection import inject_context, format_prompt, reset_session_tracking, batch_inject, NO_MATCHING_MEMORY
 
 
 class TestInjectContext:
@@ -78,6 +77,22 @@ class TestFormatPrompt:
         assert "NO_PRIOR_MEMORY" in result
         assert "Novel domain" in result
         assert "INJECTED" not in result
+
+    def test_format_prompt_no_matching_insights(self):
+        """Format prompt with total_insights > 0 but no matching insights emits NO_MATCHING_INSIGHTS."""
+        result = format_prompt(
+            task_id="task-003",
+            task="Unrelated task",
+            objective="Something with no matching insights",
+            verify="Check it",
+            insights=[],
+            injected_names=[],
+            total_insights=15
+        )
+
+        assert "NO_MATCHING_INSIGHTS" in result
+        assert "NO_PRIOR_MEMORY" not in result
+        assert "No matching insights" in result
 
     def test_format_prompt_minimal(self):
         """Format prompt with minimal fields."""

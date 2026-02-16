@@ -1,6 +1,5 @@
 """Tests for lib/extraction.py - insight extraction from transcripts."""
 
-import pytest
 from lib.extraction import extract_insight, extract_outcome, extract_injected_names, process_completion
 
 
@@ -111,6 +110,89 @@ class TestExtractInsight:
         assert "deploy" in result["tags"]
 
 
+class TestDerivedInsightFlag:
+    """Tests for derived insight marker."""
+
+    def test_derived_insight_has_derived_flag(self):
+        """BLOCKED-fallback insights have derived=True."""
+        transcript = '''
+        TASK: Fix database
+        OBJECTIVE: Repair connection pooling
+        BLOCKED: Schema migration conflict with existing data
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert result.get("derived") is True
+
+    def test_explicit_insight_no_derived_flag(self):
+        """Explicit INSIGHT: extractions do NOT have derived flag."""
+        transcript = '''
+        DELIVERED: Fixed the issue
+        INSIGHT: {"content": "When importing fails, check sys.path first because module resolution depends on it", "tags": ["python"]}
+        '''
+        result = extract_insight(transcript)
+
+        assert result is not None
+        assert "derived" not in result
+
+
+class TestExtractInsightPreExtracted:
+    """Tests for extract_insight with pre-extracted data (avoids re-scanning)."""
+
+    def test_blocked_with_pre_extracted_parts(self):
+        """Derive insight from pre-extracted summary_parts + task_parts."""
+        transcript = "BLOCKED: Schema migration conflict"
+        result = extract_insight(
+            transcript,
+            outcome="blocked",
+            summary_parts=["Schema migration conflict"],
+            task_parts=["Repair connection pooling"]
+        )
+
+        assert result is not None
+        assert "derived" in result.get("tags", [])
+        assert "Schema migration conflict" in result["content"]
+        assert "Repair connection pooling" in result["content"]
+
+    def test_delivered_with_outcome_skips_fallback(self):
+        """Delivered outcome with pre-extracted data skips BLOCKED fallback entirely."""
+        transcript = "DELIVERED: Done\nBLOCKED: This should not trigger fallback"
+        result = extract_insight(
+            transcript,
+            outcome="delivered",
+            summary_parts=["Done"],
+            task_parts=["Build feature"]
+        )
+
+        # No explicit INSIGHT: line, and outcome is delivered → no derived insight
+        assert result is None
+
+    def test_pre_extracted_matches_full_scan(self):
+        """Pre-extracted path produces same result as full transcript scan for BLOCKED."""
+        transcript = '''
+        TASK: Fix database
+        OBJECTIVE: Repair connection pooling
+        BLOCKED: Schema migration conflict with existing data
+        '''
+
+        # Full scan (backward compat)
+        result_full = extract_insight(transcript)
+
+        # Pre-extracted
+        result_pre = extract_insight(
+            transcript,
+            outcome="blocked",
+            summary_parts=["Schema migration conflict with existing data"],
+            task_parts=["Fix database", "Repair connection pooling"]
+        )
+
+        assert result_full is not None
+        assert result_pre is not None
+        assert result_full["content"] == result_pre["content"]
+        assert result_full["tags"] == result_pre["tags"]
+
+
 class TestExtractOutcome:
     """Tests for extract_outcome function."""
 
@@ -139,6 +221,47 @@ class TestExtractOutcome:
         assert extract_outcome("delivered: done") == "delivered"
         assert extract_outcome("Blocked: failed") == "blocked"
         assert extract_outcome("plan_complete: done") == "plan_complete"
+
+
+class TestLastMatchWins:
+    """Tests for last-match-wins outcome parsing."""
+
+    def test_last_delivered_wins_over_earlier_blocked(self):
+        """When BLOCKED appears in context and DELIVERED at end, DELIVERED wins."""
+        transcript = '''
+        PARENT_DELIVERIES:
+        BLOCKED: Earlier task failed
+        The actual builder output:
+        DELIVERED: Successfully implemented the feature
+        '''
+        assert extract_outcome(transcript) == "delivered"
+
+        result = process_completion(transcript)
+        assert result["outcome"] == "delivered"
+
+    def test_last_blocked_wins_over_earlier_delivered(self):
+        """Agent recovered from initial success claim to report blocking."""
+        transcript = '''
+        DELIVERED: Thought it was done
+        Actually found an issue
+        BLOCKED: Tests are failing after the change
+        '''
+        assert extract_outcome(transcript) == "blocked"
+
+        result = process_completion(transcript)
+        assert result["outcome"] == "blocked"
+
+    def test_injected_context_blocked_does_not_override(self):
+        """BLOCKED in injected insight context doesn't override agent's DELIVERED."""
+        transcript = '''
+        INSIGHTS (from past experience):
+          - [35%] When attempting 'fix auth': blocked by missing env vars
+        INJECTED: ["insight-1"]
+        TASK: Fix the login flow
+        DELIVERED: Fixed login by adding proper token refresh
+        '''
+        result = process_completion(transcript)
+        assert result["outcome"] == "delivered"
 
 
 class TestExtractInjectedNames:

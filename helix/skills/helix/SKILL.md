@@ -6,73 +6,37 @@ argument-hint: Unless instructed otherwise, use the helix skill for all your wor
 
 # Helix
 
-## What This Is
-
-You are partnering with your own memory system. Seven primitives (`store`, `recall`, `get`, `feedback`, `decay`, `prune`, `health`) manage living insights — each capturing "When X, do Y because Z." **Code surfaces facts. You decide actions.**
-
-Every session, you inherit accumulated insights from past work in this codebase: failures that taught lessons, patterns that proved their worth. Every session, you pay that forward by storing what you learned.
-
----
-
 ## Environment
 
 ```bash
 HELIX="$(cat .helix/plugin_root)"
 ```
 
-This file (created by SessionStart hook) contains the plugin root path with `lib/`, `scripts/`, `agents/` subdirectories.
+This file (created by SessionStart hook) contains the plugin root path with `lib/`, `agents/` subdirectories.
 
 ---
 
 ## Your Workflow
 
-```
-EXPLORE → PLAN → BUILD → LEARN → COMPLETE
-                   ↑               |
-                   +--[if stalled: replan | skip | abort]
-```
+Phases: `EXPLORE → PLAN → BUILD (loop with stall recovery) → LEARN → COMPLETE`
 
-State lives and evolves in reasoned conversation, not in a database.
+**Fast path:** If the objective is a single-file change with obvious scope (rename, config tweak, small fix), skip EXPLORE/PLAN. Spawn one builder directly with the objective as its task. LEARN phase still applies — store at least one insight if work was completed.
 
 ### EXPLORE
 
 **Goal:** Understand the codebase landscape for this objective.
 
-**Greenfield fast path:** If `git ls-files | wc -l` returns 0 or only config files:
-1. Skip exploration swarm
-2. Proceed to PLAN with `EXPLORATION: {}`
-3. Planner designs from scratch
+**Greenfield fast path:** If `git ls-files | wc -l` returns 0 or only config files, skip exploration and proceed to PLAN with `EXPLORATION: {}`.
 
 **Standard path:**
 
-1. **Discover structure:** `git ls-files | head -80` → identify 3-6 natural partitions:
+1. **Discover structure:** `git ls-files | head -80` — identify 3-6 natural partitions (by directory, module, or layer).
 
-   | Codebase Signal | Partition Strategy |
-   |-----------------|-------------------|
-   | Clear directory structure | One per top-level directory |
-   | Microservices/modules | One per service/module |
-   | Frontend/backend split | Separate partitions |
-   | Monolith with layers | Partition by layer (api, service, data) |
+2. **Spawn explorer swarm** (haiku, parallel, background): one Task per partition with `subagent_type="helix:helix-explorer"`, `model=haiku`, `max_turns=8`, `run_in_background=true`. Prompt: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: {objective}`. Track `EXPLORER_COUNT=N`.
 
-2. **Spawn explorer swarm** (haiku, parallel, background):
-   ```xml
-   <invoke name="Task">
-     <parameter name="subagent_type">helix:helix-explorer</parameter>
-     <parameter name="prompt">SCOPE: src/api/
-FOCUS: route handlers
-OBJECTIVE: {objective}</parameter>
-     <parameter name="model">haiku</parameter>
-     <parameter name="max_turns">8</parameter>
-     <parameter name="run_in_background">true</parameter>
-     <parameter name="description">Explore src/api</parameter>
-   </invoke>
-   ```
-
-   Track expected count: `EXPLORER_COUNT=N`
-
-3. **Wait and merge** (SubagentStop hook writes findings to files; wait utility merges and dedupes):
+3. **Wait and merge:**
    ```bash
-   python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 120
+   python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 90
    ```
    Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
 
@@ -80,43 +44,17 @@ OBJECTIVE: {objective}</parameter>
 
 **Goal:** Decompose objective into executable task DAG.
 
-1. **Spawn planner** (opus, **FOREGROUND**, returns PLAN_SPEC directly):
-   ```xml
-   <invoke name="Task">
-     <parameter name="subagent_type">helix:helix-planner</parameter>
-     <parameter name="prompt">OBJECTIVE: {objective}
-EXPLORATION: {findings_json}</parameter>
-     <parameter name="max_turns">12</parameter>
-     <parameter name="description">Plan task DAG</parameter>
-   </invoke>
-   ```
+1. **Spawn planner** (opus, **foreground**): `subagent_type="helix:helix-planner"`, `max_turns=12`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}`. Insights are auto-injected via hook.
 
-   **No `run_in_background`.** Task returns synchronously with planner output.
-   The SubagentStart hook automatically injects relevant planning insights via `additionalContext`. No manual injection needed.
+2. **Parse PLAN_SPEC** from returned result — extract the JSON array after `PLAN_SPEC:`.
 
-2. **Parse PLAN_SPEC from returned result:**
-   The Task tool returns the planner's output directly. Extract the JSON array after `PLAN_SPEC:`.
+3. **Create tasks from PLAN_SPEC:** `TaskCreate(subject="{seq}: {slug}", description=..., activeForm="Building {slug}", metadata={"seq": "{seq}", "relevant_files": [...]})`. Track `seq_to_id[spec.seq] = task_id`.
 
-3. **Create tasks from PLAN_SPEC:** For each task spec:
-   ```xml
-   <invoke name="TaskCreate">
-     <parameter name="subject">{spec.seq}: {spec.slug}</parameter>
-     <parameter name="description">{spec.description}</parameter>
-     <parameter name="activeForm">Building {spec.slug}</parameter>
-     <parameter name="metadata">{"seq": "{spec.seq}", "relevant_files": {spec.relevant_files}}</parameter>
-   </invoke>
-   ```
-   Track: `seq_to_id[spec.seq] = task_id` from result.
+4. **Set dependencies:** `TaskUpdate(taskId=seq_to_id[spec.seq], addBlockedBy=[seq_to_id[b], ...])`.
 
-4. **Set dependencies:** After all tasks created, for each spec with blocked_by:
-   ```xml
-   <invoke name="TaskUpdate">
-     <parameter name="taskId">{seq_to_id[spec.seq]}</parameter>
-     <parameter name="addBlockedBy">["{seq_to_id[b]}", ...]</parameter>
-   </invoke>
-   ```
+5. **Validate DAG** (in-context, no CLI): verify acyclic (walk dependencies), confirm `relevant_files` reference paths from exploration findings.
 
-If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
+If PLAN_SPEC empty or ERROR — add exploration context, re-run planner.
 
 ### BUILD
 
@@ -124,267 +62,62 @@ If PLAN_SPEC empty or ERROR → add exploration context, re-run planner.
 
 #### Memory Injection
 
-**Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in a single call, automatically diversifying across them so parallel builders get different insights from the pool.
+**Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in one call, automatically diversifying so parallel builders get different insights:
 
-Batch inject for the wave (see Quick Reference). Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`.
-
-Each `results[i]` corresponds to `objectives[i]`. Distribute to builder prompts:
-
-```
-TASK_ID: {task_id}
-TASK: {task_subject}
-OBJECTIVE: {task_description}
-VERIFY: {verification_steps}
-RELEVANT_FILES: {files}
-
-INSIGHTS (from past experience):
-  - [72%] When implementing auth, check token expiry first
-  - [45%] Use dependency injection for testability
-
-INJECTED: ["insight-name-1", "insight-name-2"]
-```
-
-Percentages reflect **causal-adjusted confidence**: insights that were frequently injected but rarely causally relevant to outcomes are penalized (up to 70%). A [72%] score means the insight both succeeded historically AND was causally linked to those successes.
-
-The `INJECTED` line enables feedback attribution when the builder completes.
-
-**Single-task fallback** (when only one task is ready): use `inject_context` (see Quick Reference).
-
-**Hook safety net:** The SubagentStart hook also recalls insights for every builder spawn. If the orchestrator's `batch_inject` is skipped, the hook provides injection via `additionalContext` and writes a sideband file for feedback attribution. This is automatic — no orchestrator action required.
-
-#### Single Task (Foreground)
-
-```xml
-<invoke name="Task">
-  <parameter name="subagent_type">helix:helix-builder</parameter>
-  <parameter name="prompt">{builder_prompt_with_insights}</parameter>
-  <parameter name="max_turns">25</parameter>
-  <parameter name="description">Build task {id}</parameter>
-</invoke>
-```
-
-**Processing result:**
-1. Task returns synchronously with builder output
-2. Parse for `DELIVERED:` or `BLOCKED:` line
-3. Call TaskUpdate with status=completed
-
-#### Parallel Tasks (Background)
-
-```xml
-<invoke name="Task">
-  <parameter name="subagent_type">helix:helix-builder</parameter>
-  <parameter name="prompt">{builder_prompt_with_insights}</parameter>
-  <parameter name="max_turns">25</parameter>
-  <parameter name="run_in_background">true</parameter>
-  <parameter name="description">Build task {id}</parameter>
-</invoke>
-```
-
-Wait for builder completions (SubagentStop hook writes outcomes to file):
 ```bash
-python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 120
+python3 "$HELIX/lib/injection.py" batch-inject --tasks '$OBJECTIVES_JSON' --limit 5
 ```
-Returns JSON with `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`, and partial results on timeout.
 
-**`all_delivered` is true only when zero blocked AND zero unknown.** Agents that crash (API 500, empty transcript) get outcome `"crashed"` which lands in `unknown`. Check `unknown` — if non-empty, those tasks need re-dispatch or manual resolution before the wave is clean.
+Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. The `INJECTED` line in builder prompts enables feedback attribution. If `batch_inject` is skipped, the SubagentStart hook provides fallback injection.
+
+#### Spawning Builders
+
+Spawn with `subagent_type="helix:helix-builder"`, `max_turns=25`, `run_in_background=true` (omit for single foreground task). Prompt format uses `format_prompt()` fields: TASK_ID, TASK, OBJECTIVE, VERIFY, RELEVANT_FILES, insights, INJECTED.
+
+**Background wait:**
+```bash
+python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 90
+```
+Returns `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`. Crashed agents land in `unknown` — re-dispatch or resolve.
 
 #### Build Loop
 
 ```
 while pending tasks exist:
-    1. Get ready tasks (blockers all completed)
-    2. If none ready but pending exist → STALLED (see recovery table below)
-    3. Checkpoint: git stash push -m "helix-{seq}"
-    4. Batch inject: call batch_inject([obj1, obj2, ...]) for all ready tasks
-    5. Spawn ready builders (batch results + warnings + parent deliveries)
+    1. Identify ready tasks: pending tasks whose blockedBy are all delivered (in-context filter)
+    2. If none ready but pending remain → STALLED recovery (see below)
+    3. Batch inject insights for ready tasks
+    4. Assemble PARENT_DELIVERIES from wave results (in-context: format "[task_id] summary" for each delivered blocker)
+    5. Spawn builders (cap at 6 per wave — more risks file contention)
     6. Wait for wave completion
-    7. Cross-wave synthesis (before dispatching next wave):
-       a. Collect wave results from wait-for-builders output
-       b. Synthesize convergent warnings for next wave
-       c. Collect parent deliveries for dependent tasks
+    7. If `insights_emitted > 0` in wait result, builders already captured task-level insights
     8. Process results, update task status
 ```
 
-**STALLED recovery** — detect with `python3 "$HELIX/lib/build_loop.py" check-stalled --tasks '$TASK_LIST_JSON'`:
+**STALLED recovery:** Analyze the stall. If one task is blocked with an obvious workaround, SKIP it (`TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped"})`) and store the failure insight. If systemic, ABORT and store insight. If verify was unclear, REPLAN. After 3+ attempts on the same blocker, ABORT and escalate.
 
-| Condition | Action |
-|-----------|--------|
-| Single blocked task, workaround exists | **SKIP** + store failure insight |
-| Multiple tasks blocked by same root cause | **ABORT** + store systemic insight |
-| Blocked task on critical path | **REPLAN** with narrower scope |
-| Blocking task has unclear verify | **REPLAN** with better verify |
-| 3+ attempts on same blocker | **ABORT** + escalate to user |
-
-- **SKIP**: `TaskUpdate(task_id, status="completed", metadata={helix_outcome: "skipped"})` → continue
-- **REPLAN**: New PLAN phase with modified constraints
-- **ABORT**: Summarize state, store learnings, end session
-
-**Step 4 is critical.** One `batch_inject` call per wave ensures parallel builders in the same wave get different insights from the pool. Per-task `inject_context` in separate processes would give every builder the same top-5.
-
-**Cross-wave synthesis** (step 7): run `synthesize` and `parent-deliveries` via `build_loop.py` (see Quick Reference). Pass warnings and parent deliveries into `format_prompt()` for next-wave builders.
-The `wait-for-builders` response includes `insights_emitted` count for extraction visibility.
-
-**On DELIVERED:** `git stash drop` — changes are good.
-**On BLOCKED:** `git stash pop` — revert, reassess.
-**On unknown/crashed:** Re-dispatch the task. Do not advance dependent tasks — their parent deliveries are missing. If a task crashes twice, mark it blocked and surface the failure in LEARN.
-
-#### Automatic Agent Learning
-
-The SubagentStop hook fires on every builder and planner completion:
-1. Extracts explicit `INSIGHT:` from agent output (if present). **Only explicit insights are stored** — DELIVERED completions without an INSIGHT line produce nothing. BLOCKED outcomes derive failure insights automatically.
-2. Stores new insight to memory
-3. Applies causal feedback to INJECTED insights: causally relevant insights get EMA update, non-causal insights erode 10% toward neutral (0.5)
-4. Detects crashed agents (API errors, empty transcripts) and marks them accordingly
-
-This handles task-level learning. But the orchestrator sees the full picture.
+**On unknown/crashed:** Re-dispatch. If a task crashes twice, mark blocked and surface in LEARN.
 
 ### LEARN
 
 **Goal:** Capture session-level insights that builders cannot see.
 
-Builders see one task. You see the whole session: which plans worked, which stalled, what patterns emerged across tasks, what systemic issues appeared.
+Builders see one task. You see the whole session: which plans worked, which stalled, what patterns emerged across tasks. **This is not optional.**
 
-**This is not optional.** The builders may or may not emit insights. You must reflect on the session and store what matters.
-
-**Reflection questions:**
-
-1. **Unexpected blockers** - What stopped progress that wasn't obvious from exploration?
-2. **Plan failures** - Did the task decomposition make sense? What should have been split or combined?
-3. **Cross-task patterns** - Did multiple builders hit the same issue? What does that reveal?
-4. **Codebase structure** - What did you learn about how this codebase is organized?
-5. **Sharp edges** - What implicit constraints or quirks did you discover?
-6. **Tool/environment issues** - Did any tools behave unexpectedly? Any CI/build gotchas?
-
-**Store insights directly:**
+If `insights_emitted > 0` from wait-for-builders, builders already stored task-level insights. Focus LEARN on cross-task patterns they couldn't see: plan failures, dependency ordering, scope issues.
 
 ```bash
 python3 "$HELIX/lib/memory/core.py" store \
-  --content "When modifying the auth module, run both unit AND integration tests - unit tests mock the token service but integration tests catch expiry edge cases" \
+  --content "When modifying the auth module, run both unit AND integration tests" \
   --tags '["testing", "auth"]'
 ```
 
-**What to store (orchestrator-level):**
-
-- **Systemic patterns**: "Three separate tasks hit import errors from lib/utils - the __init__.py doesn't re-export new modules automatically"
-- **Planning insights**: "Tasks involving database migrations should never run in parallel; they deadlock on schema locks"
-- **Exploration gaps**: "The explorer missed the config/ directory entirely; it's not under src/ but contains critical runtime settings"
-- **Session-specific discoveries**: "This codebase uses monorepo structure but packages aren't linked - each must be built separately"
-
-**Minimum:** At least one insight per session that completed work. Zero insights = loop not closed.
+Store systemic patterns, planning insights, exploration gaps, session discoveries. Test: would this help a developer 3 months from now? **Minimum:** at least one insight per session that completed work.
 
 ### COMPLETE
 
-All tasks done and learning captured. Final checks:
-
-```bash
-python3 "$HELIX/lib/memory/core.py" health
-```
-
-**Verify the loop closed:**
-
-- `recent_feedback > 0` if insights were injected this session (builders/planners provided outcomes)
-- `total_insights` increased if LEARN phase stored discoveries
-- `with_feedback` is lifetime count; `recent_feedback` is this session's signal
-
-If you injected insights and `recent_feedback: 0`, the feedback loop broke this session — debug:
-1. Check `task-status.jsonl` has matching task_id with valid outcome
-2. Verify SubagentStop hook is running (hooks configuration)
-3. Check `extraction.log` for ERROR entries (silent failures now logged)
-4. Check `causal_ratio` in health — low ratio means insights aren't matching outcomes semantically
-
-If the session completed work and you stored nothing in LEARN, you wasted knowledge.
+Verify: run `health` — confirm `recent_feedback > 0`. If 0 despite injection, check `extraction.log`.
 
 ---
 
-## Agent Contracts
-
-| Agent | Model | Mode | Output |
-|-------|-------|------|--------|
-| helix-explorer | haiku | Background | JSON findings |
-| helix-planner | opus | Foreground | PLAN_SPEC + optional INSIGHT |
-| helix-builder | opus | Foreground/Background | DELIVERED/BLOCKED + optional INSIGHT |
-
-**Insight format:** `INSIGHT: {"content": "When X, do Y because Z", "tags": ["optional"]}`
-
-Contracts in `agents/*.md`.
-
----
-
-## Result Flow
-
-| Agent | Mode | Result Flow |
-|-------|------|-------------|
-| explorer | Background | SubagentStop → `.helix/explorer-results/{id}.json` |
-| planner | Foreground | Task returns directly |
-| builder (single) | Foreground | Task returns directly |
-| builder (parallel) | Background | SubagentStop → `.helix/task-status.jsonl` |
-
-**NEVER use TaskOutput** — dumps 70KB+ execution traces.
-
----
-
-## Quick Reference
-
-```bash
-# Wait for explorers
-python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count 3 --timeout 120
-
-# Wait for parallel builders (includes insights_emitted count)
-python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 120
-
-# Cross-wave synthesis: detect convergent issues
-# Returns: {"warnings": [...], "count": N}
-python3 "$HELIX/lib/build_loop.py" synthesize --results '$WAVE_JSON'
-
-# Collect parent deliveries for next wave
-# Returns: {"next_task_id": "[blocker_id] summary\n...", ...}
-python3 "$HELIX/lib/build_loop.py" parent-deliveries --results '$WAVE_JSON' --blockers '$BLOCKERS_JSON'
-
-# Get ready tasks
-python3 "$HELIX/lib/build_loop.py" get-ready --tasks '$TASK_LIST_JSON'
-
-# Batch inject for a wave (with cross-task diversity)
-python3 -c "from lib.injection import batch_inject, reset_session_tracking; import json; reset_session_tracking(); print(json.dumps(batch_inject($OBJECTIVES_JSON, 5)))"
-
-# Single-task inject (fallback for single ready task)
-python3 -c "from lib.injection import inject_context; import json; print(json.dumps(inject_context('$OBJECTIVE', 5)))"
-
-# Get specific insight by name (full record with all fields)
-python3 "$HELIX/lib/memory/core.py" get "insight-name"
-
-# Recall insights (with relevance gate and optional suppression)
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --min-relevance 0.35
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --suppress-names '["already-seen-1"]'
-
-# Store new insight
-python3 "$HELIX/lib/memory/core.py" store --content "When X, do Y because Z" --tags '["pattern"]'
-
-# Manual feedback with causal filtering (usually automatic via hooks)
-python3 "$HELIX/lib/memory/core.py" feedback --names '["name1", "name2"]' --outcome delivered --causal-names '["name1"]'
-
-# Check health (includes causal_ratio metric)
-python3 "$HELIX/lib/memory/core.py" health
-```
-
----
-
-## Hook Architecture
-
-| Hook | Trigger | Action |
-|------|---------|--------|
-| SubagentStart | builder/planner spawn | Recall insights, write sideband file, return additionalContext |
-| SubagentStop | helix agent completion | Extract insight, apply feedback (sideband + transcript), write results |
-| SessionEnd | session termination | Remove task-status.jsonl, run decay |
-
-**SubagentStart** (inject_memory.py): Provides memory injection as a safety net. For builders where the orchestrator already injected via `batch_inject` + `format_prompt`, the hook writes only the sideband file (no additionalContext). For planners and builders without orchestrator injection, it returns insights as `additionalContext`.
-
-**SubagentStop** reads INJECTED names from two sources (merged):
-1. **Sideband file** (primary): `.helix/injected/{agent_id}.json` written by SubagentStart hook
-2. **Transcript regex** (fallback): `INJECTED: [...]` from orchestrator's `format_prompt()`
-
-**SubagentStop writes:**
-- Explorer: `.helix/explorer-results/{agent_id}.json`
-- Builder/Planner: `.helix/task-status.jsonl`
-
-**Feedback is automatic:** When a builder or planner completes with DELIVERED/BLOCKED/PLAN_COMPLETE, feedback is applied to injected insights using sideband names (if available) merged with transcript INJECTED names. Planners now participate fully in the feedback loop via hook injection.
-
+**NEVER use TaskOutput** — dumps 70KB+ execution traces. Agent contracts in `agents/*.md`.

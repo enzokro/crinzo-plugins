@@ -7,15 +7,21 @@ Design principles:
 - No mocking core logic: Test real SQLite operations
 """
 
-import os
 import sys
 import pytest
 from pathlib import Path
-from unittest.mock import patch
-from datetime import datetime, timedelta
 
 # Ensure helix lib is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+@pytest.fixture(autouse=True)
+def _reset_session_tracking():
+    """Reset injection session tracking between tests to prevent cross-test leakage."""
+    from lib.injection import reset_session_tracking
+    reset_session_tracking()
+    yield
+    reset_session_tracking()
 
 
 @pytest.fixture
@@ -102,15 +108,6 @@ def mock_embeddings(monkeypatch):
             embedding.append((h[byte_idx] + i) / 255.0 - 0.5)
         return embedding
 
-    def mock_to_blob(emb):
-        import struct
-        return struct.pack(f'{len(emb)}f', *emb)
-
-    def mock_from_blob(blob):
-        import struct
-        count = len(blob) // 4
-        return list(struct.unpack(f'{count}f', blob))
-
     def mock_cosine(a, b):
         import math
         dot = sum(x * y for x, y in zip(a, b))
@@ -120,11 +117,10 @@ def mock_embeddings(monkeypatch):
             return 0.0
         return dot / (norm_a * norm_b)
 
-    # Patch embeddings module
+    # Patch embeddings module — only embed and cosine need mocking.
+    # to_blob/from_blob are trivial struct pack/unpack and don't need replacement.
     from lib.memory import embeddings
     monkeypatch.setattr(embeddings, "embed", deterministic_embed)
-    monkeypatch.setattr(embeddings, "to_blob", mock_to_blob)
-    monkeypatch.setattr(embeddings, "from_blob", mock_from_blob)
     monkeypatch.setattr(embeddings, "cosine", mock_cosine)
 
     return {
@@ -134,18 +130,36 @@ def mock_embeddings(monkeypatch):
 
 
 @pytest.fixture
-def meta_dir(tmp_path, monkeypatch):
-    """Isolated .helix directory for meta state.
+def isolated_db(tmp_path, monkeypatch):
+    """Isolated database without mock embeddings — for tests needing real semantic similarity.
 
-    Provides clean directory for state persistence tests.
+    Unlike test_db, this does NOT mock embeddings, allowing tests to validate
+    actual embedding behavior (relevance gate, causal filtering, etc.).
     """
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("HELIX_DB_PATH", db_path)
+
+    from lib.db import connection as conn_module
+    conn_module.DB_PATH = db_path
+    conn_module.reset_db()
+
+    yield db_path
+
+    conn_module.reset_db()
+
+
+@pytest.fixture
+def isolated_env(isolated_db, tmp_path, monkeypatch):
+    """Isolated database + .helix directory — for hook integration tests needing real embeddings.
+
+    Composes with isolated_db; adds HELIX_PROJECT_DIR and .helix directory.
+    """
+    monkeypatch.setenv("HELIX_PROJECT_DIR", str(tmp_path))
+
     helix_dir = tmp_path / ".helix"
-    helix_dir.mkdir()
+    helix_dir.mkdir(exist_ok=True)
 
-    # Patch cwd to use tmp_path
-    monkeypatch.chdir(tmp_path)
-
-    return helix_dir
+    yield tmp_path
 
 
 @pytest.fixture

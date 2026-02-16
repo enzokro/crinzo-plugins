@@ -4,11 +4,11 @@
 Provides 7 CLI subcommands for the BUILD phase:
 - wait-for-explorers: Poll for explorer result files
 - wait-for-builders: Poll for builder task completions
-- synthesize: Detect convergent issues across wave results
 - parent-deliveries: Collect parent deliveries for next wave
 - detect-cycles: Find dependency loops in task DAG
 - check-stalled: Detect build impasse
 - get-ready: Identify unblocked tasks ready for execution
+- status: Unified get-ready + check-stalled in one call
 
 NEVER use TaskOutput — dumps 70KB+ into context.
 """
@@ -20,12 +20,19 @@ from typing import Dict, List, Optional, Tuple
 
 from lib.paths import get_helix_dir as _get_helix_dir
 
-# ── Constants ──
-
-CONVERGENCE_THRESHOLD = 0.65
-MIN_CONVERGENT_COUNT = 2
-
 # ── Wait utilities ──
+
+
+def _dedup_findings(findings: list) -> list:
+    """Deduplicate findings by file path."""
+    seen = set()
+    unique = []
+    for f in findings:
+        key = f.get('file', str(f))
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+    return unique
 
 
 def _parse_task_status(status_file: Path, task_set: set) -> dict:
@@ -92,19 +99,10 @@ def wait_for_explorer_results(
                     except Exception as e:
                         errors.append(f"Failed to parse {f.name}: {e}")
 
-                # Dedupe by file path
-                seen = set()
-                unique_findings = []
-                for f in all_findings:
-                    key = f.get('file', str(f))
-                    if key not in seen:
-                        seen.add(key)
-                        unique_findings.append(f)
-
                 return {
                     "completed": True,
                     "count": len(files),
-                    "findings": unique_findings,
+                    "findings": _dedup_findings(all_findings),
                     "errors": errors if errors else None
                 }
 
@@ -112,20 +110,20 @@ def wait_for_explorer_results(
 
     # Timeout - return partial results
     partial_findings = []
-    if results_dir.exists():
-        for f in results_dir.glob("*.json"):
-            try:
-                data = json.loads(f.read_text())
-                partial_findings.extend(data.get('findings', []))
-            except:
-                pass
+    partial_files = list(results_dir.glob("*.json")) if results_dir.exists() else []
+    for f in partial_files:
+        try:
+            data = json.loads(f.read_text())
+            partial_findings.extend(data.get('findings', []))
+        except Exception:
+            pass
 
     return {
         "completed": False,
         "timed_out": True,
-        "count": len(list(results_dir.glob("*.json"))) if results_dir.exists() else 0,
+        "count": len(partial_files),
         "expected": expected_count,
-        "findings": partial_findings
+        "findings": _dedup_findings(partial_findings)
     }
 
 
@@ -192,115 +190,6 @@ def wait_for_builder_results(
         "missing": list(missing),
         "expected": list(task_ids)
     }
-
-
-# ── Wave synthesis ──
-
-
-def _union_find_clusters(items: list, similarity_fn, threshold: float) -> list[list[int]]:
-    """Union-find clustering based on pairwise similarity.
-
-    Args:
-        items: List of items to cluster
-        similarity_fn: (item_a, item_b) -> float
-        threshold: Minimum similarity to merge clusters
-
-    Returns: List of clusters (each cluster is a list of indices)
-    """
-    n = len(items)
-    parent = list(range(n))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            if similarity_fn(items[i], items[j]) >= threshold:
-                union(i, j)
-
-    clusters = {}
-    for i in range(n):
-        root = find(i)
-        clusters.setdefault(root, []).append(i)
-
-    return list(clusters.values())
-
-
-def synthesize_wave_warnings(
-    wave_results: list,
-    threshold: float = CONVERGENCE_THRESHOLD,
-    min_count: int = MIN_CONVERGENT_COUNT
-) -> list[str]:
-    """Detect convergent issues across wave results and format as warnings.
-
-    Args:
-        wave_results: List of dicts with at least "summary" and optionally
-                      "task_id", "insight", "outcome" fields
-        threshold: Cosine similarity threshold for convergence detection
-        min_count: Minimum cluster size to emit a warning
-
-    Returns: List of WARNING strings for injection into next wave
-    """
-    # Lazy import: only load embeddings when this function is called
-    from lib.memory.embeddings import embed, cosine
-
-    # Filter to results with summaries
-    summaries = []
-    for r in wave_results:
-        text = r.get("summary", "") or ""
-        insight = r.get("insight", "") or ""
-        combined = f"{text} {insight}".strip()
-        if combined:
-            summaries.append({"text": combined, "task_id": r.get("task_id", "?"), "result": r})
-
-    if len(summaries) < min_count:
-        return []
-
-    # Embed all summaries
-    embeddings = []
-    valid = []
-    for s in summaries:
-        emb = embed(s["text"], is_query=False)
-        if emb:
-            embeddings.append(emb)
-            valid.append(s)
-
-    if len(valid) < min_count:
-        return []
-
-    # Cluster by similarity
-    def sim_fn(a, b):
-        return cosine(a, b)
-
-    clusters = _union_find_clusters(embeddings, sim_fn, threshold)
-
-    # Format warnings for convergent clusters
-    warnings = []
-    for cluster in clusters:
-        if len(cluster) < min_count:
-            continue
-
-        # Build warning from cluster members
-        task_ids = [valid[i]["task_id"] for i in cluster]
-        texts = [valid[i]["text"][:150] for i in cluster]
-
-        # Use first summary as representative, note all task IDs
-        warning = (
-            f"CONVERGENT ISSUE (tasks {', '.join(task_ids)}): "
-            f"Multiple builders encountered similar issue. "
-            f"Representative: {texts[0]}"
-        )
-        warnings.append(warning)
-
-    return warnings
 
 
 def collect_parent_deliveries(
@@ -405,16 +294,6 @@ def _get_task_ids_by_outcome(all_tasks: List[Dict], outcome: str) -> List[str]:
     ]
 
 
-def _get_completed_task_ids(all_tasks: List[Dict]) -> List[str]:
-    """Get task IDs that completed successfully (delivered)."""
-    return _get_task_ids_by_outcome(all_tasks, "delivered")
-
-
-def _get_blocked_task_ids(all_tasks: List[Dict]) -> List[str]:
-    """Get task IDs that were blocked."""
-    return _get_task_ids_by_outcome(all_tasks, "blocked")
-
-
 def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
     """Get task IDs that are ready to execute.
 
@@ -428,30 +307,22 @@ def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
     Returns:
         List of task IDs ready for execution
     """
+    delivered_ids = set(_get_task_ids_by_outcome(all_tasks, "delivered"))
+
     ready = []
-
-    # Build set of successfully completed task IDs
-    completed_ids = set(_get_completed_task_ids(all_tasks))
-    blocked_ids = set(_get_blocked_task_ids(all_tasks))
-
     for task in all_tasks:
         if task.get("status") != "pending":
             continue
 
         blockers = task.get("blockedBy", [])
-        # All blockers must be completed AND not blocked
-        all_blockers_done = all(
-            b in completed_ids and b not in blocked_ids
-            for b in blockers
-        )
-
-        if all_blockers_done:
+        if all(b in delivered_ids for b in blockers):
             ready.append(task.get("id"))
 
     return ready
 
 
-def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
+def check_stalled(all_tasks: List[Dict], ready: List[str] = None,
+                   pending: List[Dict] = None) -> Tuple[bool, Optional[Dict]]:
     """Check if build is stalled.
 
     Stalled = pending tasks exist but none are ready
@@ -459,20 +330,24 @@ def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
 
     Args:
         all_tasks: List of task data from TaskList
+        ready: Precomputed ready task IDs (avoids recomputation)
+        pending: Precomputed pending tasks (avoids recomputation)
 
     Returns:
         (is_stalled, stall_info)
     """
-    pending = [t for t in all_tasks if t.get("status") == "pending"]
+    if pending is None:
+        pending = [t for t in all_tasks if t.get("status") == "pending"]
     if not pending:
         return False, None
 
-    ready = get_ready_tasks(all_tasks)
+    if ready is None:
+        ready = get_ready_tasks(all_tasks)
     if ready:
         return False, None
 
     # Stalled - analyze why
-    blocked_ids = set(_get_blocked_task_ids(all_tasks))
+    blocked_ids = set(_get_task_ids_by_outcome(all_tasks, "blocked"))
     blocked_by_blocked = []
 
     for task in pending:
@@ -488,6 +363,27 @@ def check_stalled(all_tasks: List[Dict]) -> Tuple[bool, Optional[Dict]]:
     return True, {
         "pending_count": len(pending),
         "blocked_by_blocked": blocked_by_blocked
+    }
+
+
+def build_status(all_tasks: List[Dict]) -> Dict:
+    """Unified build status: ready tasks + stall detection in one call.
+
+    Returns:
+        Dict with ready, ready_count, stalled, stall_info, pending_count
+    """
+    ready = get_ready_tasks(all_tasks)
+    pending = [t for t in all_tasks if t.get("status") == "pending"]
+    stalled = bool(pending and not ready)
+    stall_info = None
+    if stalled:
+        _, stall_info = check_stalled(all_tasks, ready=ready, pending=pending)
+    return {
+        "ready": ready,
+        "ready_count": len(ready),
+        "stalled": stalled,
+        "stall_info": stall_info,
+        "pending_count": len(pending),
     }
 
 
@@ -513,12 +409,6 @@ if __name__ == "__main__":
     p.add_argument("--timeout", type=float, default=300.0)
     p.add_argument("--poll-interval", type=float, default=2.0)
 
-    # synthesize
-    p = subparsers.add_parser("synthesize")
-    p.add_argument("--results", required=True)
-    p.add_argument("--threshold", type=float, default=CONVERGENCE_THRESHOLD)
-    p.add_argument("--min-count", type=int, default=MIN_CONVERGENT_COUNT)
-
     # parent-deliveries
     p = subparsers.add_parser("parent-deliveries")
     p.add_argument("--results", required=True)
@@ -536,6 +426,10 @@ if __name__ == "__main__":
     p = subparsers.add_parser("get-ready")
     p.add_argument("--tasks", required=True)
 
+    # status (unified: get-ready + check-stalled)
+    p = subparsers.add_parser("status")
+    p.add_argument("--tasks", required=True)
+
     args = parser.parse_args()
 
     if args.cmd == "wait-for-explorers":
@@ -545,10 +439,6 @@ if __name__ == "__main__":
         task_ids = [t.strip() for t in args.task_ids.split(",")]
         result = wait_for_builder_results(task_ids, args.helix_dir, args.timeout, args.poll_interval)
         print(json.dumps(result))
-    elif args.cmd == "synthesize":
-        results = json.loads(args.results)
-        warnings = synthesize_wave_warnings(results, args.threshold, args.min_count)
-        print(json.dumps({"warnings": warnings, "count": len(warnings)}))
     elif args.cmd == "parent-deliveries":
         results = json.loads(args.results)
         blockers = json.loads(args.blockers)
@@ -566,3 +456,6 @@ if __name__ == "__main__":
         tasks = json.loads(args.tasks)
         ready = get_ready_tasks(tasks)
         print(json.dumps({"ready": ready, "count": len(ready)}))
+    elif args.cmd == "status":
+        tasks = json.loads(args.tasks)
+        print(json.dumps(build_status(tasks)))

@@ -48,7 +48,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/extract_learning.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/lib/hooks/extract_learning.py",
+            "timeout": 30
           }
         ]
       }

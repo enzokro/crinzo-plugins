@@ -16,23 +16,14 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from paths import get_helix_dir
-
-
-def _log_error(context: str, error: Exception):
-    """Log error to extraction.log for diagnostics."""
-    try:
-        log_file = get_helix_dir() / "extraction.log"
-        ts = datetime.now(timezone.utc).isoformat()
-        with open(log_file, 'a') as f:
-            f.write(f"{ts} | ERROR | inject_memory.{context} | {type(error).__name__}: {error}\n")
-    except Exception:
-        pass
+from log import log_error as _log_error
+from injection import format_insights, NO_PRIOR_MEMORY, NO_MATCHING_MEMORY, INSIGHTS_HEADER
 
 
 def _log_injection(agent_id: str, agent_type: str, n_insights: int,
@@ -53,18 +44,19 @@ def _log_injection(agent_id: str, agent_type: str, n_insights: int,
         pass
 
 
-def _extract_objective(transcript_path: str) -> Optional[str]:
-    """Extract objective from the most recent helix Task spawn in parent transcript.
+def _parse_parent_transcript(transcript_path: str) -> tuple:
+    """Parse parent transcript for objective and injection state in one pass.
 
-    Reads last portion of parent transcript JSONL, finds the last Task tool_use
-    targeting a helix agent, and extracts the OBJECTIVE field from its prompt.
+    Reads last 50KB of parent transcript JSONL, finds the last Task tool_use
+    targeting a helix agent, and extracts both the OBJECTIVE field and whether
+    the prompt already contains INSIGHTS.
 
-    Falls back to first 500 chars of the prompt if no OBJECTIVE field found.
+    Returns: (objective: str | None, has_insights: bool)
     """
     try:
         path = Path(transcript_path)
         if not path.exists():
-            return None
+            return None, False
 
         # Read last 50KB to avoid loading huge transcripts
         size = path.stat().st_size
@@ -74,7 +66,7 @@ def _extract_objective(transcript_path: str) -> Optional[str]:
                 f.readline()  # skip partial line
             raw = f.read()
 
-        # Parse JSONL lines, collect Task tool_use prompts for helix agents
+        # Parse JSONL lines, find last Task tool_use prompt for helix agents
         last_prompt = None
         for line in raw.strip().splitlines():
             if not line.strip():
@@ -99,100 +91,64 @@ def _extract_objective(transcript_path: str) -> Optional[str]:
                 continue
 
         if not last_prompt:
-            return None
+            return None, False
+
+        # Check if orchestrator already injected insights
+        has_insights = INSIGHTS_HEADER in last_prompt
 
         # Extract OBJECTIVE field (stops at next uppercase FIELD: or end of string)
+        objective = None
         match = re.search(r'OBJECTIVE:\s*(.+?)(?:\n[A-Z_]+:|$)', last_prompt, re.DOTALL)
         if match:
-            return match.group(1).strip()[:1000]
+            objective = match.group(1).strip()[:1000]
+        # No fallback: noisy prompt fragments pollute recall queries.
+        # Caller handles None by returning NO_PRIOR_MEMORY.
 
-        # Fallback: first 500 chars of prompt
-        return last_prompt[:500].strip()
+        return objective, has_insights
 
     except Exception as e:
-        _log_error("_extract_objective", e)
-        return None
+        _log_error("_parse_parent_transcript", e)
+        return None, False
 
 
-def _prompt_has_insights(transcript_path: str) -> bool:
-    """Check if the most recent Task spawn prompt already contains INSIGHTS.
-
-    When the orchestrator uses batch_inject + format_prompt, the prompt
-    will contain 'INSIGHTS (from past experience):'.
-    """
-    try:
-        path = Path(transcript_path)
-        if not path.exists():
-            return False
-
-        size = path.stat().st_size
-        with open(path, 'r') as f:
-            if size > 50000:
-                f.seek(size - 50000)
-                f.readline()
-            raw = f.read()
-
-        # Scan backwards for last Task tool_use targeting helix agent
-        for line in reversed(raw.strip().splitlines()):
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-                content_blocks = entry.get('message', {}).get('content', [])
-                if not isinstance(content_blocks, list):
-                    continue
-
-                for block in content_blocks:
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get('type') == 'tool_use' and block.get('name') == 'Task':
-                        inp = block.get('input', {})
-                        if inp.get('subagent_type', '').startswith('helix:helix-'):
-                            prompt = inp.get('prompt', '')
-                            return 'INSIGHTS (from past experience):' in prompt
-            except (json.JSONDecodeError, AttributeError):
-                continue
-
-        return False
-    except Exception as e:
-        _log_error("_prompt_has_insights", e)
-        return False
-
-
-def _write_sideband(agent_id: str, names: List[str]):
+def _write_sideband(agent_id: str, names: List[str], objective: str = None):
     """Write sideband file for SubagentStop feedback attribution.
 
     File: .helix/injected/{agent_id}.json
-    Content: {"names": [...], "ts": "..."}
+    Content: {"names": [...], "objective": "...", "ts": "..."}
+
+    The objective is the exact recall query used to select these insights,
+    passed through to extract_learning for precise causal attribution.
     """
     try:
         injected_dir = get_helix_dir() / "injected"
         injected_dir.mkdir(exist_ok=True)
         sideband_file = injected_dir / f"{agent_id}.json"
-        sideband_file.write_text(json.dumps({
-            "names": names,
-            "ts": datetime.now(timezone.utc).isoformat()
-        }))
+        data = {"names": names}
+        if objective:
+            data["objective"] = objective
+        sideband_file.write_text(json.dumps(data))
     except Exception as e:
         _log_error("_write_sideband", e)
 
 
-def _format_additional_context(memories: list) -> dict:
-    """Format recalled insights as additionalContext for the agent."""
-    if not memories:
-        return {"additionalContext": "NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable."}
+def _format_additional_context(memories: list, total_insights: int = 0) -> dict:
+    """Format recalled insights as additionalContext for the agent.
 
-    lines = ["INSIGHTS (from past experience):"]
-    names = []
-    for m in memories:
-        eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
-        eff_pct = int(eff * 100)
-        content = m.get("content", "")
-        if content:
-            lines.append(f"  - [{eff_pct}%] {content}")
-            name = m.get("name", "")
-            if name:
-                names.append(name)
+    Args:
+        memories: List of recalled insight dicts
+        total_insights: Total insights in DB (for cold-start signal accuracy)
+    """
+    if not memories:
+        if total_insights > 0:
+            return {"additionalContext": NO_MATCHING_MEMORY}
+        return {"additionalContext": NO_PRIOR_MEMORY}
+
+    insight_lines, names = format_insights(memories)
+
+    lines = [INSIGHTS_HEADER]
+    for line in insight_lines:
+        lines.append(f"  - {line}")
 
     if names:
         lines.append("")
@@ -227,23 +183,23 @@ def process_hook_input(hook_input: dict) -> dict:
     if not agent_id:
         return {}
 
-    # Extract objective from parent transcript
-    objective = _extract_objective(transcript_path) if transcript_path else None
+    # Parse parent transcript once for both objective and injection state
+    objective, already_injected = _parse_parent_transcript(transcript_path) if transcript_path else (None, False)
     if not objective:
         _log_injection(agent_id, agent_type, 0, False, True)
-        return {"additionalContext": "NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable."}
-
-    # Orchestrator-injected builders: transcript has authoritative INJECTED names.
-    # Don't recall or write sideband — can't identify specific tool_use in parallel spawns.
-    already_injected = _prompt_has_insights(transcript_path) if transcript_path else False
+        return {"additionalContext": NO_PRIOR_MEMORY}
     if already_injected:
         _log_injection(agent_id, agent_type, 0, False, False)
         return {}
 
     # Recall relevant insights
+    total_insights = 0
     try:
         from memory.core import recall
         memories = recall(objective, limit=5)
+        if not memories:
+            from memory.core import count
+            total_insights = count()
     except Exception as e:
         _log_error("recall", e)
         memories = []
@@ -253,10 +209,10 @@ def process_hook_input(hook_input: dict) -> dict:
     # Write sideband file for SubagentStop feedback attribution
     wrote_sideband = False
     if names:
-        _write_sideband(agent_id, names)
+        _write_sideband(agent_id, names, objective=objective)
         wrote_sideband = True
 
-    result = _format_additional_context(memories)
+    result = _format_additional_context(memories, total_insights=total_insights)
     _log_injection(agent_id, agent_type, len(names), wrote_sideband, "additionalContext" in result)
     return result
 

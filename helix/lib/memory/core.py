@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Memory: unified insight storage and retrieval.
 
-Core API (6 primitives):
+Core API (8 primitives):
 - store(content, tags) -> {"status": "added"|"merged", "name": str}
-- recall(query, limit, suppress_names) -> insights sorted by 0.7*relevance + 0.2*causal_eff + 0.1*recency
+- recall(query, limit, suppress_names) -> insights sorted by 0.78*relevance + 0.22*causal_eff
 - feedback(names, outcome, causal_names) -> update effectiveness with causal filtering
 - decay(unused_days) -> decay dormant insights
 - prune(min_effectiveness, min_uses) -> remove low-performing insights
+- count() -> total insight count (lightweight)
 - health() -> system status
 
 Scoring formula:
-    score = (0.7 * relevance) + (0.2 * effectiveness) + (0.1 * recency)
-    recency = 2^(-days_since_use / 14)
+    score = (0.78 * relevance) + (0.22 * effectiveness)
+Feedback EMA weight: 0.2 (~3 positive outcomes to move 0.5 → 0.6)
 """
 
 import json
-import math
 import re
 import sqlite3
 import sys
@@ -23,22 +23,30 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List
 
-# Constants
-SCORE_WEIGHTS = {'relevance': 0.7, 'effectiveness': 0.2, 'recency': 0.1}
-DECAY_HALF_LIFE = 14  # days
+import numpy as np
+
+# Scoring constants
+SCORE_WEIGHTS = {'relevance': 0.78, 'effectiveness': 0.22}
 DUPLICATE_THRESHOLD = 0.85
 MIN_RELEVANCE_DEFAULT = 0.35  # arctic-embed-m-v1.5: unrelated 0.05-0.25, related 0.35+
 CAUSAL_SIMILARITY_THRESHOLD = 0.40  # For feedback attribution filtering
 
+# Tuning parameters — extracted from inline for visibility
+FEEDBACK_EMA_WEIGHT = 0.2       # Learning rate for causal feedback (was 0.1; ~3 outcomes to move 0.5→0.6)
+DECAY_RATE = 0.1                # Rate dormant insights drift toward neutral per session_end
+EROSION_RATE = 0.10             # Rate non-causal insights drift toward neutral per feedback
+CAUSAL_ADJUSTMENT_FLOOR = 0.3   # Minimum multiplier for causal hit ratio
+CAUSAL_MIN_USES = 3             # Uses before causal adjustment kicks in
+
 # Support both module and script execution
 try:
     from ..db.connection import get_db, write_lock
-    from .embeddings import embed, to_blob, from_blob, cosine
+    from .embeddings import embed, to_blob
 except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from db.connection import get_db, write_lock
     sys.path.insert(0, str(Path(__file__).parent))
-    from embeddings import embed, to_blob, from_blob, cosine
+    from embeddings import embed, to_blob
 
 
 def _utcnow() -> datetime:
@@ -69,62 +77,37 @@ def _causal_adjusted_effectiveness(row) -> float:
     """
     eff = _effectiveness(row)
     use_count = row["use_count"] or 0
-    if use_count < 3:
+    if use_count < CAUSAL_MIN_USES:
         return eff
 
-    causal_hits = 0
-    try:
-        causal_hits = row["causal_hits"] or 0
-    except (IndexError, KeyError):
-        return eff
-
+    causal_hits = row["causal_hits"] or 0
     causal_ratio = causal_hits / use_count
-    adjustment = max(0.3, causal_ratio)
+    adjustment = max(CAUSAL_ADJUSTMENT_FLOOR, causal_ratio)
     return eff * adjustment
 
 
-def _recency_score(last_used: Optional[str], created_at: str) -> float:
-    """Calculate recency score with exponential decay."""
-    ref_date = last_used or created_at
-    if not ref_date:
-        return 0.5
-
-    try:
-        ref = datetime.fromisoformat(ref_date.replace("Z", "+00:00"))
-        now = _utcnow()
-        if ref.tzinfo:
-            now = now.replace(tzinfo=ref.tzinfo)
-        days_ago = (now - ref).days
-        return math.pow(2, -days_ago / DECAY_HALF_LIFE)
-    except Exception:
-        return 0.5
-
-
 def _to_dict(row) -> dict:
-    """Convert database row to insight dict."""
-    tags = []
-    if row["tags"]:
-        try:
-            tags = json.loads(row["tags"])
-        except Exception:
-            pass
-
-    d = {
+    """Convert database row to insight dict (hot path — skips tag parsing)."""
+    return {
         "name": row["name"],
         "content": row["content"],
         "effectiveness": round(_effectiveness(row), 3),
         "use_count": row["use_count"] or 0,
         "created_at": row["created_at"],
         "last_used": row["last_used"],
-        "tags": tags
+        "tags": [],
+        "causal_hits": row["causal_hits"] or 0,
     }
 
-    # Include causal_hits if column exists
-    try:
-        d["causal_hits"] = row["causal_hits"] or 0
-    except (IndexError, KeyError):
-        d["causal_hits"] = 0
 
+def _to_dict_full(row) -> dict:
+    """Convert database row to insight dict with full tag parsing."""
+    d = _to_dict(row)
+    if row["tags"]:
+        try:
+            d["tags"] = json.loads(row["tags"])
+        except Exception:
+            pass
     return d
 
 
@@ -132,12 +115,14 @@ def _to_dict(row) -> dict:
 # CORE PRIMITIVES
 # =============================================================================
 
-def store(content: str, tags: list = None) -> dict:
+def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -> dict:
     """Store an insight.
 
     Args:
         content: "When X, do Y because Z" format
         tags: Optional list of tags
+        initial_effectiveness: Starting effectiveness (default 0.5 neutral).
+                              Derived insights use lower values.
 
     Returns: {"status": "added"|"merged", "name": str, "reason": str}
     """
@@ -147,20 +132,42 @@ def store(content: str, tags: list = None) -> dict:
     content = content.strip()
     tags = tags or []
 
-    # Check for semantic duplicate
+    # Check for semantic duplicate (vectorized)
     new_emb = embed(content, is_query=False)
     if new_emb:
         db = get_db()
-        for row in db.execute("SELECT name, embedding FROM insight WHERE embedding IS NOT NULL"):
-            if row["embedding"] and cosine(new_emb, from_blob(row["embedding"])) >= DUPLICATE_THRESHOLD:
-                # Update use count on merge
+        rows = db.execute("SELECT name, embedding FROM insight WHERE embedding IS NOT NULL").fetchall()
+        if rows:
+            q_vec = np.array(new_emb, dtype=np.float32)
+            names = [r["name"] for r in rows]
+            mat = np.frombuffer(b''.join(r["embedding"] for r in rows),
+                                dtype=np.float32).reshape(len(rows), -1)
+            sims = mat @ q_vec
+            best_idx = int(np.argmax(sims))
+            if sims[best_idx] >= DUPLICATE_THRESHOLD:
+                match_name = names[best_idx]
+                now = _utcnow().isoformat()
                 with write_lock():
-                    db.execute(
-                        "UPDATE insight SET use_count = use_count + 1, last_used = ? WHERE name = ?",
-                        (_utcnow().isoformat(), row["name"])
-                    )
+                    # Check if new content should replace existing (better articulation)
+                    existing = db.execute(
+                        "SELECT content, effectiveness FROM insight WHERE name = ?",
+                        (match_name,)
+                    ).fetchone()
+                    if existing and (
+                        len(content) > len(existing["content"])
+                        or (existing["effectiveness"] or 0.5) < 0.5
+                    ):
+                        db.execute(
+                            "UPDATE insight SET content=?, embedding=?, last_used=? WHERE name=?",
+                            (content, to_blob(new_emb), now, match_name)
+                        )
+                    else:
+                        db.execute(
+                            "UPDATE insight SET last_used=? WHERE name=?",
+                            (now, match_name)
+                        )
                     db.commit()
-                return {"status": "merged", "name": row["name"], "reason": "similar exists"}
+                return {"status": "merged", "name": match_name, "reason": "similar exists"}
 
     name = _slug(content[:50])
     if not name:
@@ -176,7 +183,7 @@ def store(content: str, tags: list = None) -> dict:
         try:
             db.execute(
                 "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) VALUES (?,?,?,?,?,?,?)",
-                (name, content, emb_blob, 0.5, 0, now, tags_json)
+                (name, content, emb_blob, initial_effectiveness, 0, now, tags_json)
             )
             db.commit()
             return {"status": "added", "name": name, "reason": ""}
@@ -185,7 +192,7 @@ def store(content: str, tags: list = None) -> dict:
                 name = f"{name}-{_utcnow().strftime('%H%M%S')}"
                 db.execute(
                     "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) VALUES (?,?,?,?,?,?,?)",
-                    (name, content, emb_blob, 0.5, 0, now, tags_json)
+                    (name, content, emb_blob, initial_effectiveness, 0, now, tags_json)
                 )
                 db.commit()
                 return {"status": "added", "name": name, "reason": ""}
@@ -203,12 +210,9 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         min_effectiveness: Minimum effectiveness threshold
         min_relevance: Minimum cosine similarity (0.35 default). "No memory" beats "wrong memory."
 
-    Returns list with _relevance, _recency, _score fields.
+    Returns list with _relevance, _score fields.
     """
     db = get_db()
-    rows = db.execute("SELECT * FROM insight WHERE embedding IS NOT NULL").fetchall()
-    if not rows:
-        return []
 
     q_emb = embed(query, is_query=True)
     if q_emb is None:
@@ -219,46 +223,67 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         ).fetchall()
         return [_to_dict(r) for r in rows]
 
+    # Single-pass: fetch all columns, score, return top-N
+    # SQL-side effectiveness filter avoids transferring rows we'd discard
+    rows = db.execute(
+        "SELECT * FROM insight WHERE embedding IS NOT NULL AND effectiveness >= ?",
+        (min_effectiveness,)
+    ).fetchall()
+    if not rows:
+        return []
+
     suppress_set = set(suppress_names) if suppress_names else set()
 
-    scored = []
+    # Pre-filter by suppress list (cheap check before matrix ops)
+    candidates = []
     for r in rows:
         if suppress_set and r["name"] in suppress_set:
             continue
+        candidates.append(r)
 
-        raw_eff = _effectiveness(r)
-        if raw_eff < min_effectiveness:
-            continue
+    if not candidates:
+        return []
 
-        rel = cosine(q_emb, from_blob(r["embedding"]))
+    # Vectorized cosine: single matrix multiply for all candidates
+    q_vec = np.array(q_emb, dtype=np.float32)
+    mat = np.frombuffer(b''.join(r["embedding"] for r in candidates),
+                        dtype=np.float32).reshape(len(candidates), -1)
+    similarities = mat @ q_vec
 
-        # Relevance gate: skip insights below threshold
+    # Score and filter by min_relevance
+    scored = []
+    w_rel, w_eff = SCORE_WEIGHTS['relevance'], SCORE_WEIGHTS['effectiveness']
+    for i, r in enumerate(candidates):
+        rel = float(similarities[i])
         if rel < min_relevance:
             continue
-
         eff = _causal_adjusted_effectiveness(r)
-        rec = _recency_score(r["last_used"], r["created_at"])
-
-        score = (SCORE_WEIGHTS['relevance'] * rel) + \
-                (SCORE_WEIGHTS['effectiveness'] * eff) + \
-                (SCORE_WEIGHTS['recency'] * rec)
-
-        m = _to_dict(r)
-        m["_relevance"] = round(rel, 3)
-        m["_effectiveness"] = round(eff, 3)  # causal-adjusted
-        m["_recency"] = round(rec, 3)
-        m["_score"] = round(score, 3)
-        scored.append((score, m))
+        scored.append((w_rel * rel + w_eff * eff, rel, eff, i))
 
     scored.sort(key=lambda x: -x[0])
-    return [m for _, m in scored[:limit]]
+    top = scored[:limit]
+
+    if not top:
+        return []
+
+    # Build results from already-fetched full rows (O(1) index lookup)
+    results = []
+    for score, rel, eff, idx in top:
+        row = candidates[idx]
+        m = _to_dict(row)
+        m["_relevance"] = round(rel, 3)
+        m["_effectiveness"] = round(eff, 3)
+        m["_score"] = round(score, 3)
+        results.append(m)
+
+    return results
 
 
 def get(name: str) -> Optional[dict]:
     """Get specific insight by name."""
     db = get_db()
     row = db.execute("SELECT * FROM insight WHERE name=?", (name,)).fetchone()
-    return _to_dict(row) if row else None
+    return _to_dict_full(row) if row else None
 
 
 def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> dict:
@@ -287,9 +312,19 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
     causal_set = set(causal_names) if causal_names is not None else None
     outcome_value = 1.0 if outcome in ("delivered", "plan_complete") else 0.0
 
+    # Batch-fetch all rows in one query instead of N individual SELECTs
+    unique_names = list(set(names))
+    placeholders = ",".join("?" for _ in unique_names)
+    rows_by_name = {
+        r["name"]: r for r in db.execute(
+            f"SELECT name, effectiveness, use_count FROM insight WHERE name IN ({placeholders})",
+            unique_names
+        ).fetchall()
+    }
+
     with write_lock():
-        for name in set(names):
-            row = db.execute("SELECT effectiveness, use_count FROM insight WHERE name=?", (name,)).fetchone()
+        for name in unique_names:
+            row = rows_by_name.get(name)
             if not row:
                 continue
 
@@ -298,7 +333,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
 
             if is_causal:
                 # Standard EMA update for causally relevant insights
-                new_eff = old_eff * 0.9 + outcome_value * 0.1
+                new_eff = old_eff * (1 - FEEDBACK_EMA_WEIGHT) + outcome_value * FEEDBACK_EMA_WEIGHT
                 new_eff = max(0.0, min(1.0, new_eff))
                 db.execute(
                     "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
@@ -307,12 +342,18 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
                 )
                 causal_count += 1
             else:
-                # Erode toward neutral: 10% toward 0.5
-                new_eff = old_eff + (0.5 - old_eff) * 0.10
+                # Erode toward neutral: 10% toward 0.5 (above-neutral only)
+                # Don't increment use_count — erosion is the penalty, not a "use"
+                # (incrementing use_count without causal_hits compounds with
+                # _causal_adjusted_effectiveness read-time penalty)
+                # Asymmetric: below-0.5 insights stay bad until positive causal feedback
+                if old_eff > 0.5:
+                    new_eff = old_eff + (0.5 - old_eff) * EROSION_RATE
+                else:
+                    new_eff = old_eff
                 new_eff = max(0.0, min(1.0, new_eff))
                 db.execute(
-                    "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
-                    "last_used=? WHERE name=?",
+                    "UPDATE insight SET effectiveness=?, last_used=? WHERE name=?",
                     (new_eff, now, name)
                 )
                 eroded_count += 1
@@ -323,7 +364,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
     return {
         "updated": updated,
         "outcome": outcome,
-        "names": list(set(names)),
+        "names": unique_names,
         "causal": causal_count,
         "eroded": eroded_count
     }
@@ -341,11 +382,14 @@ def decay(unused_days: int = 30) -> dict:
     cutoff = (_utcnow() - timedelta(days=unused_days)).isoformat()
 
     with write_lock():
-        # Move effectiveness toward 0.5 by 10%
-        cursor = db.execute("""
+        # Move effectiveness toward 0.5 (above-0.5 only)
+        # Asymmetric: bad insights should not drift upward without evidence
+        cursor = db.execute(f"""
             UPDATE insight
-            SET effectiveness = effectiveness * 0.9 + 0.5 * 0.1
-            WHERE (last_used IS NULL OR last_used < ?)
+            SET effectiveness = effectiveness * {1 - DECAY_RATE} + 0.5 * {DECAY_RATE}
+            WHERE use_count > 0
+            AND effectiveness > 0.5
+            AND (last_used IS NULL OR last_used < ?)
         """, (cutoff,))
         db.commit()
         affected = cursor.rowcount
@@ -356,71 +400,79 @@ def decay(unused_days: int = 30) -> dict:
 def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     """Remove insights that have proven unhelpful.
 
-    Only prunes insights with at least min_uses to ensure fair evaluation.
+    Uses causal-adjusted effectiveness for threshold check — an insight with
+    raw eff 0.50 but use_count=20/causal_hits=0 → adjusted eff 0.15 → pruned.
+
+    Also cleans orphan insights (NULL embedding, never used, older than 7 days).
     """
     db = get_db()
     rows = db.execute(
-        "SELECT name, effectiveness, use_count FROM insight WHERE use_count >= ?",
+        "SELECT name, effectiveness, use_count, causal_hits FROM insight WHERE use_count >= ?",
         (min_uses,)
     ).fetchall()
 
     to_remove = []
     for r in rows:
-        if r["effectiveness"] < min_effectiveness:
+        adj_eff = _causal_adjusted_effectiveness(r)
+        if adj_eff < min_effectiveness:
             to_remove.append(r["name"])
 
+    # Orphan cleanup: NULL-embedding, never used, older than 7 days
+    orphan_cutoff = (_utcnow() - timedelta(days=7)).isoformat()
+    orphans = db.execute(
+        "SELECT name FROM insight WHERE embedding IS NULL AND use_count = 0 AND created_at < ?",
+        (orphan_cutoff,)
+    ).fetchall()
+    orphan_names = [r["name"] for r in orphans]
+
+    all_remove = to_remove + orphan_names
     with write_lock():
-        for n in to_remove:
-            db.execute("DELETE FROM insight WHERE name=?", (n,))
+        if all_remove:
+            placeholders = ",".join("?" for _ in all_remove)
+            db.execute(f"DELETE FROM insight WHERE name IN ({placeholders})", all_remove)
         db.commit()
 
     remaining = db.execute("SELECT COUNT(*) as c FROM insight").fetchone()["c"]
-    return {"pruned": len(to_remove), "remaining": remaining, "removed": to_remove}
+    return {
+        "pruned": len(to_remove),
+        "orphans_cleaned": len(orphan_names),
+        "remaining": remaining,
+        "removed": to_remove + orphan_names
+    }
+
+
+def count() -> int:
+    """Return total number of insights. Lightweight alternative to health()."""
+    db = get_db()
+    return db.execute("SELECT COUNT(*) as c FROM insight").fetchone()["c"]
 
 
 def health() -> dict:
     """Check learning system health."""
     db = get_db()
+    cutoff = (_utcnow() - timedelta(hours=1)).isoformat()
 
-    total = db.execute("SELECT COUNT(*) as c FROM insight").fetchone()["c"]
+    # Single aggregate query replaces 4 separate queries
+    agg = db.execute("""
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN use_count > 0 THEN 1 ELSE 0 END) as with_feedback,
+            SUM(CASE WHEN last_feedback_at IS NOT NULL AND last_feedback_at > ? THEN 1 ELSE 0 END) as recent_fb,
+            AVG(CASE WHEN use_count > 0 THEN effectiveness END) as avg_eff,
+            SUM(CASE WHEN use_count > 0 THEN causal_hits ELSE 0 END) as ch,
+            SUM(CASE WHEN use_count > 0 THEN use_count ELSE 0 END) as uc
+        FROM insight
+    """, (cutoff,)).fetchone()
 
-    # Get tag distribution
+    total = agg["total"]
+    with_feedback = agg["with_feedback"] or 0
+    recent_fb = agg["recent_fb"] or 0
+    avg_eff = agg["avg_eff"] if agg["avg_eff"] is not None else 0.5
+    total_causal = agg["ch"] or 0
+    total_uses = agg["uc"] or 0
+    causal_ratio = round(total_causal / total_uses, 3) if total_uses > 0 else 0.0
+
     by_tag = {}
-    for row in db.execute("SELECT tags FROM insight"):
-        try:
-            tags = json.loads(row["tags"]) if row["tags"] else []
-            for tag in tags:
-                by_tag[tag] = by_tag.get(tag, 0) + 1
-        except Exception:
-            pass
-
-    with_feedback = db.execute("SELECT COUNT(*) as c FROM insight WHERE use_count > 0").fetchone()["c"]
-
-    # Session feedback: insights that received causal feedback recently
-    try:
-        cutoff = (_utcnow() - timedelta(hours=1)).isoformat()
-        recent_fb = db.execute(
-            "SELECT COUNT(*) as c FROM insight WHERE last_feedback_at IS NOT NULL "
-            "AND last_feedback_at > ?",
-            (cutoff,)
-        ).fetchone()["c"]
-    except Exception:
-        recent_fb = 0
-
-    # Average effectiveness
-    avg_eff_row = db.execute("SELECT AVG(effectiveness) as avg_eff FROM insight WHERE use_count > 0").fetchone()
-    avg_eff = avg_eff_row["avg_eff"] if avg_eff_row and avg_eff_row["avg_eff"] else 0.5
-
-    # Causal ratio: what fraction of feedback is causally attributed
-    try:
-        causal_row = db.execute(
-            "SELECT SUM(causal_hits) as ch, SUM(use_count) as uc FROM insight WHERE use_count > 0"
-        ).fetchone()
-        total_causal = causal_row["ch"] or 0
-        total_uses = causal_row["uc"] or 0
-        causal_ratio = round(total_causal / total_uses, 3) if total_uses > 0 else 0.0
-    except Exception:
-        causal_ratio = 0.0
 
     loop_closed = total > 0 and with_feedback > 0
     issues = []
@@ -448,7 +500,7 @@ def health() -> dict:
 def _log_verbose(cmd: str, args: dict, result: dict) -> None:
     """Print structured log to stderr when --verbose is enabled."""
     log_entry = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": _utcnow().isoformat(),
         "command": cmd,
         "args": args,
         "result_type": type(result).__name__,

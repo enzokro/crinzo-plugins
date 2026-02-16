@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v9: insight table with 256-dim snowflake-arctic-embed-m-v1.5 embeddings.
+Schema v10: insight table with 256-dim snowflake-arctic-embed-m-v1.5 embeddings.
 """
 
 import os
@@ -60,6 +60,8 @@ def get_db() -> sqlite3.Connection:
 
         # Enable WAL mode for concurrent reads
         _db.execute("PRAGMA journal_mode=WAL")
+        # Allow 5s retry on locked DB (cross-process safety for hook subprocesses)
+        _db.execute("PRAGMA busy_timeout = 5000")
 
         # Initialize schema
         init_db(_db)
@@ -94,11 +96,10 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
                     tags TEXT DEFAULT '[]'
                 );
             """)
-            # Note: v1-v4 legacy migration from `memory` table removed (table dropped in v9)
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (5, datetime('now'))")
             db.commit()
-        except Exception:
-            pass
+        except sqlite3.OperationalError:
+            pass  # table already exists
 
     # Migration v6: Add causal_hits column for causal feedback tracking
     if current_version < 6:
@@ -106,8 +107,8 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
             db.execute("ALTER TABLE insight ADD COLUMN causal_hits INTEGER DEFAULT 0")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (6, datetime('now'))")
             db.commit()
-        except Exception:
-            pass
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     # Migration v7: Add last_feedback_at for session-level feedback tracking
     if current_version < 7:
@@ -115,22 +116,19 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
             db.execute("ALTER TABLE insight ADD COLUMN last_feedback_at TEXT")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (7, datetime('now'))")
             db.commit()
-        except Exception:
-            pass
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     # Migration v8: NULL out embedding BLOBs for model migration
-    # Old 384-dim MiniLM vectors are incompatible with new 256-dim arctic-embed vectors.
-    # Run utils/reindex.py --force after upgrade to re-embed all insights.
     if current_version < 8:
         try:
             db.execute("UPDATE insight SET embedding = NULL")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (8, datetime('now'))")
             db.commit()
-        except Exception:
+        except sqlite3.OperationalError:
             pass
 
     # Migration v9: Drop zombie tables from pre-v5 schema
-    # memory (migrated to insight in v5), memory_edge (orphaned), memory_file_pattern (FK to memory), exploration (dropped in v2 but persists in upgraded DBs)
     if current_version < 9:
         try:
             db.execute("DROP TABLE IF EXISTS memory_file_pattern")
@@ -139,7 +137,16 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
             db.execute("DROP TABLE IF EXISTS exploration")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (9, datetime('now'))")
             db.commit()
-        except Exception:
+        except sqlite3.OperationalError:
+            pass
+
+    # Migration v10: Drop redundant idx_insight_name (UNIQUE constraint already provides autoindex)
+    if current_version < 10:
+        try:
+            db.execute("DROP INDEX IF EXISTS idx_insight_name")
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (10, datetime('now'))")
+            db.commit()
+        except sqlite3.OperationalError:
             pass
 
 
@@ -155,7 +162,7 @@ def init_db(db: sqlite3.Connection = None) -> None:
             applied_at TEXT NOT NULL
         );
 
-        -- Unified insight table (v7+)
+        -- Unified insight table (v9)
         CREATE TABLE IF NOT EXISTS insight (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,

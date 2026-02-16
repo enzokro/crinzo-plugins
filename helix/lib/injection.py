@@ -1,10 +1,22 @@
 """Insight injection for agents.
 
 Single injection function replaces 4-query context builder.
+Shared formatting used by both orchestrator (batch_inject) and hook (inject_memory).
+CLI entry point: python3 injection.py batch-inject --tasks '["obj1","obj2"]' --limit 5
 """
 
 import json
-from typing import Optional, List
+import sys
+from typing import Optional, List, Tuple
+
+# Cold-start signal when no insights exist at all
+NO_PRIOR_MEMORY = "NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable."
+
+# Signal when insights exist but none matched this task
+NO_MATCHING_MEMORY = "NO_MATCHING_INSIGHTS: No matching insights found for this task. Your INSIGHT output is especially valuable."
+
+# Shared header for insight injection — used in format_prompt(), inject_memory hook, and transcript detection
+INSIGHTS_HEADER = "INSIGHTS (from past experience):"
 
 # Session-level diversity tracking
 _session_injected: set = set()
@@ -14,6 +26,32 @@ def reset_session_tracking():
     """Reset session injection tracking."""
     global _session_injected
     _session_injected = set()
+
+
+def format_insights(memories: list) -> Tuple[List[str], List[str]]:
+    """Format recalled insights into display lines and name list.
+
+    Shared between orchestrator injection (inject_context/format_prompt)
+    and hook injection (inject_memory._format_additional_context).
+
+    Args:
+        memories: List of insight dicts from recall()
+
+    Returns: (lines, names) where lines are "[XX%] content" strings
+             and names are insight name strings for INJECTED attribution
+    """
+    lines = []
+    names = []
+    for m in memories:
+        eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
+        eff_pct = int(eff * 100)
+        content = m.get("content", "")
+        if content:
+            lines.append(f"[{eff_pct}%] {content}")
+            name = m.get("name", "")
+            if name:
+                names.append(name)
+    return lines, names
 
 
 def inject_context(objective: str, limit: int = 5,
@@ -42,28 +80,22 @@ def inject_context(objective: str, limit: int = 5,
     if diversify and _session_injected:
         kwargs["suppress_names"] = list(_session_injected)
     memories = recall(objective, **kwargs)
-
-    insights = []
-    names = []
-
-    for m in memories:
-        # Prefer causal-adjusted effectiveness (from recall scoring) over raw
-        eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
-        eff_pct = int(eff * 100)
-        content = m.get("content", "")
-        if content:
-            insights.append(f"[{eff_pct}%] {content}")
-            names.append(m.get("name", ""))
-
-    names = [n for n in names if n]
+    insights, names = format_insights(memories)
 
     if diversify:
         _session_injected.update(names)
 
-    return {
+    result = {
         "insights": insights,
         "names": names
     }
+
+    # When recall returns empty, distinguish "no insights exist" from "none matched"
+    if not memories:
+        from lib.memory.core import count
+        result["total_insights"] = count()
+
+    return result
 
 
 def format_prompt(
@@ -74,7 +106,9 @@ def format_prompt(
     insights: list,
     injected_names: list,
     warning: str = "",
-    parent_deliveries: str = ""
+    parent_deliveries: str = "",
+    relevant_files: Optional[List[str]] = None,
+    total_insights: int = 0
 ) -> str:
     """Format complete builder prompt.
 
@@ -83,9 +117,10 @@ def format_prompt(
     - TASK
     - OBJECTIVE
     - VERIFY
+    - RELEVANT_FILES (file paths relevant to the task, if any)
     - WARNING (cross-wave convergent issues, if any)
     - PARENT_DELIVERIES (completed blocker summaries, if any)
-    - INSIGHTS (if any) or NO_PRIOR_MEMORY cold-start signal
+    - INSIGHTS (if any), NO_MATCHING_INSIGHTS, or NO_PRIOR_MEMORY cold-start signal
     - INJECTED (names for feedback loop)
     """
     lines = [
@@ -94,6 +129,9 @@ def format_prompt(
         f"OBJECTIVE: {objective}",
         f"VERIFY: {verify}",
     ]
+
+    if relevant_files:
+        lines.append(f"RELEVANT_FILES: {', '.join(relevant_files)}")
 
     if warning:
         lines.append("")
@@ -106,13 +144,15 @@ def format_prompt(
 
     if insights:
         lines.append("")
-        lines.append("INSIGHTS (from past experience):")
+        lines.append(INSIGHTS_HEADER)
         for insight in insights:
             lines.append(f"  - {insight}")
     else:
-        # Cold-start signal: encourage richer extraction from novel domains
         lines.append("")
-        lines.append("NO_PRIOR_MEMORY: Novel domain. Your INSIGHT output is especially valuable.")
+        if total_insights > 0:
+            lines.append(NO_MATCHING_MEMORY)
+        else:
+            lines.append(NO_PRIOR_MEMORY)
 
     if injected_names:
         lines.append("")
@@ -145,3 +185,45 @@ def batch_inject(tasks: List[str], limit: int = 5) -> dict:
         "results": results,
         "total_unique": len(all_names)
     }
+
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+if __name__ == "__main__":
+    import argparse
+    from pathlib import Path
+
+    # Support both module and script execution
+    sys.path.insert(0, str(Path(__file__).parent))
+
+    p = argparse.ArgumentParser(description="Helix insight injection")
+    p.add_argument("--db", help="Override database path")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("batch-inject", help="Inject context for multiple tasks with cross-task diversity")
+    s.add_argument("--tasks", required=True, help="JSON array of task objectives")
+    s.add_argument("--limit", type=int, default=5, help="Max insights per task")
+
+    s = sub.add_parser("inject", help="Inject context for a single task")
+    s.add_argument("objective", help="Task objective for semantic search")
+    s.add_argument("--limit", type=int, default=5)
+
+    args = p.parse_args()
+
+    if args.db:
+        import os
+        import db.connection as conn_module
+        resolved = str(Path(args.db).resolve())
+        os.environ["HELIX_DB_PATH"] = resolved
+        conn_module.DB_PATH = resolved
+        conn_module.reset_db()
+
+    if args.cmd == "batch-inject":
+        reset_session_tracking()
+        tasks = json.loads(args.tasks)
+        print(json.dumps(batch_inject(tasks, args.limit)))
+    elif args.cmd == "inject":
+        reset_session_tracking()
+        print(json.dumps(inject_context(args.objective, limit=args.limit)))

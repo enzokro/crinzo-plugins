@@ -8,36 +8,11 @@ Verifies:
 """
 
 import json
-import os
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-
-@pytest.fixture(autouse=True)
-def isolated_env(tmp_path):
-    """Isolated environment for each test."""
-    db_path = str(tmp_path / "test.db")
-    os.environ["HELIX_DB_PATH"] = db_path
-    os.environ["HELIX_PROJECT_DIR"] = str(tmp_path)
-
-    import lib.db.connection as conn_module
-    conn_module.DB_PATH = db_path
-    conn_module.reset_db()
-
-    # Create .helix dir
-    helix_dir = tmp_path / ".helix"
-    helix_dir.mkdir(exist_ok=True)
-
-    yield tmp_path
-
-    conn_module.reset_db()
-    for key in ["HELIX_DB_PATH", "HELIX_PROJECT_DIR"]:
-        if key in os.environ:
-            del os.environ[key]
+pytestmark = pytest.mark.usefixtures("isolated_env")
 
 
 class TestFilterCausalInsights:
@@ -68,9 +43,7 @@ class TestFilterCausalInsights:
 
         # TS insight should pass, cooking should not
         assert r1["name"] in result
-        # cooking might or might not be filtered depending on embedding model
-        # but at minimum, the function should return without error
-        assert isinstance(result, list)
+        assert r2["name"] not in result, "Cooking insight should be filtered as irrelevant to TypeScript context"
 
     def test_nonexistent_insight_skipped(self):
         """Non-existent insight names are skipped without error."""
@@ -138,15 +111,6 @@ class TestLogExtractionResult:
 class TestApplyFeedback:
     """Tests for updated apply_feedback with causal_names."""
 
-    def test_accepts_causal_names_parameter(self):
-        """apply_feedback accepts causal_names parameter."""
-        import inspect
-        from lib.hooks.extract_learning import apply_feedback
-
-        sig = inspect.signature(apply_feedback)
-        assert "causal_names" in sig.parameters
-        assert sig.parameters["causal_names"].default is None
-
     def test_returns_false_for_empty_names(self):
         """apply_feedback returns False for empty names."""
         from lib.hooks.extract_learning import apply_feedback
@@ -159,16 +123,5 @@ class TestApplyFeedback:
 
         assert apply_feedback(["some-name"], "invalid", causal_names=None) is False
 
-    def test_causal_feedback_integration(self):
-        """Integration test: feedback with causal_names updates DB correctly."""
-        from lib.memory.core import store, feedback, get
-
-        r = store("When testing auth flows, verify token expiry edge cases", tags=["auth"])
-
-        # Direct feedback call (bypassing the hook's import path)
-        result = feedback([r["name"]], "delivered", causal_names=[r["name"]])
-        assert result["updated"] == 1
-        assert result["causal"] == 1
-
-        insight = get(r["name"])
-        assert insight["causal_hits"] == 1
+    # test_causal_feedback_integration removed: duplicate of
+    # test_causal_feedback.py::TestDualPathFeedback::test_causal_insight_gets_ema_update

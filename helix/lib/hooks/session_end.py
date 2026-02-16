@@ -59,8 +59,18 @@ def main():
         except Exception:
             decayed = 0
 
+        # 2b. Prune low-performing and orphan insights
+        try:
+            from memory.core import prune
+            prune_result = prune()
+            pruned = prune_result.get("pruned", 0)
+            orphans = prune_result.get("orphans_cleaned", 0)
+        except Exception:
+            pruned = 0
+            orphans = 0
+
         # 3. Log session summary
-        log_event(log_file, "SESSION_END", f"decayed={decayed}")
+        log_event(log_file, "SESSION_END", f"decayed={decayed}", f"pruned={pruned}", f"orphans={orphans}")
 
         # Always output valid JSON
         print("{}")

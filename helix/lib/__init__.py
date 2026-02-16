@@ -5,9 +5,7 @@ Core modules:
 - db: SQLite connection with WAL mode and schema migrations
 - injection: Insight injection for agents (inject_context, batch_inject, format_prompt)
 - extraction: Completion processing for insight extraction
-- dag_utils: DAG utility functions (cycle detection, stall checking)
-- wait: Explorer/builder result collection
-- wave_synthesis: Cross-wave convergent issue detection
+- build_loop: Build orchestration (wait, wave synthesis, DAG utilities)
 - paths: Helix directory resolution
 - hooks: SubagentStop and SessionEnd handlers
 

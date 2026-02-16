@@ -1,6 +1,5 @@
 """Tests for session_end hook - cleanup and maintenance."""
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -35,36 +34,52 @@ class TestSessionEndCleanup:
         helix_dir.mkdir()
 
         mock_decay = MagicMock(return_value={"decayed": 3})
+        mock_prune = MagicMock(return_value={"pruned": 0, "orphans_cleaned": 0})
+        mock_memory_core = MagicMock(decay=mock_decay, prune=mock_prune)
 
         with patch("hooks.session_end.get_helix_dir", return_value=helix_dir), \
              patch("hooks.session_end.sys") as mock_sys, \
-             patch.dict("sys.modules", {"memory.core": MagicMock(decay=mock_decay)}), \
+             patch.dict("sys.modules", {"memory.core": mock_memory_core}), \
              patch("builtins.print"):
             mock_sys.stdin.read.return_value = "{}"
             from hooks.session_end import main
             main()
 
-        # Verify decay was attempted (via import inside main)
+        # Verify decay was actually called
+        mock_decay.assert_called_once()
+
+        # Verify log reflects decay count
         log_file = helix_dir / "session.log"
         assert log_file.exists()
         log_content = log_file.read_text()
         assert "SESSION_END" in log_content
+        assert "decayed=3" in log_content
 
-    def test_session_end_logs_event(self, tmp_path):
-        """session_end writes to session.log."""
+    def test_session_end_runs_prune(self, tmp_path):
+        """session_end calls prune() after decay()."""
         helix_dir = tmp_path / ".helix"
         helix_dir.mkdir()
 
+        mock_decay = MagicMock(return_value={"decayed": 0})
+        mock_prune = MagicMock(return_value={"pruned": 2, "orphans_cleaned": 1})
+        mock_memory_core = MagicMock(decay=mock_decay, prune=mock_prune)
+
         with patch("hooks.session_end.get_helix_dir", return_value=helix_dir), \
              patch("hooks.session_end.sys") as mock_sys, \
+             patch.dict("sys.modules", {"memory.core": mock_memory_core}), \
              patch("builtins.print"):
             mock_sys.stdin.read.return_value = "{}"
             from hooks.session_end import main
             main()
 
+        # Verify prune was called
+        mock_prune.assert_called_once()
+
+        # Verify log reflects prune count
         log_file = helix_dir / "session.log"
-        assert log_file.exists()
-        assert "SESSION_END" in log_file.read_text()
+        log_content = log_file.read_text()
+        assert "pruned=2" in log_content
+        assert "orphans=1" in log_content
 
     def test_session_end_cleans_sideband_files(self, tmp_path):
         """session_end removes stale sideband files from .helix/injected/."""
