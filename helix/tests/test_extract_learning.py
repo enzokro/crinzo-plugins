@@ -226,7 +226,7 @@ class TestHandoffFirst:
 
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
         monkeypatch.setattr(extract_learning, "filter_causal_insights",
-                            lambda names, ctx: (_ for _ in ()).throw(RuntimeError("Embedding model failed")))
+                            lambda names, ctx, context_embedding=None: (_ for _ in ()).throw(RuntimeError("Embedding model failed")))
 
         agent_id = "agent-build-1"
         transcript_file = self._make_builder_transcript(tmp_path, agent_id)
@@ -270,7 +270,7 @@ class TestCrashedFeedback:
             return True
 
         monkeypatch.setattr(extract_learning, "apply_feedback", tracking_apply)
-        monkeypatch.setattr(extract_learning, "filter_causal_insights", lambda names, ctx: names)
+        monkeypatch.setattr(extract_learning, "filter_causal_insights", lambda names, ctx, context_embedding=None: names)
 
         # Write sideband so injected names are found
         injected_dir = tmp_path / "injected"

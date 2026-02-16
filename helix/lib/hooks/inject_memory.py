@@ -11,6 +11,7 @@ Architecture:
 - Planners: always sideband + additionalContext (orchestrator never injects planners)
 """
 
+import base64
 import json
 import re
 import sys
@@ -111,14 +112,17 @@ def _parse_parent_transcript(transcript_path: str) -> tuple:
         return None, False
 
 
-def _write_sideband(agent_id: str, names: List[str], objective: str = None):
+def _write_sideband(agent_id: str, names: List[str], objective: str = None,
+                     query_embedding: str = None):
     """Write sideband file for SubagentStop feedback attribution.
 
     File: .helix/injected/{agent_id}.json
-    Content: {"names": [...], "objective": "...", "ts": "..."}
+    Content: {"names": [...], "objective": "...", "query_embedding": "...(base64)"}
 
     The objective is the exact recall query used to select these insights,
     passed through to extract_learning for precise causal attribution.
+    The query_embedding is the pre-computed embedding of the objective,
+    avoiding redundant re-embedding during causal filtering.
     """
     try:
         injected_dir = get_helix_dir() / "injected"
@@ -127,6 +131,8 @@ def _write_sideband(agent_id: str, names: List[str], objective: str = None):
         data = {"names": names}
         if objective:
             data["objective"] = objective
+        if query_embedding:
+            data["query_embedding"] = query_embedding
         sideband_file.write_text(json.dumps(data))
     except Exception as e:
         _log_error("_write_sideband", e)
@@ -233,9 +239,18 @@ def process_hook_input(hook_input: dict) -> dict:
     names = [m.get("name", "") for m in memories if m.get("name")]
 
     # Write sideband file for SubagentStop feedback attribution
+    # Include cached query embedding to avoid redundant re-embedding in extract hook
     wrote_sideband = False
     if names:
-        _write_sideband(agent_id, names, objective=objective)
+        query_emb_b64 = None
+        try:
+            from memory.embeddings import embed as _embed, to_blob as _to_blob
+            emb_tuple = _embed(objective, is_query=True)  # LRU cache hit from recall()
+            if emb_tuple:
+                query_emb_b64 = base64.b64encode(_to_blob(emb_tuple)).decode('ascii')
+        except Exception:
+            pass  # embedding unavailable — extract hook will recompute
+        _write_sideband(agent_id, names, objective=objective, query_embedding=query_emb_b64)
         wrote_sideband = True
 
     result = _format_additional_context(memories, total_insights=total_insights)

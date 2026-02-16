@@ -79,7 +79,7 @@ def extract_insight(transcript: str, outcome: str = None,
         task_matches = re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
         task = task_matches[-1].strip() if task_matches else ""
 
-    content = f"When attempting '{task[:100]}': blocked by {reason[:200]}" if task else f"Blocked: {reason[:250]}"
+    content = f"When {task[:100]}, be aware that {reason[:200]} can block progress" if task else f"Be aware that {reason[:250]} can block progress"
     return {
         "content": content,
         "tags": ["derived", "failure"],

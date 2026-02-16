@@ -246,9 +246,10 @@ class TestSideband:
         assert data["objective"] == "Implement JWT authentication"
 
         # Read and verify
-        names, objective = extract_learning._read_sideband("agent-123")
+        names, objective, query_embedding = extract_learning._read_sideband("agent-123")
         assert set(names) == {"insight-a", "insight-b"}
         assert objective == "Implement JWT authentication"
+        assert query_embedding is None  # no embedding written in this test
 
         # File should be cleaned up after read
         assert not sideband_file.exists()
@@ -258,9 +259,10 @@ class TestSideband:
         from lib.hooks import extract_learning
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
 
-        names, objective = extract_learning._read_sideband("nonexistent-agent")
+        names, objective, query_embedding = extract_learning._read_sideband("nonexistent-agent")
         assert names == []
         assert objective is None
+        assert query_embedding is None
 
     def test_write_creates_directory(self, tmp_path, monkeypatch):
         """_write_sideband creates injected/ directory if missing."""
@@ -282,9 +284,10 @@ class TestSideband:
         injected_dir.mkdir()
         (injected_dir / "agent-bad.json").write_text("not json")
 
-        names, objective = extract_learning._read_sideband("agent-bad")
+        names, objective, query_embedding = extract_learning._read_sideband("agent-bad")
         assert names == []
         assert objective is None
+        assert query_embedding is None
 
 
 class TestFormatAdditionalContext:

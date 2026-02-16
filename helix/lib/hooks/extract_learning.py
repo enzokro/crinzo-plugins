@@ -175,7 +175,8 @@ def write_explorer_results(agent_id: str, findings: dict):
     result_file.write_text(json.dumps(findings, indent=2))
 
 
-def filter_causal_insights(injected_names: list, task_context: str) -> list:
+def filter_causal_insights(injected_names: list, task_context: str,
+                           context_embedding: bytes = None) -> list:
     """Filter injected insights to those causally relevant to the task.
 
     Computes semantic similarity between each injected insight's content
@@ -185,21 +186,28 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
     Args:
         injected_names: Names of insights that were injected
         task_context: Combined task objective + delivered summary text
+        context_embedding: Pre-computed query embedding blob from sideband.
+                          Skips redundant embed() call when available.
 
     Returns: Subset of injected_names that pass causal similarity check
     """
     if not injected_names or not task_context.strip():
-        return injected_names  # graceful fallback
+        return []  # conservative: no attribution without query context
 
     try:
         import numpy as np
-        from memory.embeddings import embed
         from memory.core import CAUSAL_SIMILARITY_THRESHOLD
         from db.connection import get_db
 
-        context_emb = embed(task_context, is_query=True)
-        if not context_emb:
-            return []  # embeddings unavailable — conservative: no feedback rather than undiscriminating
+        if context_embedding is not None:
+            # Pre-computed query embedding from sideband — skip embed() call
+            ctx_vec = np.frombuffer(context_embedding, dtype=np.float32)
+        else:
+            from memory.embeddings import embed
+            context_emb = embed(task_context, is_query=True)
+            if not context_emb:
+                return []  # embeddings unavailable — conservative
+            ctx_vec = np.array(context_emb, dtype=np.float32)
 
         # Batch-fetch all embeddings in one query instead of N individual SELECTs
         db = get_db()
@@ -227,7 +235,6 @@ def filter_causal_insights(injected_names: list, task_context: str) -> list:
 
         if emb_data:
             mat = np.frombuffer(b''.join(emb_data), dtype=np.float32).reshape(len(emb_data), -1)
-            ctx_vec = np.array(context_emb, dtype=np.float32)
             sims = mat @ ctx_vec
             for i, name in enumerate(valid_names):
                 if sims[i] >= CAUSAL_SIMILARITY_THRESHOLD:
@@ -243,25 +250,32 @@ def _read_sideband(agent_id: str) -> tuple:
     """Read and clean up sideband file written by SubagentStart hook.
 
     File: .helix/injected/{agent_id}.json
-    Returns: (names: list, objective: str|None)
+    Returns: (names: list, objective: str|None, query_embedding: bytes|None)
     Deletes file after reading.
     """
     try:
         sideband_file = get_helix_dir() / "injected" / f"{agent_id}.json"
         if not sideband_file.exists():
-            return [], None
+            return [], None, None
 
         data = json.loads(sideband_file.read_text())
         names = data.get("names", [])
         objective = data.get("objective")
 
+        # Decode pre-computed query embedding if present
+        query_embedding = None
+        raw_emb = data.get("query_embedding")
+        if raw_emb:
+            import base64
+            query_embedding = base64.b64decode(raw_emb)
+
         # Clean up
         sideband_file.unlink(missing_ok=True)
 
-        return names, objective
+        return names, objective, query_embedding
     except Exception as e:
         _log_error("_read_sideband", e)
-        return [], None
+        return [], None, None
 
 
 def apply_feedback(injected_names: list, outcome: str, causal_names: list = None) -> bool:
@@ -417,22 +431,26 @@ def process_hook_input(hook_input: dict) -> dict:
     causal_names = None
     all_injected = []
     try:
-        injected_from_sideband, sideband_objective = _read_sideband(agent_id)
+        injected_from_sideband, sideband_objective, sideband_embedding = _read_sideband(agent_id)
         all_injected = list(set(injected_from_sideband + result["injected"]))
 
         # Prefer sideband objective (exact recall query) over transcript reconstruction
+        # Only reuse sideband embedding when sideband objective is the context source
         if sideband_objective:
             task_context = sideband_objective
+            embedding_for_causal = sideband_embedding  # matches this context
         else:
             task_parts = result.get("task_parts", [])
             task_context = " ".join(task_parts[-2:]) + " " + (summary_parts[-1] if summary_parts else "")
+            embedding_for_causal = None  # reconstructed context, must recompute
 
         feedback_outcome = result["outcome"]
         # Treat crashed agents as blocked — insights correlated with crashes should be penalized
         if feedback_outcome == "crashed":
             feedback_outcome = "blocked"
         if all_injected and feedback_outcome in ("delivered", "blocked", "plan_complete"):
-            causal_names = filter_causal_insights(all_injected, task_context.strip())
+            causal_names = filter_causal_insights(all_injected, task_context.strip(),
+                                                  context_embedding=embedding_for_causal)
             feedback_applied = apply_feedback(all_injected, feedback_outcome, causal_names=causal_names)
     except Exception as e:
         _log_error("feedback_attribution", e)

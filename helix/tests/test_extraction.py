@@ -64,7 +64,7 @@ class TestExtractInsight:
 
         assert result is not None
         assert "failure" in result["tags"]
-        assert "BLOCKED" in result["content"] or "blocked" in result["content"].lower()
+        assert "block progress" in result["content"].lower()
 
     def test_no_insight_returns_none(self):
         """Return None when no insight can be extracted."""

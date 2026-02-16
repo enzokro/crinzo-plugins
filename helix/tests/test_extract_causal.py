@@ -23,11 +23,11 @@ class TestFilterCausalInsights:
         from lib.hooks.extract_learning import filter_causal_insights
         assert filter_causal_insights([], "some context") == []
 
-    def test_empty_context_returns_all(self):
-        """Empty task context returns all names (graceful fallback)."""
+    def test_empty_context_returns_empty(self):
+        """Empty task context returns empty list (conservative: no attribution without context)."""
         from lib.hooks.extract_learning import filter_causal_insights
         names = ["insight-a", "insight-b"]
-        assert filter_causal_insights(names, "") == names
+        assert filter_causal_insights(names, "") == []
 
     def test_filters_irrelevant_insights(self):
         """Insights semantically unrelated to task context are filtered out."""

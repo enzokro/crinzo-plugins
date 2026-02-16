@@ -26,8 +26,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List
 
-import numpy as np
-
 # Scoring: multiplicative — effectiveness modulates relevance, not competes with it
 # score = relevance * (0.5 + 0.5 * effectiveness)
 DUPLICATE_THRESHOLD = 0.85
@@ -141,6 +139,7 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
         db = get_db()
         rows = db.execute("SELECT name, embedding FROM insight WHERE embedding IS NOT NULL").fetchall()
         if rows:
+            import numpy as np
             q_vec = np.array(new_emb, dtype=np.float32)
             names = [r["name"] for r in rows]
             mat = np.frombuffer(b''.join(r["embedding"] for r in rows),
@@ -249,6 +248,7 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         return []
 
     # Vectorized cosine: single matrix multiply for all candidates
+    import numpy as np
     q_vec = np.array(q_emb, dtype=np.float32)
     mat = np.frombuffer(b''.join(r["embedding"] for r in candidates),
                         dtype=np.float32).reshape(len(candidates), -1)
