@@ -4,7 +4,7 @@ A self-learning orchestrator for Claude Code. Memory that earns its place throug
 
 ## The Core Insight
 
-Most agent memory systems accumulate knowledge indefinitely—storing everything, hoping relevance will emerge. This creates noise that drowns signal.
+Most agent memory systems accumulate knowledge indefinitely—storing everything, hoping relevance will emerge. The important signals can easily drown as storage noise grows.
 
 Helix inverts this: **memories must prove their worth**. Every insight tracks an effectiveness score (0-1) that updates via EMA on each use. Insights that consistently help rise in ranking; ineffective ones decay toward neutral and eventually prune. The system learns what actually works, not what seemed important at storage time.
 

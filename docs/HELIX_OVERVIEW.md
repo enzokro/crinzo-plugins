@@ -46,6 +46,29 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 
 **Key principle**: Hooks separate judgment from mechanics. Memory injection, learning extraction, and feedback attribution happen automatically. The orchestrator retains judgment: what to store, when to override feedback, what candidates to keep.
 
+## Orchestrator Phases
+
+Defined in `skills/helix/SKILL.md`. Six phases:
+
+```
+EXPLORE → RECALL → PLAN → BUILD (loop) → LEARN → COMPLETE
+```
+
+| Phase | Agent | Purpose |
+|-------|-------|---------|
+| **EXPLORE** | Explorer swarm (sonnet, parallel) | Map codebase structure into findings |
+| **RECALL** | Orchestrator (no agent) | Recall strategic insights, synthesize into CONSTRAINTS |
+| **PLAN** | Planner (opus) | Decompose objective into task DAG, respecting CONSTRAINTS |
+| **BUILD** | Builder swarm (opus, parallel waves) | Execute tasks; stall recovery uses recall too |
+| **LEARN** | Orchestrator + user | Observe patterns, ask user, store validated insights |
+| **COMPLETE** | Orchestrator | Summarize deliveries, blocks, stored insights |
+
+**RECALL** is the orchestrator's strategic memory layer. After exploration, the orchestrator calls `core.py recall` with the objective, then reasons about what the insights mean for *orchestration*—not tactical advice (hooks handle that), but decomposition constraints, verification requirements, risk areas, and sequencing hints. These are synthesized into a `CONSTRAINTS` block passed to the planner. On cold start (no insights), CONSTRAINTS is omitted; the planner operates as before with no degradation. Skipped on fast path (single-file changes).
+
+**Two-level memory injection:**
+- **Strategic (RECALL phase):** Orchestrator → `CONSTRAINTS` → planner prompt. Informs *how to decompose*.
+- **Tactical (SubagentStart hook):** Hook → `INSIGHTS` → builder/planner prompt. Informs *how to execute*.
+
 ## Agents
 
 Three agents with distinct roles:
@@ -93,14 +116,20 @@ Decomposes objective into task DAG using Claude Code's native Task system.
 Input:
 - `OBJECTIVE`: What to build
 - `EXPLORATION`: Merged explorer findings
+- `CONSTRAINTS` (optional): Strategic constraints from orchestrator's RECALL phase—decomposition patterns, verification requirements, risk areas, sequencing hints from past sessions. Respected unless they directly conflict with the current objective.
 
 Output:
 ```
 PLAN_SPEC:
-001: task-abc123 | Setup authentication service
-002: task-def456 | Add login routes | blocks: [001]
+[
+  {"seq": "001", "slug": "setup-models", "description": "...",
+   "relevant_files": ["src/models.py"], "blocked_by": [], "verify": "pytest tests/test_models.py"},
+  {"seq": "002", "slug": "implement-api", "description": "...",
+   "relevant_files": ["src/api/routes.py"], "blocked_by": ["001"], "verify": "pytest tests/test_api.py"}
+]
 
-PLAN_COMPLETE: 2 tasks
+PLAN_COMPLETE: 2 tasks specified
+INSIGHT: {"content": "When planning X, structure as Y because Z", "tags": ["architecture"]}
 ```
 
 Or clarification request:
@@ -557,9 +586,9 @@ No feedback is better than wrong feedback. The system protects itself from incor
 
 ### Stall Recovery
 
-The orchestrator detects stalls via `build_status()` (`pending_count > 0` but `ready_count == 0`) and chooses:
+The orchestrator detects stalls via `build_status()` (`pending_count > 0` but `ready_count == 0`). Before choosing a strategy, it recalls insights about the blocked area (`core.py recall "{blocked_task_description}" --limit 3`) to check for known stall patterns. Then chooses:
 - Skip single obvious blockers
-- Re-plan blocked subtrees
+- Re-plan blocked subtrees (informed by recalled constraints)
 - Abort after 3+ attempts on the same blocker
 
 ### PARTIAL Handling
@@ -686,7 +715,7 @@ python3 "$HELIX/lib/injection.py" inject --objective "query text" --limit 5
 
 | Command | Purpose |
 |---------|---------|
-| `/helix <objective>` | Full pipeline: explore → plan → build → learn → complete |
+| `/helix <objective>` | Full pipeline: explore → recall → plan → build → learn → complete |
 | `/helix-query <text>` | Search insights by meaning (top 10 results) |
 | `/helix-stats` | Memory health metrics |
 
