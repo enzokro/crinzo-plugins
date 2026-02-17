@@ -1,7 +1,7 @@
 ---
 name: helix-explorer
 description: Explore ONE scope. Part of swarm. Stay focused.
-model: haiku
+model: sonnet
 tools:
   - Read
   - Grep

@@ -32,19 +32,15 @@ Phases: `EXPLORE → PLAN → BUILD (loop with stall recovery) → LEARN → COM
 
 1. **Discover structure:** `git ls-files | head -80` — identify 3-6 natural partitions (by directory, module, or layer).
 
-2. **Spawn explorer swarm** (haiku, parallel, background): one Task per partition with `subagent_type="helix:helix-explorer"`, `model=haiku`, `max_turns=8`, `run_in_background=true`. Prompt: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: {objective}`. Track `EXPLORER_COUNT=N`.
+2. **Spawn explorer swarm** (sonnet, foreground parallel): one Task per partition with `subagent_type="helix:helix-explorer"`, `model=sonnet`, `max_turns=30`. Prompt: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: {objective}`. **All explorers in ONE message — no `run_in_background`.** They execute concurrently and all return before your next turn.
 
-3. **Wait and merge:**
-   ```bash
-   python3 "$HELIX/lib/build_loop.py" wait-for-explorers --count $EXPLORER_COUNT --timeout 90
-   ```
-   Returns JSON with `completed`, `findings` (merged, deduped by file path), and partial results on timeout.
+3. **Merge findings:** Parse each Task's return value for the explorer JSON. Merge and dedup findings by file path. On explorer crash/error, proceed with findings from successful explorers.
 
 ### PLAN
 
 **Goal:** Decompose objective into executable task DAG.
 
-1. **Spawn planner** (opus, **foreground**): `subagent_type="helix:helix-planner"`, `max_turns=12`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}`. Insights are auto-injected via hook.
+1. **Spawn planner** (opus, **foreground**): `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}`. Insights are auto-injected via hook.
 
 2. **Parse PLAN_SPEC** from returned result — extract the JSON array after `PLAN_SPEC:`.
 
@@ -76,13 +72,9 @@ Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique":
 
 #### Spawning Builders
 
-Spawn with `subagent_type="helix:helix-builder"`, `max_turns=25`, `run_in_background=true` (omit for single foreground task). Prompt format uses `format_prompt()` fields: TASK_ID, TASK, OBJECTIVE, VERIFY, RELEVANT_FILES, insights, INJECTED.
+Spawn with `subagent_type="helix:helix-builder"`, `max_turns=250`. Prompt format uses `format_prompt()` fields: TASK_ID, TASK, OBJECTIVE, VERIFY, RELEVANT_FILES, insights, INJECTED.
 
-**Background wait:**
-```bash
-python3 "$HELIX/lib/build_loop.py" wait-for-builders --task-ids "2,3" --timeout 90
-```
-Returns `completed`, `delivered`, `blocked`, `unknown`, `all_delivered`. Crashed agents land in `unknown` — re-dispatch or resolve.
+**Foreground parallel:** All builders for a wave go in ONE message — no `run_in_background`. They execute concurrently and all return before your next turn. Parse DELIVERED/BLOCKED/PARTIAL outcomes directly from each Task's return value. Crashed agents return errors — visible immediately.
 
 #### Build Loop
 
@@ -92,7 +84,9 @@ while pending tasks exist:
     If stalled → STALLED recovery (below)
     Batch inject → assemble PARENT_DELIVERIES ("[task_id] summary" per delivered blocker)
     Spawn builders (cap 6/wave; deep DAGs: narrow 2-3 with rapid succession)
-    Wait → process results → sanity-check: did deliveries change downstream assumptions?
+      — all in ONE message, NO run_in_background
+    Each Task returns → parse DELIVERED/BLOCKED → TaskUpdate outcomes
+    Sanity-check: did deliveries change downstream assumptions?
 ```
 
 **STALLED recovery:** Analyze the stall:
@@ -123,4 +117,4 @@ Summarize: tasks delivered, tasks blocked, insights stored. If all tasks blocked
 
 ---
 
-**NEVER use TaskOutput** — dumps 70KB+ execution traces. Agent contracts in `agents/*.md`.
+Agent contracts in `agents/*.md`.
