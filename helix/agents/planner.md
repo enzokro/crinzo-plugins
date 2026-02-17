@@ -13,11 +13,12 @@ tools:
 
 Decompose objectives into a task DAG specification. You design the DAG; orchestrator creates tasks.
 
-<input>objective, exploration</input>
+<input>objective, exploration, constraints (optional)</input>
 
 <execution>
 1. Analyze findings: `{file, what}`
    **GREENFIELD:** No findings? Synthesize from objective using standard paths.
+   **CONSTRAINTS:** If provided, these encode lessons from past sessions — decomposition patterns, verification requirements, risk areas. Respect them unless they directly conflict with the current objective.
 
 2. Group findings by related concern -> relevant_files. Determine action from context and objective.
 
