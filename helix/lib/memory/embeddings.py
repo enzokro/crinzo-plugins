@@ -1,6 +1,6 @@
 """Semantic embeddings for meaning-based retrieval.
 
-Uses Snowflake arctic-embed-m-v1.5 for 256-dim embeddings (Matryoshka truncation).
+Uses Snowflake arctic-embed-m-v1.5 for 768-dim embeddings (Matryoshka truncation).
 Asymmetric encoding: query prompt for searches, plain encode for documents.
 Falls back gracefully when unavailable.
 """
@@ -15,8 +15,9 @@ from typing import Optional, Tuple
 _model = None
 _loaded = False
 
-# Matryoshka truncation dimension (768 -> 256, 98.4% quality retention)
-EMBED_DIM = 256
+# Matryoshka truncation dimension (512, 256, etc)
+# Keep full for now since model is small and truncation doesn't help much with short texts.
+EMBED_DIM = 768
 
 # Max text length (~500 tokens)
 MAX_TEXT_CHARS = 2000
@@ -84,7 +85,7 @@ def warmup():
 
 
 def embed(text: str, is_query: bool = False) -> Optional[Tuple[float, ...]]:
-    """Generate 256-dim embedding for text.
+    """Generate 768-dim embedding for text.
 
     Args:
         text: Input text to embed.
