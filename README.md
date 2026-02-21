@@ -29,15 +29,16 @@ Opus 4.6 doesn't need training wheels. It reasons well, follows instructions, an
        │
        ▼
 ┌──────────────────────────────────────┐
-│  EXPLORE (parallel, sonnet)          │
-│  Swarm maps codebase structure       │
+│  RECALL                              │
+│  Query memory for strategic insights │
+│  → CONSTRAINTS + exploration targets │
 └──────────────────────────────────────┘
        │
        ▼
 ┌──────────────────────────────────────┐
-│  RECALL                              │
-│  Orchestrator recalls strategic      │
-│  insights → CONSTRAINTS for planner  │
+│  EXPLORE (parallel, sonnet)          │
+│  Swarm maps codebase structure       │
+│  Scope informed by recalled insights │
 └──────────────────────────────────────┘
        │
        ▼
@@ -71,11 +72,17 @@ Opus 4.6 doesn't need training wheels. It reasons well, follows instructions, an
 └──────────────────────────────────────┘
 ```
 
-Three specialized agents, each receiving context tuned to their role. Explorers discover codebase structure. Planners decompose objectives into tasks. Builders execute tasks and report outcomes. Learning extraction and feedback attribution happen automatically via hooks.
+Three specialized agents, each receiving context tuned to their role:
 
-Memory flows at two levels: the **RECALL** phase gives the orchestrator strategic context—decomposition constraints, risk areas, sequencing hints—which it synthesizes into a `CONSTRAINTS` block for the planner. Separately, the **SubagentStart hook** injects tactical insights directly into builder and planner prompts. Strategic and tactical memory are complementary; neither duplicates the other.
+- **Explorers** map codebase structure via a 5-step procedure (orient → map interfaces → trace dependencies → sample implementations → locate tests), receiving recalled insight context to prioritize areas the system has learned matter.
+- **Planners** decompose objectives into task DAGs with explicit task-sizing rules, dependency validation (data dependencies only—conceptual relatedness is not a dependency), concrete verification commands per task type, and anti-pattern guardrails.
+- **Builders** execute tasks through structured phases (pre-flight → implement → verify → failure diagnosis) with categorized error handling and two-attempt retry logic.
 
-The LEARN phase is not automated—the orchestrator presents observations and hypotheses to the user via structured options, incorporating domain knowledge the system cannot infer. Options encode cognitive scaffolding; the user confirms, corrects, or provides their own answer.
+Learning extraction and feedback attribution happen automatically via hooks.
+
+Memory flows at two levels: the **RECALL** phase gives the orchestrator strategic context—decomposition constraints, risk areas, sequencing hints—which it synthesizes into a `CONSTRAINTS` block for the planner and exploration targets for the explorer swarm. Separately, the **SubagentStart hook** injects tactical insights directly into builder and planner prompts. Strategic and tactical memory are complementary; neither duplicates the other.
+
+The LEARN phase is not automated—the orchestrator presents observations and hypotheses to the user via structured options, incorporating domain knowledge the system cannot infer. Options encode hypotheses derived from block reasons and task context; the user confirms, corrects, or provides their own answer.
 
 ## Memory That Learns
 
@@ -125,7 +132,7 @@ Helix uses Claude Code hooks for invisible learning operations:
 | SubagentStop | Any helix agent completes | Extract insights, apply causal feedback, write task status |
 | SessionEnd | Session ends | Cleanup ephemeral state, decay dormant insights, prune low performers |
 
-**SubagentStart** is the injection hook. It parses the parent transcript for the task objective, recalls relevant insights (suppressing names already injected into sibling agents for diversity), writes a sideband file with the query embedding for downstream causal attribution, and returns formatted insights as `additionalContext`. If the orchestrator already injected insights in the prompt, the hook skips to avoid duplication.
+**SubagentStart** is the injection hook. It parses the parent transcript for the task objective, recalls up to 3 relevant insights (suppressing names already injected into sibling agents for diversity), writes a sideband file with the query embedding for downstream causal attribution, and returns formatted insights as `additionalContext`. If the orchestrator already injected insights in the prompt, the hook skips to avoid duplication.
 
 **SubagentStop** is the extraction hook. Three-phase pipeline with independent error boundaries: (1) write handoff files (task status, explorer results), (2) determine outcome with retry for race conditions, (3) store insights + apply causal feedback + log diagnostics. Each phase failing does not block the others.
 
@@ -144,6 +151,11 @@ claude plugin install helix@crinzo-plugins
 /helix add user authentication with JWT tokens
 /helix refactor the payment processing module
 /helix fix the flaky integration tests
+```
+
+Plan-mode alternative—produces an insight-informed implementation plan for approval without executing:
+```bash
+/helix-meta-planner redesign the caching layer
 ```
 
 Query memory directly:
