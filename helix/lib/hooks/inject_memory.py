@@ -228,7 +228,7 @@ def process_hook_input(hook_input: dict) -> dict:
     total_insights = 0
     try:
         from memory.core import recall
-        memories = recall(objective, limit=5, suppress_names=suppress_names or None)
+        memories = recall(objective, limit=3, suppress_names=suppress_names or None)
         if not memories:
             from memory.core import count
             total_insights = count()

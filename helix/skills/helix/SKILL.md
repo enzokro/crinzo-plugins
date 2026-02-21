@@ -20,140 +20,122 @@ This file (created by SessionStart hook) contains the plugin root path with `lib
 
 Phases: `EXPLORE → RECALL → PLAN → BUILD (loop with stall recovery) → LEARN → COMPLETE`
 
-**Fast path:** If the objective is a single-file change with obvious scope (rename, config tweak, small fix), skip EXPLORE/PLAN. Spawn one builder directly with the objective as its task. LEARN phase still applies — store at least one insight if work was completed.
-
-### EXPLORE
-
-**Goal:** Understand the codebase landscape for this objective.
-
-**Greenfield fast path:** If `git ls-files | wc -l` returns 0 or only config files, skip exploration and proceed to PLAN with `EXPLORATION: {}`.
-
-**Standard path:**
-
-1. **Discover structure:** `git ls-files | head -80` — identify 3-6 natural partitions (by directory, module, or layer).
-
-2. **Spawn explorer swarm** (sonnet, foreground parallel): one Task per partition with `subagent_type="helix:helix-explorer"`, `model=sonnet`, `max_turns=30`. Prompt: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: {objective}`. **All explorers in ONE message — no `run_in_background`.** They execute concurrently and all return before your next turn.
-
-3. **Merge findings:** Parse each Task's return value for the explorer JSON. Merge and dedup findings by file path. On explorer crash/error, proceed with findings from successful explorers.
+**Fast path:** If the objective is a single-file change with obvious scope (rename, config tweak, small fix), skip EXPLORE/PLAN. Spawn one builder directly with the objective as its task. LEARN phase still applies.
 
 ### RECALL
 
-**Goal:** Bring the orchestrator's own accumulated knowledge to bear on this session.
+**Goal:** Bring accumulated knowledge to bear on orchestration decisions.
+**Exit when:** CONSTRAINTS block is ready (or omitted if recall is empty).
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "{objective_summary}" --limit 5
+python3 "$HELIX/lib/memory/core.py" recall "{objective_summary}" --limit 3
 ```
 
-If insights are returned, reason about their strategic implications — not the tactical advice itself (planners/builders get that via hooks), but what the insights mean for **how to orchestrate**:
-
-- **Decomposition constraints** — areas that must stay atomic, known tight coupling between modules
-- **Verification requirements** — tests or checks that past experience proved necessary
-- **Risk areas** — modules that historically block or require multiple attempts
+If insights returned, synthesize their strategic implications into a `CONSTRAINTS` block for the planner:
+- **Decomposition constraints** — areas that must stay atomic, known tight coupling
+- **Verification requirements** — tests that past experience proved necessary
+- **Risk areas** — modules that historically block or require retries
 - **Sequencing hints** — dependency orderings that succeeded or failed
 
-Synthesize into a `CONSTRAINTS` block for the planner prompt. Example:
-
+Example:
 ```
 CONSTRAINTS:
-- Keep auth middleware changes atomic (historically blocks when split across tasks)
-- Plan explicit mock setup task before any OAuth integration tests
-- The payments module requires integration tests — verify command must include them
+- Keep auth middleware changes atomic (historically blocks when split)
+- Plan explicit mock setup task before OAuth integration tests
+- Payments module requires integration tests in verify command
 ```
 
-**If recall returns empty** (cold start or no relevant matches): omit `CONSTRAINTS`. Planner operates as before — no degradation.
+**If recall returns empty:** omit CONSTRAINTS. No degradation.
+**Fast path:** Skip RECALL for single-file changes.
 
-**Fast path:** Skip RECALL. Single-file changes don't benefit from strategic memory.
+### EXPLORE
+
+**Goal:** Map codebase landscape for this objective, leveraging the recalled insights.
+**Exit when:** You have partitioned findings covering files relevant to the objective.
+
+**Greenfield fast path:** If `git ls-files | wc -l` returns 0 or only config files, skip to PLAN with `EXPLORATION: {}`.
+
+**Standard path:**
+1. `git ls-files | head -80` — identify 3-6 natural partitions.
+2. Spawn explorer swarm: `subagent_type="helix:helix-explorer"`, `model=sonnet`, `max_turns=30`. Prompt: `CONTEXT:{relevant_insights}\nSCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: {objective}`. **All explorers in ONE message — no `run_in_background`.**
+3. Merge findings by file path. Proceed with successful explorers on crash/error.
 
 ### PLAN
 
 **Goal:** Decompose objective into executable task DAG.
+**Exit when:** Tasks are created with valid dependencies and no cycles.
 
-1. **Spawn planner** (opus, **foreground**): `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}\nCONSTRAINTS: {constraints_from_recall}`. Omit CONSTRAINTS if RECALL returned empty. Tactical insights are auto-injected via hook.
+1. Spawn planner: `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}\nCONSTRAINTS: {constraints_from_recall}`. Omit CONSTRAINTS if RECALL was empty. Tactical insights auto-injected via hook.
 
-2. **Parse PLAN_SPEC** from returned result — extract the JSON array after `PLAN_SPEC:`.
+2. Parse PLAN_SPEC JSON array from result.
 
-3. **Create tasks from PLAN_SPEC:** `TaskCreate(subject="{seq}: {slug}", description=..., activeForm="Building {slug}", metadata={"seq": "{seq}", "relevant_files": [...]})`. Track `seq_to_id[spec.seq] = task_id`.
+3. Create tasks: `TaskCreate(subject="{seq}: {slug}", description=..., activeForm="Building {slug}", metadata={"seq": "{seq}", "relevant_files": [...]})`. Track `seq_to_id[spec.seq] = task_id`.
 
-4. **Set dependencies:** `TaskUpdate(taskId=seq_to_id[spec.seq], addBlockedBy=[seq_to_id[b], ...])`.
+4. Set dependencies: `TaskUpdate(taskId=seq_to_id[spec.seq], addBlockedBy=[seq_to_id[b], ...])`.
 
-5. **Validate DAG:**
-   ```bash
-   python3 "$HELIX/lib/build_loop.py" detect-cycles --dependencies '$DEPS_JSON'
-   ```
-   Confirm `relevant_files` reference paths from exploration findings.
+5. Validate: `python3 "$HELIX/lib/build_loop.py" detect-cycles --dependencies '$DEPS_JSON'`. Confirm relevant_files reference paths from exploration.
 
 If PLAN_SPEC empty or ERROR — add exploration context, re-run planner.
 
 ### BUILD
 
-**Goal:** Execute tasks, collect insights from outcomes.
-
-#### Memory Injection
-
-**Inject per wave, not per task.** `batch_inject` recalls insights for all ready tasks in one call, automatically diversifying so parallel builders get different insights:
-
-```bash
-python3 "$HELIX/lib/injection.py" batch-inject --tasks '$OBJECTIVES_JSON' --limit 5
-```
-
-Returns `{"results": [{"insights": [...], "names": [...]}, ...], "total_unique": N}`. The `INJECTED` line in builder prompts enables feedback attribution.
-
-#### Spawning Builders
-
-Spawn with `subagent_type="helix:helix-builder"`, `max_turns=250`. Prompt format uses `format_prompt()` fields: TASK_ID, TASK, OBJECTIVE, VERIFY, RELEVANT_FILES, insights, INJECTED.
-
-**Foreground parallel:** All builders for a wave go in ONE message — no `run_in_background`. They execute concurrently and all return before your next turn. Parse DELIVERED/BLOCKED/PARTIAL outcomes directly from each Task's return value. Crashed agents return errors — visible immediately.
+**Goal:** Execute all tasks, collect outcomes.
+**Exit when:** No pending tasks remain.
 
 #### Build Loop
 
 ```
-while pending tasks exist:
-    ready = build_loop.py status --tasks "$(TaskList as JSON)"  →  {ready, stalled, stall_info}
-    If stalled → STALLED recovery (below)
-    Batch inject → assemble PARENT_DELIVERIES ("[task_id] summary" per delivered blocker)
-    Spawn builders (cap 6/wave; deep DAGs: narrow 2-3 with rapid succession)
+while pending tasks:
+    status → {ready, stalled, stall_info}
+    If stalled → recovery (below)
+    Batch inject memory for ready tasks:
+        python3 "$HELIX/lib/injection.py" batch-inject --tasks '$OBJECTIVES_JSON' --limit 3
+    Assemble PARENT_DELIVERIES ("[task_id] summary" per delivered blocker)
+    Spawn builders (cap 6/wave): subagent_type="helix:helix-builder", max_turns=250
       — all in ONE message, NO run_in_background
-    Each Task returns → parse DELIVERED/BLOCKED → TaskUpdate outcomes
-    Sanity-check: did deliveries change downstream assumptions?
+    Parse DELIVERED/BLOCKED/PARTIAL → TaskUpdate outcomes
 ```
 
-**STALLED recovery:** First, recall insights about the blocked area:
+**On PARTIAL:** Fold REMAINING into new task next wave. Don't re-dispatch entire original.
+**On crash:** Re-dispatch once. Second crash → mark blocked.
+
+#### Stall Recovery
+
+First, recall insights about the blocked area:
 ```bash
 python3 "$HELIX/lib/memory/core.py" recall "{blocked_task_description}" --limit 3
 ```
-Use any returned insights to inform the recovery strategy — the system may have seen this stall pattern before. Then analyze the stall:
-- **One task, obvious workaround:** SKIP it (TaskUpdate status="completed", metadata={helix_outcome: "skipped"}) and store failure insight.
-- **Blocked subtree, fixable scope:** Re-plan the blocked task and its dependents only. Create replacement tasks wired to the same predecessors. Do NOT replan the entire DAG.
-- **Verify was unclear or wrong:** REPLAN with tighter verification constraints.
-- **Systemic or 3+ attempts on same blocker:** ABORT and escalate to user.
 
-**On PARTIAL:** Fold the REMAINING work into a new task in the next wave. Do not re-dispatch the entire original task.
-
-**On unknown/crashed:** Re-dispatch. If a task crashes twice, mark blocked and surface in LEARN.
+Then analyze:
+- **One task, obvious workaround:** SKIP (TaskUpdate completed + metadata={helix_outcome: "skipped"}) and store failure insight.
+- **Blocked subtree, fixable scope:** Re-plan just the blocked task and dependents. Wire replacement tasks to same predecessors. Don't replan entire DAG.
+- **Verify was unclear/wrong:** REPLAN with tighter verification.
+- **3+ attempts on same blocker:** ABORT and escalate to user.
 
 ### LEARN
 
-**Not optional.** You see cross-task patterns builders cannot: plan failures, dependency ordering, scope issues. Three steps: observe, ask, store. Builders already store task-level insights via hooks — your job is cross-task and strategic patterns.
+**Not optional.** You see cross-task patterns builders cannot. Three steps: observe, ask, store.
+**Exit when:** At least one insight stored (or user explicitly dismisses).
 
 #### Step 1: Observe
 
-Review all outcomes internally. Note: which tasks blocked and why, which needed retries, what ordering/scope issues emerged, what the user might know that you don't. Formulate hypotheses. **Do not store anything yet.**
+Review all outcomes internally. Note: which tasks blocked and why, retry patterns, ordering issues, what the user might know. Formulate hypotheses. **Do not store yet.**
 
 #### Step 2: Ask
 
-Present your observations and hypotheses to the user via `AskUserQuestion`. The user holds domain knowledge, business rules, and historical context inaccessible to the system. Their answer informs what you store — ask first, store after.
+Present observations to user via `AskUserQuestion`. The user holds domain knowledge inaccessible to the system.
 
 **When to ask:**
 
 | Outcome | Ask? | Rationale |
 |---|---|---|
-| Fast-path single builder, DELIVERED | No | Trivial; not worth interrupting |
-| Any BLOCKED or PARTIAL | Yes | Highest learning value — user knows *why* |
+| Fast-path single builder, DELIVERED | No | Trivial |
+| Any BLOCKED or PARTIAL | Yes | Highest learning value |
 | All DELIVERED (multi-task) | Yes | Approach/ordering insights |
 
-**Question design — options do the cognitive work.** Encode your hypotheses as options derived from block reasons, relevant files, and task context. The user confirms, corrects, or provides their own answer via "Other".
+**Question design — options encode hypotheses.** Derive from block reasons, relevant files, task context. User confirms, corrects, or types "Other".
 
-BLOCKED/PARTIAL example — hypothesize root cause:
+BLOCKED/PARTIAL example:
 ```
 AskUserQuestion([{
   question: "Builder for '003: migrate-auth-tokens' was blocked: test suite timed out on OAuth flows. Most likely cause?",
@@ -164,10 +146,10 @@ AskUserQuestion([{
     {label: "Config issue", description: "Test environment OAuth config is wrong or stale"}
   ],
   multiSelect: false
-}]
+}])
 ```
 
-All DELIVERED example — probe for hidden issues:
+All DELIVERED example:
 ```
 AskUserQuestion([{
   question: "All 4 tasks delivered. The auth module needed 2 attempts (stall recovery). Worth remembering anything about this area?",
@@ -185,13 +167,13 @@ AskUserQuestion([{
 
 Synthesize orchestrator observations + user response into insights.
 
-- **User selects option or types "Other"**: Combine your observation with their answer into a "When X, do Y because Z" insight. Tag with `user-provided`.
+- **User selects option or types "Other"**: Combine observation with their answer. Tag `user-provided`.
   ```bash
   python3 "$HELIX/lib/memory/core.py" store \
     --content "When testing OAuth token migration, use mock provider for unit tests because the test OAuth provider rate-limits at 10 req/s and blocks CI" \
     --tags '["user-provided", "testing", "auth"]'
   ```
-- **User dismisses** ("All good" / equivalent): Fall back to your own cross-task observations. Store as before without `user-provided` tag.
+- **User dismisses**: Fall back to your own cross-task observations. Store without `user-provided` tag.
 - **Skipped ask** (fast-path): Store your own observations directly.
 
 Test: would this help a developer 3 months from now? **Minimum:** one insight per session that completed work.

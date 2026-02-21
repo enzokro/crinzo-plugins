@@ -2,7 +2,7 @@
 
 Single injection function replaces 4-query context builder.
 Shared formatting used by both orchestrator (batch_inject) and hook (inject_memory).
-CLI entry point: python3 injection.py batch-inject --tasks '["obj1","obj2"]' --limit 5
+CLI entry point: python3 injection.py batch-inject --tasks '["obj1","obj2"]' --limit 3
 """
 
 import json
@@ -54,7 +54,7 @@ def format_insights(memories: list) -> Tuple[List[str], List[str]]:
     return lines, names
 
 
-def inject_context(objective: str, limit: int = 5,
+def inject_context(objective: str, limit: int = 3,
                     min_relevance: Optional[float] = None,
                     diversify: bool = True) -> dict:
     """Build memory context for any agent.
@@ -161,7 +161,7 @@ def format_prompt(
     return "\n".join(lines)
 
 
-def batch_inject(tasks: List[str], limit: int = 5) -> dict:
+def batch_inject(tasks: List[str], limit: int = 3) -> dict:
     """Inject context for multiple tasks with cross-task diversity.
 
     Session diversity is automatically applied: insights injected for
@@ -204,11 +204,11 @@ if __name__ == "__main__":
 
     s = sub.add_parser("batch-inject", help="Inject context for multiple tasks with cross-task diversity")
     s.add_argument("--tasks", required=True, help="JSON array of task objectives")
-    s.add_argument("--limit", type=int, default=5, help="Max insights per task")
+    s.add_argument("--limit", type=int, default=3, help="Max insights per task")
 
     s = sub.add_parser("inject", help="Inject context for a single task")
     s.add_argument("objective", help="Task objective for semantic search")
-    s.add_argument("--limit", type=int, default=5)
+    s.add_argument("--limit", type=int, default=3)
 
     args = p.parse_args()
 
