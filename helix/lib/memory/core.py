@@ -40,6 +40,7 @@ CAUSAL_ADJUSTMENT_FLOOR = 0.3   # Minimum multiplier for causal hit ratio
 CAUSAL_MIN_USES = 3             # Uses before causal adjustment kicks in
 RECENCY_DECAY_PER_DAY = 0.001  # 0.1% score penalty per day unused, floor 0.9
 RECENCY_FLOOR = 0.9             # Never-used floor multiplier
+RRF_K = 60                      # Reciprocal Rank Fusion smoothing constant
 
 # Support both module and script execution
 try:
@@ -112,6 +113,55 @@ def _to_dict_full(row) -> dict:
         except Exception:
             pass
     return d
+
+
+# =============================================================================
+# FTS5 HELPERS
+# =============================================================================
+
+# FTS5 reserved words that must be stripped from user queries
+_FTS5_RESERVED = frozenset({"AND", "OR", "NOT", "NEAR"})
+
+
+def _build_fts_query(query: str) -> str:
+    """Sanitize natural-language query into FTS5 MATCH expression.
+
+    Splits on whitespace, strips non-alphanumeric chars (keeps hyphens),
+    removes FTS5 reserved words, wraps tokens in double quotes for literal
+    matching, joins with OR.
+
+    Returns empty string if no valid tokens remain.
+    """
+    tokens = []
+    for word in query.split():
+        # Strip non-alphanumeric except hyphens (for terms like ECONNREFUSED)
+        cleaned = re.sub(r"[^a-zA-Z0-9\-]", "", word)
+        if not cleaned:
+            continue
+        if cleaned.upper() in _FTS5_RESERVED:
+            continue
+        tokens.append(f'"{cleaned}"')
+    return " OR ".join(tokens)
+
+
+def _fts_search(db, query: str, limit: int, suppress_set: set) -> list:
+    """Run FTS5 keyword search, returning (rowid, rank_position) tuples.
+
+    Gracefully returns [] on empty query, FTS5 error, or missing table.
+    """
+    fts_expr = _build_fts_query(query)
+    if not fts_expr:
+        return []
+
+    try:
+        rows = db.execute(
+            "SELECT rowid, rank FROM insight_fts WHERE insight_fts MATCH ? ORDER BY rank LIMIT ?",
+            (fts_expr, limit)
+        ).fetchall()
+    except Exception:
+        return []
+
+    return rows
 
 
 # =============================================================================
@@ -206,7 +256,7 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
 def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
            min_relevance: float = MIN_RELEVANCE_DEFAULT,
            suppress_names: List[str] = None) -> List[dict]:
-    """Recall insights by semantic similarity.
+    """Recall insights by hybrid vector + keyword search with RRF fusion.
 
     Args:
         query: Search query
@@ -214,8 +264,9 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         min_effectiveness: Minimum effectiveness threshold
         min_relevance: Minimum cosine similarity (0.35 default). "No memory" beats "wrong memory."
 
-    Scoring: relevance * (0.5 + 0.5 * eff) * recency
-    Recency: 0.1% penalty per day since last use, floor 0.9.
+    Scoring: rrf_score * (0.5 + 0.5 * eff) * recency
+    RRF fuses vector similarity ranking with FTS5 keyword ranking.
+    Degrades gracefully to pure vector when FTS5 is unavailable.
 
     Returns list with _relevance, _score fields.
     """
@@ -257,15 +308,67 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
     mat = build_embedding_matrix(r["embedding"] for r in candidates)
     similarities = mat @ q_vec
 
-    # Score and filter by min_relevance
-    # Multiplicative: score = relevance * (0.5 + 0.5 * effectiveness)
-    scored = []
-    for i, r in enumerate(candidates):
-        rel = float(similarities[i])
-        if rel < min_relevance:
+    # --- Vector ranking ---
+    # Build (index, cosine_sim) sorted descending, filtered by min_relevance
+    vector_ranked = sorted(
+        ((i, float(similarities[i])) for i in range(len(candidates))),
+        key=lambda x: -x[1]
+    )
+    vector_ranked = [(i, sim) for i, sim in vector_ranked if sim >= min_relevance]
+
+    # Map candidate index → (vector_rank_position_1indexed, cosine_sim)
+    vec_rank_map = {}
+    for rank_pos, (idx, sim) in enumerate(vector_ranked, 1):
+        vec_rank_map[idx] = (rank_pos, sim)
+
+    # --- FTS5 keyword ranking ---
+    fts_rows = _fts_search(db, query, limit * 3, suppress_set)
+
+    # Map candidate index → fts_rank_position (1-indexed)
+    # FTS returns rowids; match against candidate row IDs
+    candidate_id_to_idx = {r["id"]: i for i, r in enumerate(candidates)}
+    fts_rank_map = {}
+    fts_pos = 0
+    for fts_row in fts_rows:
+        rowid = fts_row["rowid"] if isinstance(fts_row, dict) or hasattr(fts_row, "keys") else fts_row[0]
+        idx = candidate_id_to_idx.get(rowid)
+        if idx is None:
+            continue  # FTS hit not in candidate set (filtered by effectiveness/suppress)
+        if suppress_set and candidates[idx]["name"] in suppress_set:
             continue
+        fts_pos += 1
+        fts_rank_map[idx] = fts_pos
+
+    # --- RRF fusion ---
+    # Union of candidates appearing in either ranking
+    all_candidate_idxs = set(vec_rank_map.keys()) | set(fts_rank_map.keys())
+
+    if not all_candidate_idxs:
+        return []
+
+    # Miss penalties: rank beyond last position in each list
+    vec_miss = len(vector_ranked) + 1
+    fts_miss = max(fts_pos, 1) + 1
+
+    scored = []
+    for idx in all_candidate_idxs:
+        r = candidates[idx]
+
+        # Cosine similarity (already computed for all candidates)
+        cosine_sim = float(similarities[idx])
+
+        # min_relevance gate applies to all candidates, including FTS-boosted ones.
+        # FTS boosts ranking within the relevant set, not bypasses the gate.
+        if cosine_sim < min_relevance:
+            continue
+
+        # RRF score
+        v_rank = vec_rank_map[idx][0] if idx in vec_rank_map else vec_miss
+        f_rank = fts_rank_map.get(idx, fts_miss)
+        rrf_score = 1.0 / (RRF_K + v_rank) + 1.0 / (RRF_K + f_rank)
+
+        # Effectiveness × recency modulation (unchanged)
         eff = _causal_adjusted_effectiveness(r)
-        # Mild recency signal: 0.1% penalty per day since last use, floor 0.9
         last_used = r["last_used"]
         if last_used:
             try:
@@ -275,14 +378,12 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
                 recency = 1.0
         else:
             recency = 0.95  # never-used insights: mild 5% penalty
-        base_score = rel * (0.5 + 0.5 * eff)
-        scored.append((base_score * recency, rel, eff, i))
+
+        final_score = rrf_score * (0.5 + 0.5 * eff) * recency
+        scored.append((final_score, cosine_sim, eff, idx))
 
     scored.sort(key=lambda x: -x[0])
     top = scored[:limit]
-
-    if not top:
-        return []
 
     # Build results from already-fetched full rows (O(1) index lookup)
     results = []

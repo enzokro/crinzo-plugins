@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v10: insight table with 256-dim snowflake-arctic-embed-m-v1.5 embeddings.
+Schema v11: insight table + FTS5 hybrid search index.
 """
 
 import os
@@ -145,6 +145,36 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         try:
             db.execute("DROP INDEX IF EXISTS idx_insight_name")
             db.execute("INSERT OR REPLACE INTO schema_version VALUES (10, datetime('now'))")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
+
+    # Migration v11: FTS5 full-text search index on insight content + tags
+    if current_version < 11:
+        try:
+            db.executescript("""
+                -- External content FTS5 table (no data duplication)
+                CREATE VIRTUAL TABLE IF NOT EXISTS insight_fts
+                    USING fts5(content, tags, content=insight, content_rowid=id);
+
+                -- Auto-sync triggers
+                CREATE TRIGGER IF NOT EXISTS insight_fts_ai AFTER INSERT ON insight BEGIN
+                    INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS insight_fts_ad AFTER DELETE ON insight BEGIN
+                    INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS insight_fts_au AFTER UPDATE OF content, tags ON insight BEGIN
+                    INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
+                    INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
+                END;
+
+                -- Index existing insights
+                INSERT INTO insight_fts(insight_fts) VALUES('rebuild');
+            """)
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (11, datetime('now'))")
             db.commit()
         except sqlite3.OperationalError:
             pass

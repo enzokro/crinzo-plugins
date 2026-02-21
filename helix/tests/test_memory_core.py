@@ -781,3 +781,190 @@ class TestRecencyScoring:
         assert r2["name"] in names
         # r1 (recently used, recency=1.0) should rank above r2 (never used, recency=0.95)
         assert names.index(r1["name"]) < names.index(r2["name"])
+
+
+class TestBuildFTSQuery:
+    """Tests for _build_fts_query FTS5 expression builder."""
+
+    def test_basic_query(self):
+        """Basic words become quoted OR expression."""
+        from lib.memory.core import _build_fts_query
+
+        result = _build_fts_query("fix database error")
+        assert result == '"fix" OR "database" OR "error"'
+
+    def test_special_chars_stripped(self):
+        """Non-alphanumeric chars (except hyphens) are stripped."""
+        from lib.memory.core import _build_fts_query
+
+        result = _build_fts_query("sys.path[0]")
+        # Dots and brackets stripped within a single token (no whitespace split)
+        assert '"syspath0"' in result
+
+    def test_empty_query(self):
+        """Empty string returns empty."""
+        from lib.memory.core import _build_fts_query
+
+        assert _build_fts_query("") == ""
+
+    def test_fts_operators_stripped(self):
+        """FTS5 reserved words (AND, OR, NOT, NEAR) are removed."""
+        from lib.memory.core import _build_fts_query
+
+        assert _build_fts_query("NOT OR AND NEAR") == ""
+
+    def test_hyphenated_terms_preserved(self):
+        """Hyphens are kept for terms like ECONNREFUSED or kebab-case."""
+        from lib.memory.core import _build_fts_query
+
+        result = _build_fts_query("ECONNREFUSED node-js")
+        assert '"ECONNREFUSED"' in result
+        assert '"node-js"' in result
+
+
+class TestFTSSync:
+    """Tests for FTS5 trigger-based sync with insight table."""
+
+    def test_fts_populated_on_store(self, test_db, mock_embeddings):
+        """Storing an insight auto-populates FTS index via trigger."""
+        from lib.memory.core import store
+
+        store(content="When encountering ECONNREFUSED errors in Node.js, check if the target service is running")
+
+        rows = test_db.execute(
+            "SELECT * FROM insight_fts WHERE insight_fts MATCH '\"ECONNREFUSED\"'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_fts_updated_on_merge(self, test_db, mock_embeddings):
+        """Merge with content update refreshes FTS via UPDATE trigger."""
+        from lib.memory.core import store
+
+        short = "When encountering ECONNREFUSED errors in Node.js, check the target service"
+        long = "When encountering ECONNREFUSED errors in Node.js, check if the target service is running and the port is correct"
+
+        store(content=short)
+        store(content=long)  # triggers merge (longer content replaces)
+
+        # FTS should reflect the updated content
+        rows = test_db.execute(
+            "SELECT * FROM insight_fts WHERE insight_fts MATCH '\"port\"'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_fts_cleaned_on_prune(self, test_db, mock_embeddings):
+        """Pruning an insight removes it from FTS via DELETE trigger."""
+        from lib.memory.core import store, feedback, prune
+
+        result = store(content="When optimizing queries, add indexes on every column because speed matters")
+
+        # Drive effectiveness down to trigger prune
+        for _ in range(6):
+            feedback([result["name"]], "blocked")
+
+        prune(min_effectiveness=0.25, min_uses=3)
+
+        rows = test_db.execute(
+            "SELECT * FROM insight_fts WHERE insight_fts MATCH '\"indexes\"'"
+        ).fetchall()
+        assert len(rows) == 0
+
+    def test_fts_unaffected_by_feedback(self, test_db, mock_embeddings):
+        """Feedback (effectiveness/use_count update) does NOT fire FTS trigger."""
+        from lib.memory.core import store, feedback
+
+        result = store(content="When encountering SIGTERM signals, implement graceful shutdown handlers")
+        feedback([result["name"]], "delivered")
+
+        # FTS should still work — trigger only fires on content/tags changes
+        rows = test_db.execute(
+            "SELECT * FROM insight_fts WHERE insight_fts MATCH '\"SIGTERM\"'"
+        ).fetchall()
+        assert len(rows) == 1
+
+
+class TestHybridRecall:
+    """Tests for hybrid vector + FTS5 recall with RRF fusion."""
+
+    def test_hybrid_finds_exact_keyword(self, test_db, mock_embeddings):
+        """FTS keyword match surfaces insights that vector similarity alone might miss."""
+        from lib.memory.core import store, recall
+
+        # Store insight with a unique technical term
+        store(content="When encountering ECONNREFUSED errors in Node.js, check if the target service is running and verify the port")
+
+        # With mock embeddings, vector similarity is hash-based (not semantic).
+        # FTS keyword match on "ECONNREFUSED" should ensure this appears.
+        results = recall("ECONNREFUSED", limit=5, min_relevance=0.0)
+        names = [r["name"] for r in results]
+
+        # The insight should appear (FTS boost even if vector sim is low)
+        assert len(results) > 0
+        assert any("econnrefused" in n for n in names)
+
+    def test_hybrid_preserves_vector_ranking(self, test_db, mock_embeddings):
+        """When no keyword signal differentiates, vector ranking is preserved."""
+        from lib.memory.core import store, recall
+
+        store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+        store(content="When handling async errors, always wrap in try/catch because unhandled rejections crash Node")
+        store(content="When implementing auth, use JWT with refresh tokens for better security and session management")
+
+        results = recall("authentication and JWT tokens", limit=5, min_relevance=0.0)
+
+        assert len(results) > 0
+        # Results should have score fields
+        for r in results:
+            assert "_relevance" in r
+            assert "_score" in r
+        # Scores should be sorted descending
+        scores = [r["_score"] for r in results]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_hybrid_degrades_gracefully_without_fts(self, test_db, mock_embeddings):
+        """Recall still works if FTS5 table is missing (pure vector fallback)."""
+        from lib.memory.core import store, recall
+
+        store(content="When debugging Python imports, check sys.path first because module resolution depends on it")
+
+        # Drop FTS table to simulate missing FTS5
+        test_db.execute("DROP TABLE IF EXISTS insight_fts")
+        test_db.commit()
+
+        results = recall("Python debugging imports", limit=5, min_relevance=0.0)
+
+        assert len(results) > 0
+        assert results[0]["_relevance"] > 0
+
+    def test_hybrid_respects_suppress_names(self, test_db, mock_embeddings):
+        """Suppressed names excluded from hybrid results (both vector and FTS)."""
+        from lib.memory.core import store, recall
+
+        r1 = store(content="When encountering ECONNREFUSED errors in Node.js, check the service status")
+        r2 = store(content="When handling async errors in Node.js, wrap in try/catch for safety reasons")
+
+        # Suppress r1
+        results = recall("ECONNREFUSED Node.js errors", limit=5, min_relevance=0.0,
+                         suppress_names=[r1["name"]])
+        names = [r["name"] for r in results]
+
+        assert r1["name"] not in names
+
+    def test_hybrid_applies_effectiveness_modulation(self, test_db, mock_embeddings):
+        """Higher effectiveness insight ranks above lower one after RRF fusion."""
+        from lib.memory.core import store, recall, feedback
+
+        r1 = store(content="When database connections exhaust under load, increase pool size and add connection timeout")
+        r2 = store(content="When database connections leak during exceptions, use context manager and ensure cleanup in finally")
+
+        # Boost r1, penalize r2
+        feedback([r1["name"]], "delivered")
+        feedback([r1["name"]], "delivered")
+        feedback([r2["name"]], "blocked")
+
+        results = recall("database connection issues", limit=5, min_relevance=0.0)
+        names = [r["name"] for r in results]
+
+        assert r1["name"] in names
+        assert r2["name"] in names
+        assert names.index(r1["name"]) < names.index(r2["name"])
