@@ -96,16 +96,22 @@ store("When X, do Y because Z", tags=["pattern"])
   → Initial effectiveness: 0.5 (neutral)
 ```
 
-**Scoring formula (multiplicative):**
+**Hybrid retrieval with RRF fusion:**
 ```
-score = relevance × (0.5 + 0.5 × effectiveness) × recency
+recall(query)
+  → Vector: embed(query) → dot product against all insights → rank by cosine sim
+  → Keyword: FTS5 MATCH on insight content + tags → rank by BM25
+  → Fuse: RRF score = 1/(K + vec_rank) + 1/(K + fts_rank)   [K=60]
+  → Final: rrf_score × (0.5 + 0.5 × effectiveness) × recency
 
-eff=1.0 (proven):  score = relevance × 1.0 × recency
-eff=0.5 (neutral): score = relevance × 0.75 × recency
-eff=0.0 (bad):     score = relevance × 0.5 × recency
+eff=1.0 (proven):  score = rrf × 1.0 × recency
+eff=0.5 (neutral): score = rrf × 0.75 × recency
+eff=0.0 (bad):     score = rrf × 0.5 × recency
 
 recency = max(0.9, 1.0 - 0.001 × days_unused)
 ```
+
+FTS5 boosts ranking for exact keyword matches (e.g., `ECONNREFUSED`, `JWT`, `SQLAlchemy`) that vector similarity may underweight. Degrades gracefully to pure vector when FTS5 is unavailable. The `min_relevance` gate applies to all candidates—FTS cannot bypass it.
 
 **Causal feedback (EMA):**
 ```
@@ -200,7 +206,7 @@ Agent memory systems fall into four categories: static instruction files (CLAUDE
 | [Zep/Graphiti](https://github.com/getzep/graphiti) | Hybrid (cosine + BM25 + graph) | Yes | Temporal invalidation | No | No |
 | [claude-mem](https://github.com/thedotmack/claude-mem) | 3-layer progressive | Yes | Implicit (usage patterns) | No | No |
 | [engram](https://github.com/foramoment/engram-ai-memory) | Cosine + graph-hop | Yes | Ebbinghaus decay | No | No |
-| **Helix** | Semantic (dot product, L2-norm) | Yes | EMA + causal filtering + asymmetric erosion/decay + prune | Yes | Yes |
+| **Helix** | Hybrid (vector + FTS5, RRF fusion) | Yes | EMA + causal filtering + asymmetric erosion/decay + prune | Yes | Yes |
 
 **Closed feedback loop.** Most memory systems are write-only (CLAUDE.md, auto-memory) or perform write-time curation where an LLM decides what to keep (Mem0). Neither approach adjusts memory quality based on whether the memory actually helped. Research on accumulation-based systems confirms sustained performance decline from memory inflation ([Memory-R1](https://arxiv.org/abs/2508.19828), [MEM1](https://arxiv.org/abs/2506.15841)). Helix updates each insight's effectiveness via EMA after every task outcome, with asymmetric erosion ensuring bad insights do not self-rehabilitate without positive causal evidence.
 

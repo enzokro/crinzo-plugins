@@ -350,7 +350,16 @@ CREATE TABLE insight (
 -- UNIQUE on name provides automatic index; no additional indexes
 ```
 
-**Schema version:** v10. Migrations in `lib/db/connection.py:_apply_migrations()`. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`.
+```sql
+CREATE VIRTUAL TABLE insight_fts USING fts5(
+    content, tags,
+    content=insight, content_rowid=id
+);
+
+-- Auto-sync triggers: INSERT, DELETE, UPDATE OF content/tags
+```
+
+**Schema version:** v11. Migrations in `lib/db/connection.py:_apply_migrations()`. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`, v11 adds FTS5 table (`insight_fts`) with 3 auto-sync triggers for hybrid search.
 
 ### 8 Primitives (`lib/memory/core.py`)
 
@@ -358,8 +367,8 @@ CREATE TABLE insight (
 store(content, tags=None, initial_effectiveness=0.5)
     # → {"status": "added"|"merged"|"rejected", "name": str, "reason": str}
 
-recall(query, limit=3, min_effectiveness=0.0, min_relevance=0.35, suppress_names=None)
-    # → [insights with _relevance, _effectiveness, _score]
+recall(query, limit=5, min_effectiveness=0.0, min_relevance=0.35, suppress_names=None)
+    # → [insights with _relevance, _effectiveness, _score]  (hybrid vector+FTS5, RRF fusion)
 
 get(name)
     # → single insight dict with parsed tags, or None
@@ -382,21 +391,32 @@ health()
 
 **Performance note:** `numpy` is imported locally only in `store()` and `recall()`. Lightweight operations (`count`, `decay`, `feedback`, `prune`, `health`, `get`) avoid the ~100-200ms numpy import tax.
 
-### Scoring Formula
+### Scoring Formula (Hybrid Retrieval with RRF)
+
+Recall uses hybrid retrieval: vector similarity and FTS5 keyword search, fused via Reciprocal Rank Fusion (RRF).
 
 ```
-score = relevance × (0.5 + 0.5 × effectiveness) × recency
+1. Vector ranking:  embed(query) → dot product against all insight embeddings → rank by cosine sim
+2. Keyword ranking: FTS5 MATCH on insight content + tags → rank by BM25
+3. RRF fusion:      rrf_score = 1/(K + vec_rank) + 1/(K + fts_rank)    [K=60]
+4. Final score:     rrf_score × (0.5 + 0.5 × effectiveness) × recency
 ```
 
 | Component | Source | Range |
 |-----------|--------|-------|
-| `relevance` | Cosine similarity (dot product of L2-normalized vectors) | 0.0-1.0 |
+| `rrf_score` | Reciprocal Rank Fusion of vector + FTS5 rankings | 0.0-~0.033 |
 | `effectiveness` | Causal-adjusted: `eff × max(0.3, causal_hits/use_count)` for ≥3 uses | 0.0-1.0 |
 | `recency` | `max(0.9, 1.0 - 0.001 × days_unused)`, never-used = 0.95 | 0.9-1.0 |
 
-**Effectiveness modulates relevance, not competes with it.** A proven insight (eff=1.0) gets full relevance; a neutral insight (eff=0.5) gets 75%; a bad insight (eff=0.0) still gets 50%—it is demoted, not hidden.
+**Why hybrid?** Vector similarity captures semantic meaning but can underweight exact technical terms (error codes, library names, CLI flags). FTS5 keyword matching surfaces these precisely. RRF combines both rankings without requiring score normalization—an insight that ranks high in both lists gets a strong boost; one that ranks high in only one still surfaces.
 
-**Minimum relevance gate:** `MIN_RELEVANCE_DEFAULT = 0.35`. Arctic-embed-m-v1.5 produces 0.05-0.25 for unrelated content, 0.35+ for related content. Below the gate, insights are excluded regardless of effectiveness.
+**Graceful degradation:** If FTS5 is unavailable (missing table, error), recall falls back to pure vector ranking. The `min_relevance` cosine gate (`MIN_RELEVANCE_DEFAULT = 0.35`) applies to all candidates—FTS cannot bypass it.
+
+**FTS5 query sanitization:** Natural-language queries are tokenized, stripped of non-alphanumeric characters (hyphens preserved), FTS5 reserved words (`AND`, `OR`, `NOT`, `NEAR`) removed, and remaining tokens quoted and joined with `OR`.
+
+**Effectiveness modulates RRF score, not competes with it.** A proven insight (eff=1.0) gets full score; a neutral insight (eff=0.5) gets 75%; a bad insight (eff=0.0) still gets 50%—it is demoted, not hidden.
+
+**FTS5 sync:** The `insight_fts` table uses external content mode (no data duplication). Three triggers auto-sync on INSERT, DELETE, and UPDATE OF content/tags. Feedback-only updates (effectiveness, use_count) do not fire triggers.
 
 ### Feedback System
 
@@ -497,7 +517,7 @@ They must accumulate positive causal feedback to rise above the baseline. DELIVE
 | Max text | 2000 characters (truncated before cache lookup) |
 | Storage | Raw float32 BLOBs, 3072 bytes per embedding |
 
-**Vectorized similarity:** `build_embedding_matrix()` joins all BLOBs into an `(N, 768)` float32 matrix. `mat @ q_vec` computes all N similarities in one operation. Used in both `store()` (dedup) and `recall()` (ranking).
+**Vectorized similarity:** `build_embedding_matrix()` joins all BLOBs into an `(N, 768)` float32 matrix. `mat @ q_vec` computes all N similarities in one operation. Used in `store()` (dedup), `recall()` (vector ranking for RRF), and causal filtering.
 
 **Background warmup:** `embeddings.py warmup` pre-loads the model into OS page cache during SessionStart (background process). By the time the orchestrator needs embeddings, the model files are already in memory.
 
@@ -684,6 +704,7 @@ All named constants in `lib/memory/core.py`:
 | `CAUSAL_MIN_USES` | 3 | Uses before causal adjustment activates |
 | `RECENCY_DECAY_PER_DAY` | 0.001 | 0.1% score penalty per day unused |
 | `RECENCY_FLOOR` | 0.9 | Floor for recency multiplier |
+| `RRF_K` | 60 | Reciprocal Rank Fusion smoothing constant |
 
 Strategic recall constants in `lib/injection.py`:
 
@@ -807,7 +828,7 @@ helix/
 │   │   └── embeddings.py     # snowflake-arctic-embed-m-v1.5 (768-dim)
 │   ├── db/
 │   │   ├── __init__.py       # Exports get_db, write_lock, init_db
-│   │   └── connection.py     # SQLite singleton, WAL, migrations v1-v10
+│   │   └── connection.py     # SQLite singleton, WAL, migrations v1-v11
 │   ├── injection.py          # inject_context, format_prompt, batch_inject
 │   ├── extraction.py         # process_completion, extract_insight, extract_outcome
 │   └── build_loop.py         # DAG ops: cycles, readiness, stall, wait, status
@@ -824,7 +845,7 @@ helix/
 │       └── SKILL.md          # Health check
 ├── tests/
 │   ├── conftest.py           # Fixtures: test_db, mock_embeddings, isolated_env
-│   ├── test_memory_core.py   # 40 tests — 8 primitives
+│   ├── test_memory_core.py   # 54 tests — 8 primitives + hybrid search
 │   ├── test_injection.py     # 17 tests — inject_context, format_prompt, batch_inject
 │   ├── test_extraction.py    # 36 tests — process_completion, last-match-wins
 │   ├── test_inject_memory.py # 27 tests — SubagentStart hook
