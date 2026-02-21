@@ -338,7 +338,7 @@ CREATE TABLE insight (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
     content TEXT NOT NULL,
-    embedding BLOB,                    -- 256-dim snowflake-arctic-embed-m-v1.5, f32
+    embedding BLOB,                    -- 768-dim snowflake-arctic-embed-m-v1.5, f32
     effectiveness REAL DEFAULT 0.5,    -- 0.0-1.0, neutral start
     use_count INTEGER DEFAULT 0,       -- Causal feedback count
     causal_hits INTEGER DEFAULT 0,     -- Causally attributed outcomes
@@ -490,14 +490,14 @@ They must accumulate positive causal feedback to rise above the baseline. DELIVE
 | Property | Value |
 |----------|-------|
 | Model | `Snowflake/snowflake-arctic-embed-m-v1.5` |
-| Dimensions | 256 (Matryoshka truncation from 768, 98.4% quality retention) |
+| Dimensions | 768 (full model output, L2-normalized) |
 | Normalization | L2-normalized (dot product = cosine similarity) |
 | Encoding | Asymmetric: `prompt_name="query"` for queries, plain for documents |
 | Cache | `@lru_cache(maxsize=2000)` on `_embed_cached(text, is_query)` |
 | Max text | 2000 characters (truncated before cache lookup) |
-| Storage | Raw float32 BLOBs, 1024 bytes per embedding |
+| Storage | Raw float32 BLOBs, 3072 bytes per embedding |
 
-**Vectorized similarity:** `build_embedding_matrix()` joins all BLOBs into an `(N, 256)` float32 matrix. `mat @ q_vec` computes all N similarities in one operation. Used in both `store()` (dedup) and `recall()` (ranking).
+**Vectorized similarity:** `build_embedding_matrix()` joins all BLOBs into an `(N, 768)` float32 matrix. `mat @ q_vec` computes all N similarities in one operation. Used in both `store()` (dedup) and `recall()` (ranking).
 
 **Background warmup:** `embeddings.py warmup` pre-loads the model into OS page cache during SessionStart (background process). By the time the orchestrator needs embeddings, the model files are already in memory.
 
@@ -698,7 +698,7 @@ Embedding constants in `lib/memory/embeddings.py`:
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `EMBED_DIM` | 256 | Matryoshka truncation from 768 |
+| `EMBED_DIM` | 768 | Full model output dimension |
 | `MAX_TEXT_CHARS` | 2000 | Max text length before truncation |
 
 ## CLI Reference
@@ -804,7 +804,7 @@ helix/
 │   ├── memory/
 │   │   ├── __init__.py       # Exports 8 primitives
 │   │   ├── core.py           # store, recall, get, feedback, decay, prune, count, health
-│   │   └── embeddings.py     # snowflake-arctic-embed-m-v1.5 (256-dim)
+│   │   └── embeddings.py     # snowflake-arctic-embed-m-v1.5 (768-dim)
 │   ├── db/
 │   │   ├── __init__.py       # Exports get_db, write_lock, init_db
 │   │   └── connection.py     # SQLite singleton, WAL, migrations v1-v10
@@ -833,7 +833,7 @@ helix/
 │   ├── test_build_loop.py    # 27 tests — DAG ops, wave management
 │   ├── test_causal_feedback.py # 9 tests — dual-path feedback (real embeddings)
 │   ├── test_relevance_gate.py # 5 tests — min_relevance filtering (real embeddings)
-│   ├── test_strategic_recall.py # 15 tests — strategic_recall() for RECALL phase
+│   ├── test_strategic_recall.py # 18 tests — strategic_recall() for RECALL phase
 │   └── test_session_end.py   # 4 tests — SessionEnd hook
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database (WAL mode)

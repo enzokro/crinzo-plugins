@@ -90,7 +90,7 @@ Unified insight model with semantic deduplication and causal feedback:
 
 ```
 store("When X, do Y because Z", tags=["pattern"])
-  → Embed via snowflake-arctic-embed-m-v1.5 (256-dim)
+  → Embed via snowflake-arctic-embed-m-v1.5 (768-dim)
   → Check semantic similarity (threshold: 0.85)
   → Merge if duplicate, add if new
   → Initial effectiveness: 0.5 (neutral)
@@ -186,6 +186,29 @@ Query memory directly:
 | **Bounded scope** | Relevant files are explicit and auditable |
 | **Present over future** | Implement current requests, not anticipated needs |
 | **Edit over create** | Modify existing code before creating new files |
+
+## How Helix Compares
+
+Agent memory systems fall into four categories: static instruction files (CLAUDE.md, Cursor rules), auto-generated notes (Claude auto-memory, GitHub Copilot memory), MCP-based memory servers (Mem0, Zep/Graphiti), and Claude Code plugins with memory (claude-mem, engram, episodic-memory). Helix occupies a distinct position: it is the only production system that closes the loop from task outcome back to memory quality through causal feedback.
+
+| System | Retrieval | Auto-Capture | Feedback Loop | Causal Attribution | Orchestration |
+|--------|-----------|:---:|:---:|:---:|:---:|
+| CLAUDE.md / Cursor rules | Full injection (no search) | No | No | No | No |
+| Claude auto-memory | Full injection (200 lines) | Semi | No | No | No |
+| GitHub Copilot memory | Citation validation | Yes | TTL (28-day expiry) | No | No |
+| [Mem0](https://github.com/mem0ai/mem0) | Semantic (vector DB) | Optional | LLM-as-judge at write time | No | No |
+| [Zep/Graphiti](https://github.com/getzep/graphiti) | Hybrid (cosine + BM25 + graph) | Yes | Temporal invalidation | No | No |
+| [claude-mem](https://github.com/thedotmack/claude-mem) | 3-layer progressive | Yes | Implicit (usage patterns) | No | No |
+| [engram](https://github.com/foramoment/engram-ai-memory) | Cosine + graph-hop | Yes | Ebbinghaus decay | No | No |
+| **Helix** | Semantic (dot product, L2-norm) | Yes | EMA + causal filtering + asymmetric erosion/decay + prune | Yes | Yes |
+
+**Closed feedback loop.** Most memory systems are write-only (CLAUDE.md, auto-memory) or perform write-time curation where an LLM decides what to keep (Mem0). Neither approach adjusts memory quality based on whether the memory actually helped. Research on accumulation-based systems confirms sustained performance decline from memory inflation ([Memory-R1](https://arxiv.org/abs/2508.19828), [MEM1](https://arxiv.org/abs/2506.15841)). Helix updates each insight's effectiveness via EMA after every task outcome, with asymmetric erosion ensuring bad insights do not self-rehabilitate without positive causal evidence.
+
+**Causal attribution.** Among production systems, none distinguish "this memory was present in the agent's context" from "this memory was relevant to what the agent did." Among research systems, only [Reflexion](https://arxiv.org/abs/2303.11366) (verbal self-reflection), [ExpeL](https://arxiv.org/abs/2308.10144) (trajectory comparison), and Memory-R1 (RL reward signal) approach this. Helix implements explicit per-memory causal similarity: the query embedding from injection is carried through a sideband file and compared against the task context via vectorized dot product (threshold 0.50). Only causally relevant insights receive full EMA feedback; non-causal ones erode toward neutral.
+
+**Orchestration integration.** Memory is not a separate service queried on demand. It is woven into the explore/plan/build lifecycle at two granularities: the RECALL phase provides strategic context (constraints, risk areas, exploration targets) that shapes decomposition, while the SubagentStart hook provides tactical context that shapes execution. Cross-agent diversity is maintained via sideband files, ensuring parallel builders receive different insights.
+
+**Research alignment.** Helix's scoring formula (`relevance x effectiveness x recency`) parallels the composite retrieval score from [Generative Agents](https://arxiv.org/abs/2304.03442). Its extraction pipeline aligns with ExpeL's trajectory-based insight extraction. The emerging RL frontier ([Memory-R1](https://arxiv.org/abs/2508.19828), [MEM1](https://arxiv.org/abs/2506.15841), [mem-agent](https://huggingface.co/blog/driaforall/mem-agent-blog)) trains agents to learn *when* to remember through reinforcement — a natural next step beyond helix's rule-based feedback model.
 
 ## Local-First
 
