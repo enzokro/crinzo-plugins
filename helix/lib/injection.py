@@ -21,6 +21,12 @@ INSIGHTS_HEADER = "INSIGHTS (from past experience):"
 # Session-level diversity tracking
 _session_injected: set = set()
 
+# Strategic recall — orchestrator RECALL phase (broader than tactical limit=3)
+STRATEGIC_RECALL_LIMIT = 15
+STRATEGIC_MIN_RELEVANCE = 0.30       # Wider gate than tactical (0.35); still above noise floor (0.05-0.25)
+STRATEGIC_HIGH_EFFECTIVENESS = 0.70  # "Proven" — classify for CONSTRAINTS
+STRATEGIC_LOW_EFFECTIVENESS = 0.40   # "Risky" — classify for RISK_AREAS
+
 
 def reset_session_tracking():
     """Reset session injection tracking."""
@@ -187,6 +193,110 @@ def batch_inject(tasks: List[str], limit: int = 3) -> dict:
     }
 
 
+def strategic_recall(objective: str,
+                     limit: int = STRATEGIC_RECALL_LIMIT,
+                     min_relevance: float = STRATEGIC_MIN_RELEVANCE) -> dict:
+    """Broad recall with summary statistics for orchestrator RECALL phase.
+
+    Unlike inject_context() (tactical, limit=3, formatted for builders),
+    this returns raw insight dicts with tags and pre-computed summary stats
+    for orchestrator-level synthesis into CONSTRAINTS, RISK_AREAS, and
+    EXPLORATION_TARGETS.
+
+    Args:
+        objective: Objective for semantic search
+        limit: Maximum insights (default 15, broader than tactical)
+        min_relevance: Minimum cosine similarity (default 0.30, wider gate)
+
+    Returns: {
+        "insights": [{name, content, effectiveness, use_count, causal_hits,
+                      tags, _relevance, _effectiveness, _score}, ...],
+        "summary": {total_recalled, total_in_system, avg_relevance,
+                    avg_effectiveness, proven_count, risky_count,
+                    untested_count, tag_distribution, coverage_ratio}
+    }
+    """
+    from lib.memory.core import recall, count
+
+    total_in_system = count()
+    memories = recall(objective, limit=limit, min_relevance=min_relevance)
+
+    # Batch-fetch tags for recalled insights
+    if memories:
+        try:
+            from lib.db.connection import get_db
+        except ImportError:
+            from db.connection import get_db
+
+        names = [m["name"] for m in memories]
+        placeholders = ",".join("?" for _ in names)
+        db = get_db()
+        tag_rows = db.execute(
+            f"SELECT name, tags FROM insight WHERE name IN ({placeholders})",
+            names
+        ).fetchall()
+        tags_by_name = {}
+        for r in tag_rows:
+            if r["tags"]:
+                try:
+                    tags_by_name[r["name"]] = json.loads(r["tags"])
+                except Exception:
+                    tags_by_name[r["name"]] = []
+            else:
+                tags_by_name[r["name"]] = []
+
+        # Enrich insights with tags
+        for m in memories:
+            m["tags"] = tags_by_name.get(m["name"], [])
+
+    # Compute summary statistics
+    total_recalled = len(memories)
+    avg_relevance = 0.0
+    avg_effectiveness = 0.0
+    proven_count = 0
+    risky_count = 0
+    untested_count = 0
+    tag_distribution: dict = {}
+
+    if memories:
+        relevances = [m.get("_relevance", 0.0) for m in memories]
+        effectivenesses = [m.get("_effectiveness", m.get("effectiveness", 0.5)) for m in memories]
+        avg_relevance = round(sum(relevances) / len(relevances), 3)
+        avg_effectiveness = round(sum(effectivenesses) / len(effectivenesses), 3)
+
+        for m in memories:
+            eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
+            use_count = m.get("use_count", 0)
+
+            if eff >= STRATEGIC_HIGH_EFFECTIVENESS:
+                proven_count += 1
+            elif eff < STRATEGIC_LOW_EFFECTIVENESS:
+                risky_count += 1
+
+            if use_count < 3:
+                untested_count += 1
+
+            for tag in m.get("tags", []):
+                tag_distribution[tag] = tag_distribution.get(tag, 0) + 1
+
+    coverage_ratio = round(total_recalled / total_in_system, 3) if total_in_system > 0 else 0.0
+
+    return {
+        "insights": memories,
+        "summary": {
+            "total_recalled": total_recalled,
+            "total_in_system": total_in_system,
+            "avg_relevance": avg_relevance,
+            "avg_effectiveness": avg_effectiveness,
+            "proven_count": proven_count,
+            "risky_count": risky_count,
+            "untested_count": untested_count,
+            "tag_distribution": tag_distribution,
+            "coverage_ratio": coverage_ratio,
+        }
+    }
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -210,6 +320,11 @@ if __name__ == "__main__":
     s.add_argument("objective", help="Task objective for semantic search")
     s.add_argument("--limit", type=int, default=3)
 
+    s = sub.add_parser("strategic-recall", help="Broad recall with summary for orchestrator RECALL phase")
+    s.add_argument("objective", help="Objective for semantic search")
+    s.add_argument("--limit", type=int, default=STRATEGIC_RECALL_LIMIT)
+    s.add_argument("--min-relevance", type=float, default=STRATEGIC_MIN_RELEVANCE)
+
     args = p.parse_args()
 
     if args.db:
@@ -227,3 +342,6 @@ if __name__ == "__main__":
     elif args.cmd == "inject":
         reset_session_tracking()
         print(json.dumps(inject_context(args.objective, limit=args.limit)))
+    elif args.cmd == "strategic-recall":
+        print(json.dumps(strategic_recall(args.objective, limit=args.limit,
+                                          min_relevance=args.min_relevance), indent=2))

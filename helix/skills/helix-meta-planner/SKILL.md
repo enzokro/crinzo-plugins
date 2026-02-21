@@ -23,12 +23,18 @@ HELIX="$(cat .helix/plugin_root)"
 Query helix memory for insights relevant to the objective.
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 3
+python3 "$HELIX/lib/injection.py" strategic-recall "$ARGUMENTS"
 ```
 
-From returned insights, extract:
-- **Strategic constraints** for the planner: decomposition patterns, risk areas, verification requirements, known coupling, sequencing lessons.
-- **Exploration targets**: codebase areas referenced by insights that need examination even if not obvious from the objective alone. These expand the exploration scope beyond what a naive reading of the objective would suggest.
+Parse the JSON result. Use `summary` for triage, `insights` for synthesis.
+
+From returned insights, synthesize three blocks:
+
+- **CONSTRAINTS** — from proven insights (`_effectiveness >= 0.70`): decomposition patterns, verification requirements, known coupling, sequencing lessons.
+- **RISK_AREAS** — from risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags: areas that historically block, need extra verification or smaller tasks.
+- **EXPLORATION_TARGETS** — codebase areas referenced by insight content/tags that need examination even if not obvious from the objective alone. These expand the exploration scope beyond what a naive reading of the objective would suggest.
+
+**Coverage signal:** `coverage_ratio > 0.3` = well-mapped, trust constraints. `coverage_ratio < 0.1` = uncharted, expand exploration.
 
 If recall returns empty — proceed without constraints. First sessions have no memory; that's normal.
 
@@ -53,9 +59,10 @@ Spawn the planner to decompose into a task DAG.
 OBJECTIVE: $ARGUMENTS
 EXPLORATION: {merged_findings_json}
 CONSTRAINTS: {constraints_from_recall}
+RISK_AREAS: {risk_areas_from_recall}
 ```
 
-Omit CONSTRAINTS if RECALL returned empty. Parse the PLAN_SPEC JSON array from the result.
+Omit empty blocks. Parse the PLAN_SPEC JSON array from the result.
 
 **If the planner's decomposition raises questions** — ambiguous requirements, multiple valid approaches, unclear scope boundaries — use `AskUserQuestion` to resolve before proceeding to synthesis.
 

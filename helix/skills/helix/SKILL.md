@@ -25,27 +25,48 @@ Phases: `EXPLORE → RECALL → PLAN → BUILD (loop with stall recovery) → LE
 ### RECALL
 
 **Goal:** Bring accumulated knowledge to bear on orchestration decisions.
-**Exit when:** CONSTRAINTS block is ready (or omitted if recall is empty).
+**Exit when:** CONSTRAINTS, RISK_AREAS, EXPLORATION_TARGETS blocks are ready (empty blocks omitted).
 
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "{objective_summary}" --limit 3
+python3 "$HELIX/lib/injection.py" strategic-recall "{objective_summary}"
 ```
 
-If insights returned, synthesize their strategic implications into a `CONSTRAINTS` block for the planner:
-- **Decomposition constraints** — areas that must stay atomic, known tight coupling
-- **Verification requirements** — tests that past experience proved necessary
-- **Risk areas** — modules that historically block or require retries
-- **Sequencing hints** — dependency orderings that succeeded or failed
+Parse the JSON result. Use `summary` for triage, `insights` for synthesis.
+
+**Coverage signal:** `coverage_ratio > 0.3` = well-mapped domain, trust constraints heavily. `coverage_ratio < 0.1` = uncharted territory, expand exploration scope.
+
+Synthesize `insights` into three blocks:
+
+1. **CONSTRAINTS** — from proven insights (`_effectiveness >= 0.70`):
+   - Decomposition constraints — areas that must stay atomic, known tight coupling
+   - Verification requirements — tests that past experience proved necessary
+   - Sequencing hints — dependency orderings that succeeded or failed
+
+2. **RISK_AREAS** — from risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags:
+   - Flag for extra verification, smaller tasks, explicit test setup
+   - Areas that historically block or require retries
+
+3. **EXPLORATION_TARGETS** — areas referenced by insight content/tags that expand exploration scope beyond the naive objective:
+   - Modules mentioned in insights that aren't obvious from the objective
+   - Cross-cutting concerns flagged by tag distribution
 
 Example:
 ```
 CONSTRAINTS:
-- Keep auth middleware changes atomic (historically blocks when split)
-- Plan explicit mock setup task before OAuth integration tests
-- Payments module requires integration tests in verify command
+- Keep auth middleware changes atomic (historically blocks when split) [82%]
+- Plan explicit mock setup task before OAuth integration tests [75%]
+
+RISK_AREAS:
+- Payments module has blocked 3 of 4 attempts — use smaller tasks [35%]
+
+EXPLORATION_TARGETS:
+- config/secrets.py (referenced by auth insights but not in objective)
+- tests/fixtures/ (multiple insights reference test setup patterns)
 ```
 
-**If recall returns empty:** omit CONSTRAINTS. No degradation.
+**Optional targeted follow-up:** If blind spots identified (e.g., tag distribution shows "database" but no "migration" insights), call `python3 "$HELIX/lib/memory/core.py" recall "{specific_area}" --limit 3` for focused queries.
+
+**If recall returns empty:** omit all three blocks. No degradation.
 **Fast path:** Skip RECALL for single-file changes.
 
 ### EXPLORE
@@ -65,7 +86,7 @@ CONSTRAINTS:
 **Goal:** Decompose objective into executable task DAG.
 **Exit when:** Tasks are created with valid dependencies and no cycles.
 
-1. Spawn planner: `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}\nCONSTRAINTS: {constraints_from_recall}`. Omit CONSTRAINTS if RECALL was empty. Tactical insights auto-injected via hook.
+1. Spawn planner: `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: {objective}\nEXPLORATION: {findings_json}\nCONSTRAINTS: {constraints_from_recall}\nRISK_AREAS: {risk_areas_from_recall}`. Omit empty blocks. Tactical insights auto-injected via hook.
 
 2. Parse PLAN_SPEC JSON array from result.
 

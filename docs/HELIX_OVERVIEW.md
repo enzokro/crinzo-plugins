@@ -51,22 +51,27 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 Defined in `skills/helix/SKILL.md`. Six phases:
 
 ```
-EXPLORE → RECALL → PLAN → BUILD (loop) → LEARN → COMPLETE
+RECALL → EXPLORE → PLAN → BUILD (loop) → LEARN → COMPLETE
 ```
 
 | Phase | Agent | Purpose |
 |-------|-------|---------|
-| **EXPLORE** | Explorer swarm (sonnet, parallel) | Map codebase structure into findings |
-| **RECALL** | Orchestrator (no agent) | Recall strategic insights, synthesize into CONSTRAINTS |
+| **RECALL** | Orchestrator (no agent) | `strategic-recall` → CONSTRAINTS + RISK_AREAS + EXPLORATION_TARGETS |
+| **EXPLORE** | Explorer swarm (sonnet, parallel) | Map codebase structure, scope informed by recalled insights |
 | **PLAN** | Planner (opus) | Decompose objective into task DAG, respecting CONSTRAINTS |
 | **BUILD** | Builder swarm (opus, parallel waves) | Execute tasks; stall recovery uses recall too |
 | **LEARN** | Orchestrator + user | Observe patterns, ask user, store validated insights |
 | **COMPLETE** | Orchestrator | Summarize deliveries, blocks, stored insights |
 
-**RECALL** is the orchestrator's strategic memory layer. After exploration, the orchestrator calls `core.py recall` with the objective, then reasons about what the insights mean for *orchestration*—not tactical advice (hooks handle that), but decomposition constraints, verification requirements, risk areas, and sequencing hints. These are synthesized into a `CONSTRAINTS` block passed to the planner. On cold start (no insights), CONSTRAINTS is omitted; the planner operates as before with no degradation. Skipped on fast path (single-file changes).
+**RECALL** is the orchestrator's strategic memory layer. Before exploration, the orchestrator calls `injection.py strategic-recall` with the objective—a broader sweep (limit=15, min_relevance=0.30) than tactical recall (limit=3, min_relevance=0.35). The returned JSON includes full insight metadata (tags, effectiveness, causal stats) and pre-computed summary statistics (coverage ratio, proven/risky/untested counts, tag distribution). The orchestrator synthesizes insights into three blocks:
+- **CONSTRAINTS** — from proven insights (effectiveness >= 0.70): decomposition rules, verification requirements, sequencing
+- **RISK_AREAS** — from risky insights (effectiveness < 0.40) or `derived`/`failure` tags: areas needing extra verification, smaller tasks
+- **EXPLORATION_TARGETS** — areas referenced by insight content/tags that expand exploration scope beyond the naive objective
+
+Coverage signal: `coverage_ratio > 0.3` = well-mapped, trust constraints; `< 0.1` = uncharted, expand exploration. On cold start (no insights), all blocks omitted; no degradation. Skipped on fast path (single-file changes).
 
 **Two-level memory injection:**
-- **Strategic (RECALL phase):** Orchestrator → `CONSTRAINTS` → planner prompt. Informs *how to decompose*.
+- **Strategic (RECALL phase):** Orchestrator → `CONSTRAINTS` + `RISK_AREAS` → planner prompt + `EXPLORATION_TARGETS` → explorer scope. Informs *how to decompose* and *where to look*.
 - **Tactical (SubagentStart hook):** Hook → `INSIGHTS` → builder/planner prompt. Informs *how to execute*.
 
 ## Agents
@@ -81,12 +86,23 @@ Three agents with distinct roles:
 
 ### Explorer (`agents/explorer.md`)
 
-Explores ONE scope as part of a parallel swarm. Returns JSON findings.
+Explores ONE scope of a codebase partition as part of a parallel swarm. Follows a 5-step procedure; returns structured JSON findings with line-level precision.
 
 Input:
-- `SCOPE`: Directory path or "memory"
+- `CONTEXT` (optional): Recalled insights about this area — known coupling, risk modules, patterns. Prioritizes tracing referenced areas during exploration.
+- `SCOPE`: Directory path or partition
 - `FOCUS`: What to find within scope
 - `OBJECTIVE`: User goal for context
+
+Procedure:
+1. **Context check** — read CONTEXT if provided; prioritize insight-referenced areas
+2. **Orient** — glob for entry points (index files, `__init__.py`, main.*, config)
+3. **Map interfaces** — grep for exports, public functions, class definitions, route handlers with line numbers
+4. **Trace dependencies** — grep for imports and cross-references to other partitions
+5. **Sample implementations** — read 1-2 core files for patterns (don't read every file)
+6. **Locate tests** — glob for test files, note paths without reading
+
+Stops after entry points, key interfaces with line numbers, and cross-scope dependencies are mapped (~15-20 file reads).
 
 Output (JSON):
 ```json
@@ -95,28 +111,52 @@ Output (JSON):
   "focus": "route handlers",
   "status": "success",
   "findings": [
-    {
-      "file": "src/api/routes.py",
-      "what": "REST endpoint definitions",
-      "action": "modify|create|reference|test",
-      "task_hint": "api-routes"
-    }
-  ],
-  "framework": {"detected": "FastAPI", "confidence": "HIGH", "evidence": "..."},
-  "patterns_observed": ["dependency injection", "..."]
+    {"file": "src/auth.py", "what": "verify_token():42 — JWT validation, called by middleware.py:check_auth()"},
+    {"file": "src/auth.py", "what": "create_token():78 — signs payload with config.SECRET_KEY, returns str"},
+    {"file": "src/models/user.py", "what": "User:15 — SQLAlchemy model, FK to roles; tests at tests/test_user.py"}
+  ]
 }
 ```
+
+Each finding requires: exact relative path, function/class name + line number + one-sentence purpose + connections.
 
 Explorer results written to `.helix/explorer-results/{agent_id}.json` by SubagentStop hook.
 
 ### Planner (`agents/planner.md`)
 
-Decomposes objective into task DAG using Claude Code's native Task system.
+Decomposes objective into task DAG using Claude Code's native Task system. Structured sections for task-sizing, dependency validation, verification patterns, and anti-pattern avoidance.
 
 Input:
 - `OBJECTIVE`: What to build
 - `EXPLORATION`: Merged explorer findings
 - `CONSTRAINTS` (optional): Strategic constraints from orchestrator's RECALL phase—decomposition patterns, verification requirements, risk areas, sequencing hints from past sessions. Respected unless they directly conflict with the current objective.
+
+Task-sizing rules:
+- **Target**: 1-3 files per task; a builder should finish in one focused session
+- **Split**: when task mixes unrelated concerns or touches >5 files
+- **Merge**: when two changes in the same file are interdependent
+- **Test tasks**: parallel per implementation task, each blocked only by its impl
+
+Dependency rules:
+- Only `blocked_by` when task B reads/imports files task A creates or modifies
+- Conceptual relatedness is NOT a dependency; "makes sense to do first" is NOT a dependency
+- When uncertain, prefer parallel — false dependencies serialize the build loop
+
+Verification patterns (concrete commands per task type):
+
+| Task type | Verify pattern |
+|-----------|----------------|
+| New module | `python -c "from mod import X"` |
+| API endpoint | `pytest tests/test_api.py -k test_endpoint_name` |
+| Refactor | `pytest tests/test_module.py` (full module suite) |
+| Config/schema | `python -c "import json; json.load(open('config.json'))"` |
+| Type changes | `tsc --noEmit` or `mypy src/module.py` |
+
+Anti-patterns to avoid:
+1. "Setup environment" tasks that produce no artifacts consumed by others
+2. Serial test bottleneck — one test task blocked_by all impl tasks
+3. "Finalize" or "cleanup" tasks — vague scope leads to BLOCKED
+4. Conceptual dependencies — ordering based on intuition, not data flow
 
 Output:
 ```
@@ -132,44 +172,44 @@ PLAN_COMPLETE: 2 tasks specified
 INSIGHT: {"content": "When planning X, structure as Y because Z", "tags": ["architecture"]}
 ```
 
-Or clarification request:
-```json
-{"decision": "CLARIFY", "questions": ["..."]}
-```
+Or error: `ERROR: {description}`
 
 ### Builder (`agents/builder.md`)
 
-Executes a single task. Reports DELIVERED, BLOCKED, or PARTIAL.
+Executes a single task through structured phases. Reports DELIVERED, BLOCKED, or PARTIAL.
 
 Input (structured fields):
-- `TASK_ID`: Unique task identifier
-- `TASK`: What to build
-- `OBJECTIVE`: Overall objective for context
-- `VERIFY`: Command to prove success
-- `RELEVANT_FILES`: Files identified during exploration
-- `INSIGHTS`: Injected context with effectiveness scores
+- Required: `TASK_ID`, `TASK`, `OBJECTIVE`, `VERIFY`
+- Optional: `RELEVANT_FILES`, `PARENT_DELIVERIES`, `WARNING`, `INSIGHTS`
 - `INJECTED`: List of insight names for feedback tracking
+
+Execution phases:
+
+1. **Pre-flight** — address WARNING if present; review PARENT_DELIVERIES; read RELEVANT_FILES (if a file listed for modification doesn't exist and task says "modify"/"update" → BLOCKED, don't create it); check INSIGHTS.
+2. **Implement** — understand interfaces/invariants before changing; minimal change; preserve existing patterns unless task requires changing them.
+3. **Verify** — run VERIFY command exactly as specified. Pass → DELIVERED. Fail → failure diagnosis.
+4. **Failure diagnosis** — read full error output; categorize (import error | type error | assertion failure | runtime crash | timeout); trace to root cause; fix and re-run VERIFY. Second failure with different error → BLOCKED (cascading). Second failure with same error → BLOCKED (fix didn't address root cause).
 
 Output:
 ```
-DELIVERED: <one-line summary>
-```
-Or:
-```
-BLOCKED: <reason>
-TRIED: <what attempted>
-ERROR: <message>
+DELIVERED: <summary in 100 chars>
 ```
 Or:
 ```
 PARTIAL: <what was completed>
-REMAINING: <what still needs doing>
+REMAINING: <what blocked>
+```
+Or:
+```
+BLOCKED: <reason with error details>
 ```
 
-Optional insight output:
+Optional on any outcome:
 ```
 INSIGHT: {"content": "When X, do Y because Z", "tags": ["pattern"]}
 ```
+
+Insight quality test: would this change a future builder's approach? "I had to install X" is not useful. "When modifying Y, Z breaks because of hidden coupling via shared config" is.
 
 ## Hook System
 
@@ -241,7 +281,7 @@ Fires for builders and planners. Parses the parent (orchestrator) transcript to 
 
 For non-injected agents:
 1. Collects already-injected names from sibling sideband files (cross-agent diversity)
-2. Recalls insights with `suppress_names` to avoid repeating what siblings received
+2. Recalls up to 3 insights with `suppress_names` to avoid repeating what siblings received
 3. Writes sideband file with insight names, objective, and base64-encoded query embedding
 4. Returns `{"additionalContext": "INSIGHTS (from past experience):\n  - [75%] When X..."}`
 
@@ -318,7 +358,7 @@ CREATE TABLE insight (
 store(content, tags=None, initial_effectiveness=0.5)
     # → {"status": "added"|"merged"|"rejected", "name": str, "reason": str}
 
-recall(query, limit=5, min_effectiveness=0.0, min_relevance=0.35, suppress_names=None)
+recall(query, limit=3, min_effectiveness=0.0, min_relevance=0.35, suppress_names=None)
     # → [insights with _relevance, _effectiveness, _score]
 
 get(name)
@@ -468,15 +508,22 @@ They must accumulate positive causal feedback to rise above the baseline. DELIVE
 ### Core Functions
 
 ```python
-inject_context(objective, limit=5, min_relevance=None, diversify=True)
+inject_context(objective, limit=3, min_relevance=None, diversify=True)
     # → {"insights": ["[75%] When X...", ...], "names": [...], "total_insights": int}
 
 format_prompt(task_id, task, objective, verify, insights, injected_names,
               warning="", parent_deliveries="", relevant_files=None, total_insights=0)
     # → Structured builder prompt string
 
-batch_inject(tasks, limit=5)
+batch_inject(tasks, limit=3)
     # → {"results": [{insights, names}, ...], "total_unique": int}
+
+strategic_recall(objective, limit=15, min_relevance=0.30)
+    # → {"insights": [{name, content, effectiveness, use_count, causal_hits,
+    #     tags, _relevance, _effectiveness, _score}, ...],
+    #    "summary": {total_recalled, total_in_system, avg_relevance,
+    #     avg_effectiveness, proven_count, risky_count, untested_count,
+    #     tag_distribution, coverage_ratio}}
 
 format_insights(memories)
     # → (lines: ["[75%] content", ...], names: ["insight-name", ...])
@@ -638,6 +685,15 @@ All named constants in `lib/memory/core.py`:
 | `RECENCY_DECAY_PER_DAY` | 0.001 | 0.1% score penalty per day unused |
 | `RECENCY_FLOOR` | 0.9 | Floor for recency multiplier |
 
+Strategic recall constants in `lib/injection.py`:
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `STRATEGIC_RECALL_LIMIT` | 15 | Default max insights for strategic recall (vs tactical 3) |
+| `STRATEGIC_MIN_RELEVANCE` | 0.30 | Wider relevance gate (vs tactical 0.35) |
+| `STRATEGIC_HIGH_EFFECTIVENESS` | 0.70 | Threshold for "proven" classification → CONSTRAINTS |
+| `STRATEGIC_LOW_EFFECTIVENESS` | 0.40 | Threshold for "risky" classification → RISK_AREAS |
+
 Embedding constants in `lib/memory/embeddings.py`:
 
 | Constant | Value | Purpose |
@@ -657,7 +713,7 @@ python3 "$HELIX/lib/memory/core.py" store \
   --content "When X, do Y because Z" --tags '["pattern"]'
 
 # Recall by semantic similarity
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 3
 
 # Get single insight
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
@@ -705,17 +761,22 @@ python3 "$HELIX/lib/build_loop.py" parent-deliveries --results '...' --blockers 
 
 ```bash
 # Batch inject for a wave
-python3 "$HELIX/lib/injection.py" batch-inject --tasks '["obj1", "obj2"]' --limit 5
+python3 "$HELIX/lib/injection.py" batch-inject --tasks '["obj1", "obj2"]' --limit 3
 
 # Single injection
-python3 "$HELIX/lib/injection.py" inject --objective "query text" --limit 5
+python3 "$HELIX/lib/injection.py" inject --objective "query text" --limit 3
+
+# Strategic recall for orchestrator RECALL phase (broad sweep + summary)
+python3 "$HELIX/lib/injection.py" strategic-recall "authentication and authorization patterns"
+python3 "$HELIX/lib/injection.py" strategic-recall "objective" --limit 20 --min-relevance 0.25
 ```
 
 ## Slash Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/helix <objective>` | Full pipeline: explore → recall → plan → build → learn → complete |
+| `/helix <objective>` | Full pipeline: recall → explore → plan → build → learn → complete |
+| `/helix-meta-planner <objective>` | Plan-mode only: recall → explore → plan → synthesize → present for approval |
 | `/helix-query <text>` | Search insights by meaning (top 10 results) |
 | `/helix-stats` | Memory health metrics |
 
@@ -755,6 +816,8 @@ helix/
 ├── skills/
 │   ├── helix/
 │   │   └── SKILL.md          # Main orchestrator
+│   ├── helix-meta-planner/
+│   │   └── SKILL.md          # Plan-mode: insight-driven planning without execution
 │   ├── helix-query/
 │   │   └── SKILL.md          # Memory search
 │   └── helix-stats/
@@ -770,6 +833,7 @@ helix/
 │   ├── test_build_loop.py    # 27 tests — DAG ops, wave management
 │   ├── test_causal_feedback.py # 9 tests — dual-path feedback (real embeddings)
 │   ├── test_relevance_gate.py # 5 tests — min_relevance filtering (real embeddings)
+│   ├── test_strategic_recall.py # 15 tests — strategic_recall() for RECALL phase
 │   └── test_session_end.py   # 4 tests — SessionEnd hook
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database (WAL mode)
