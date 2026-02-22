@@ -31,6 +31,7 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Utilities (lib/)                  │
 │  memory/core.py     - 8 primitives (store, recall, etc.)   │
+│  memory/edges.py    - Graph edge helpers (similar, led_to)  │
 │  memory/embeddings.py - snowflake-arctic-embed-m-v1.5      │
 │  injection.py       - Insight injection for agents         │
 │  extraction.py      - Learning extraction from transcripts │
@@ -41,6 +42,7 @@ Helix is prose-driven: SKILL.md contains orchestration logic; Python utilities p
 ┌─────────────────────────────────────────────────────────────┐
 │                    .helix/helix.db (SQLite, WAL)           │
 │  insight table: embeddings, effectiveness, causal_hits     │
+│  insight_edges table: similar + led_to graph relationships │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -56,14 +58,14 @@ RECALL → EXPLORE → PLAN → BUILD (loop) → LEARN → COMPLETE
 
 | Phase | Agent | Purpose |
 |-------|-------|---------|
-| **RECALL** | Orchestrator (no agent) | `strategic-recall` → CONSTRAINTS + RISK_AREAS + EXPLORATION_TARGETS |
+| **RECALL** | Orchestrator (no agent) | `strategic-recall` (graph_hops=1) → CONSTRAINTS + RISK_AREAS + EXPLORATION_TARGETS |
 | **EXPLORE** | Explorer swarm (sonnet, parallel) | Map codebase structure, scope informed by recalled insights |
 | **PLAN** | Planner (opus) | Decompose objective into task DAG, respecting CONSTRAINTS |
 | **BUILD** | Builder swarm (opus, parallel waves) | Execute tasks; stall recovery uses recall too |
 | **LEARN** | Orchestrator + user | Observe patterns, ask user, store validated insights |
 | **COMPLETE** | Orchestrator | Summarize deliveries, blocks, stored insights |
 
-**RECALL** is the orchestrator's strategic memory layer. Before exploration, the orchestrator calls `injection.py strategic-recall` with the objective—a broader sweep (limit=15, min_relevance=0.30) than tactical recall (limit=3, min_relevance=0.35). The returned JSON includes full insight metadata (tags, effectiveness, causal stats) and pre-computed summary statistics (coverage ratio, proven/risky/untested counts, tag distribution). The orchestrator synthesizes insights into three blocks:
+**RECALL** is the orchestrator's strategic memory layer. Before exploration, the orchestrator calls `injection.py strategic-recall` with the objective—a broader sweep (limit=15, min_relevance=0.30, graph_hops=1) than tactical recall (limit=3, min_relevance=0.35, graph_hops=0). Graph expansion traverses `similar` and `led_to` edges to surface related insights beyond direct vector/keyword matches. The returned JSON includes full insight metadata (tags, effectiveness, causal stats), graph hop markers (`_hop: 0` or `1`), and pre-computed summary statistics (coverage ratio, proven/risky/untested counts, tag distribution, `graph_expanded_count`). The orchestrator synthesizes insights into three blocks:
 - **CONSTRAINTS** — from proven insights (effectiveness >= 0.70): decomposition rules, verification requirements, sequencing
 - **RISK_AREAS** — from risky insights (effectiveness < 0.40) or `derived`/`failure` tags: areas needing extra verification, smaller tasks
 - **EXPLORATION_TARGETS** — areas referenced by insight content/tags that expand exploration scope beyond the naive objective
@@ -252,6 +254,7 @@ SubagentStop (extract_learning.py) — all helix agents
     │  Phase 3a: store_insight() — independent error boundary
     │  Phase 3b: read sideband → causal filter → feedback — independent
     │  Phase 3c: log diagnostics — independent
+    │  Phase 3d: provenance edges (led_to from causal parents → child) — independent
     │
     ▼
 SessionEnd (session_end.py)
@@ -293,16 +296,17 @@ Cold-start signals:
 
 **File:** `lib/hooks/extract_learning.py`
 
-Fires for all helix agents. Three-phase pipeline where each phase has independent error boundaries:
+Fires for all helix agents. Multi-phase pipeline where each phase has independent error boundaries:
 
 **Phase 1 — Handoff:** Writes `.helix/task-status.jsonl` (append-only JSONL) and `.helix/explorer-results/{agent_id}.json`. These files are consumed by `build_loop.py` and must succeed even if insight processing fails.
 
 **Phase 2 — Outcome:** Runs `process_completion()` for single-pass extraction. For unknown outcomes with `has_error`, maps to "crashed". Otherwise retries with exponential backoff (0.15s, 0.35s, 0.75s) to handle transcript write race conditions.
 
-**Phase 3 — Learning (three independent boundaries):**
-- **3a:** Store extracted insight (`initial_effectiveness=0.35` for derived insights)
+**Phase 3 — Learning (four independent boundaries):**
+- **3a:** Store extracted insight (`initial_effectiveness=0.35` for derived insights). Returns stored insight name for provenance linking.
 - **3b:** Read sideband → merge injected names → resolve task context (prefers sideband objective) → causal filter → apply feedback (crashed → blocked mapping)
 - **3c:** Log extraction result with causal ratio
+- **3d:** Create provenance edges — if a new insight was stored (3a) and causal parent names exist, `_create_provenance_edges()` looks up IDs by name and calls `add_edges()` with `relation='led_to'`, `weight=1.0`. Traces how existing insights spawned new knowledge.
 
 ### SessionEnd Hook
 
@@ -359,16 +363,36 @@ CREATE VIRTUAL TABLE insight_fts USING fts5(
 -- Auto-sync triggers: INSERT, DELETE, UPDATE OF content/tags
 ```
 
-**Schema version:** v11. Migrations in `lib/db/connection.py:_apply_migrations()`. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`, v11 adds FTS5 table (`insight_fts`) with 3 auto-sync triggers for hybrid search.
+```sql
+CREATE TABLE insight_edges (
+    src_id INTEGER NOT NULL,
+    dst_id INTEGER NOT NULL,
+    weight REAL NOT NULL,
+    relation TEXT NOT NULL,          -- 'similar' or 'led_to'
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (src_id, dst_id, relation)
+);
+```
+
+Two relation types:
+- **`similar`** — undirected. Canonical ordering `(min, max)` ensures `(A,B)` and `(B,A)` map to the same row. Auto-created by `store()` when `RELATED_THRESHOLD (0.60) ≤ sim < DUPLICATE_THRESHOLD (0.85)`. Top `MAX_AUTOLINK_EDGES (5)` per insert. Reuses the dedup similarity vector — zero extra DB queries.
+- **`led_to`** — directional (parent → child). Created by `extract_learning` Phase 3d when causal parent insights spawn a derived child. Weight 1.0.
+
+No FK pragma — orphaned edges cleaned manually by `prune()` and `delete_edges_for()`.
+
+**Schema version:** v12. Migrations in `lib/db/connection.py:_apply_migrations()`. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`, v11 adds FTS5 table (`insight_fts`) with 3 auto-sync triggers for hybrid search, v12 adds `insight_edges` table for graph relationships.
 
 ### 8 Primitives (`lib/memory/core.py`)
 
 ```python
 store(content, tags=None, initial_effectiveness=0.5)
     # → {"status": "added"|"merged"|"rejected", "name": str, "reason": str}
+    # Auto-links to semantically related insights as 'similar' edges (best-effort)
 
-recall(query, limit=5, min_effectiveness=0.0, min_relevance=0.35, suppress_names=None)
-    # → [insights with _relevance, _effectiveness, _score]  (hybrid vector+FTS5, RRF fusion)
+recall(query, limit=5, min_effectiveness=0.0, min_relevance=0.35,
+       suppress_names=None, graph_hops=0)
+    # → [insights with _relevance, _effectiveness, _score, _hop]
+    # _hop: 0 (direct) or 1 (graph-expanded via similar/led_to edges)
 
 get(name)
     # → single insight dict with parsed tags, or None
@@ -381,15 +405,30 @@ decay(unused_days=30)
 
 prune(min_effectiveness=0.25, min_uses=3)
     # → {"pruned": int, "orphans_cleaned": int, "ghosts_cleaned": int, "remaining": int}
+    # Also cleans orphaned edges for deleted insights
 
 count()
     # → int (total insight count, no numpy import)
 
 health()
-    # → {"status": str, "total_insights": int, "by_tag": dict, "effectiveness": dict, ...}
+    # → {"status": str, "total_insights": int, "total_edges": int,
+    #    "connected_ratio": float, "avg_edges_per_insight": float,
+    #    "by_tag": dict, "effectiveness": dict, ...}
 ```
 
-**Performance note:** `numpy` is imported locally only in `store()` and `recall()`. Lightweight operations (`count`, `decay`, `feedback`, `prune`, `health`, `get`) avoid the ~100-200ms numpy import tax.
+**Graph helpers** (`lib/memory/edges.py`):
+```python
+add_edges(edges: List[Tuple[src_id, dst_id, weight, relation]])
+    # INSERT OR IGNORE; canonical (min,max) ordering for 'similar'; no self-loops
+
+get_neighbors(insight_ids, relation=None, limit=10)
+    # Bidirectional JOIN → full insight rows with edge_weight, edge_relation
+
+delete_edges_for(insight_ids)
+    # Manual CASCADE: deletes edges where src_id OR dst_id in set
+```
+
+**Performance note:** `numpy` is imported locally only in `store()` and `recall()`. Lightweight operations (`count`, `decay`, `feedback`, `prune`, `health`, `get`) avoid the ~100-200ms numpy import tax. Graph auto-linking in `store()` reuses the dedup similarity vector — zero extra DB queries or embeddings.
 
 ### Scoring Formula (Hybrid Retrieval with RRF)
 
@@ -417,6 +456,24 @@ Recall uses hybrid retrieval: vector similarity and FTS5 keyword search, fused v
 **Effectiveness modulates RRF score, not competes with it.** A proven insight (eff=1.0) gets full score; a neutral insight (eff=0.5) gets 75%; a bad insight (eff=0.0) still gets 50%—it is demoted, not hidden.
 
 **FTS5 sync:** The `insight_fts` table uses external content mode (no data duplication). Three triggers auto-sync on INSERT, DELETE, and UPDATE OF content/tags. Feedback-only updates (effectiveness, use_count) do not fire triggers.
+
+### Graph Expansion
+
+When `graph_hops >= 1`, recall expands top direct results via the insight graph:
+
+1. Collect IDs of top-scoring direct results
+2. `get_neighbors(top_ids)` — single bidirectional JOIN on `insight_edges`
+3. For each neighbor not already in results and not in `suppress_names`:
+   - Compute vector similarity to query (`q_vec @ nbr_vec`)
+   - Apply `min_relevance` gate
+   - Score: `vector_sim × HOP_DISCOUNT (0.5) × (0.5 + 0.5 × eff) × recency`
+4. Merge into results, re-sort, trim to `limit`
+
+Graph-expanded results carry `_hop: 1`; direct results carry `_hop: 0`. Graph expansion is best-effort — exceptions fall back to direct results only.
+
+**Usage split:**
+- `strategic_recall()` uses `graph_hops=1` — broad sweep benefits from discovering related context
+- `inject_context()` uses `graph_hops=0` — tactical injection stays focused on direct matches
 
 ### Feedback System
 
@@ -488,6 +545,8 @@ Three cleanup passes:
 
 Prune uses `_causal_adjusted_effectiveness()` — raw 0.50 with zero causal hits adjusts to 0.15 and falls below the threshold.
 
+**Edge cleanup:** After deleting insights, prune looks up their IDs and deletes all edges referencing them (`DELETE FROM insight_edges WHERE src_id IN (...) OR dst_id IN (...)`). Runs in the same `write_lock` block as the insight deletion.
+
 ### Derived Insights
 
 When a builder reports BLOCKED or PARTIAL without an explicit `INSIGHT:` marker, the extraction system derives a prescriptive insight:
@@ -540,10 +599,11 @@ batch_inject(tasks, limit=3)
 
 strategic_recall(objective, limit=15, min_relevance=0.30)
     # → {"insights": [{name, content, effectiveness, use_count, causal_hits,
-    #     tags, _relevance, _effectiveness, _score}, ...],
+    #     tags, _relevance, _effectiveness, _score, _hop}, ...],
     #    "summary": {total_recalled, total_in_system, avg_relevance,
     #     avg_effectiveness, proven_count, risky_count, untested_count,
-    #     tag_distribution, coverage_ratio}}
+    #     tag_distribution, coverage_ratio, graph_expanded_count}}
+    # Uses graph_hops=1 for broad sweep; _hop=1 entries are graph-expanded
 
 format_insights(memories)
     # → (lines: ["[75%] content", ...], names: ["insight-name", ...])
@@ -705,6 +765,9 @@ All named constants in `lib/memory/core.py`:
 | `RECENCY_DECAY_PER_DAY` | 0.001 | 0.1% score penalty per day unused |
 | `RECENCY_FLOOR` | 0.9 | Floor for recency multiplier |
 | `RRF_K` | 60 | Reciprocal Rank Fusion smoothing constant |
+| `RELATED_THRESHOLD` | 0.60 | Semantic similarity floor for auto-linking (below DUPLICATE_THRESHOLD) |
+| `MAX_AUTOLINK_EDGES` | 5 | Maximum `similar` edges created per new insight |
+| `HOP_DISCOUNT` | 0.5 | Score multiplier for graph-expanded results |
 
 Strategic recall constants in `lib/injection.py`:
 
@@ -733,8 +796,9 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 python3 "$HELIX/lib/memory/core.py" store \
   --content "When X, do Y because Z" --tags '["pattern"]'
 
-# Recall by semantic similarity
+# Recall by semantic similarity (with optional graph expansion)
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 3
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --graph-hops 1
 
 # Get single insight
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
@@ -749,8 +813,13 @@ python3 "$HELIX/lib/memory/core.py" decay --days 30
 # Prune low performers
 python3 "$HELIX/lib/memory/core.py" prune --threshold 0.25 --min-uses 3
 
-# Health check
+# Health check (includes edge statistics)
 python3 "$HELIX/lib/memory/core.py" health
+
+# Graph neighbors for an insight
+python3 "$HELIX/lib/memory/core.py" neighbors "insight-name" --limit 5
+python3 "$HELIX/lib/memory/core.py" neighbors "insight-name" --relation similar
+python3 "$HELIX/lib/memory/core.py" neighbors "insight-name" --relation led_to
 ```
 
 ### DAG Operations
@@ -825,10 +894,11 @@ helix/
 │   ├── memory/
 │   │   ├── __init__.py       # Exports 8 primitives
 │   │   ├── core.py           # store, recall, get, feedback, decay, prune, count, health
+│   │   ├── edges.py          # Graph: add_edges, get_neighbors, delete_edges_for
 │   │   └── embeddings.py     # snowflake-arctic-embed-m-v1.5 (768-dim)
 │   ├── db/
 │   │   ├── __init__.py       # Exports get_db, write_lock, init_db
-│   │   └── connection.py     # SQLite singleton, WAL, migrations v1-v11
+│   │   └── connection.py     # SQLite singleton, WAL, migrations v1-v12
 │   ├── injection.py          # inject_context, format_prompt, batch_inject
 │   ├── extraction.py         # process_completion, extract_insight, extract_outcome
 │   └── build_loop.py         # DAG ops: cycles, readiness, stall, wait, status
@@ -855,6 +925,8 @@ helix/
 │   ├── test_causal_feedback.py # 9 tests — dual-path feedback (real embeddings)
 │   ├── test_relevance_gate.py # 5 tests — min_relevance filtering (real embeddings)
 │   ├── test_strategic_recall.py # 18 tests — strategic_recall() for RECALL phase
+│   ├── test_edges.py         # 14 tests — edge helpers (add, neighbors, delete, canonical)
+│   ├── test_graph_memory.py  # 18 tests — graph integration (auto-link, expansion, provenance, prune)
 │   └── test_session_end.py   # 4 tests — SessionEnd hook
 └── .helix/                   # Runtime (created on first use)
     ├── helix.db              # SQLite database (WAL mode)
