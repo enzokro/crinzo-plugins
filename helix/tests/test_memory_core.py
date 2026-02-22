@@ -257,12 +257,12 @@ class TestCausalAdjustedEffectiveness:
     """Tests for _causal_adjusted_effectiveness read-time penalty."""
 
     def test_causal_adjusted_zero_causal(self):
-        """High use, zero causal hits → floor multiplier (0.3)."""
-        from lib.memory.core import _causal_adjusted_effectiveness
+        """High use, zero causal hits → floor multiplier."""
+        from lib.memory.core import _causal_adjusted_effectiveness, CAUSAL_ADJUSTMENT_FLOOR
 
         row = {"effectiveness": 0.99, "use_count": 20, "causal_hits": 0}
         result = _causal_adjusted_effectiveness(row)
-        assert abs(result - 0.99 * 0.3) < 0.001
+        assert abs(result - 0.99 * CAUSAL_ADJUSTMENT_FLOOR) < 0.001
 
     def test_causal_adjusted_full_causal(self):
         """All uses are causal → no penalty."""
@@ -506,7 +506,7 @@ class TestCausalAdjustedPrune:
     def test_prune_uses_causal_adjusted_effectiveness(self, test_db, mock_embeddings):
         """Insight with raw eff 0.50 but low causal ratio gets pruned.
 
-        use_count=20, causal_hits=0 → adjusted eff = 0.50 * 0.3 = 0.15 → below 0.25 → pruned.
+        use_count=20, causal_hits=0 → adjusted eff = 0.50 * 0.33 = 0.165 → below 0.25 → pruned.
         """
         from lib.memory.core import store, get, prune, get_db, write_lock
 
@@ -525,7 +525,7 @@ class TestCausalAdjustedPrune:
             db.commit()
 
         # Raw eff is 0.50 (above 0.25 threshold)
-        # But causal-adjusted: 0.50 * max(0.3, 0/20) = 0.50 * 0.3 = 0.15
+        # But causal-adjusted: 0.50 * max(0.33, 0/20) = 0.50 * 0.33 = 0.165
         prune_result = prune(min_effectiveness=0.25, min_uses=3)
         assert name in prune_result["removed"]
         assert get(name) is None
@@ -741,7 +741,7 @@ class TestRecencyScoring:
         feedback([r1["name"]], "delivered")
         feedback([r2["name"]], "delivered")
 
-        # Backdate r2's last_used to 200 days ago (max penalty: 0.9 floor)
+        # Backdate r2's last_used to 200 days ago (max penalty: 0.85 floor)
         db = get_db()
         old_date = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=200)).isoformat()
         with write_lock():

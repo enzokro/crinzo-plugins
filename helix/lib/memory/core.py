@@ -35,16 +35,16 @@ CAUSAL_SIMILARITY_THRESHOLD = 0.50  # For feedback attribution filtering (tighte
 # Graph: auto-linking and expansion
 RELATED_THRESHOLD = 0.60    # Semantic similarity floor for auto-linking (below DUPLICATE_THRESHOLD)
 MAX_AUTOLINK_EDGES = 5      # Cap edges per new insight
-HOP_DISCOUNT = 0.5          # Score multiplier for graph-adjacent insights
+HOP_DISCOUNT = 0.7          # Score multiplier for graph-adjacent insights (PageRank-informed)
 
 # Tuning parameters — extracted from inline for visibility
 FEEDBACK_EMA_WEIGHT = 0.2       # Learning rate for causal feedback (was 0.1; ~3 outcomes to move 0.5→0.6)
 DECAY_RATE = 0.1                # Rate dormant insights drift toward neutral per session_end
-EROSION_RATE = 0.10             # Rate non-causal insights drift toward neutral per feedback
-CAUSAL_ADJUSTMENT_FLOOR = 0.3   # Minimum multiplier for causal hit ratio
+EROSION_RATE = 0.09             # Rate non-causal insights drift toward neutral (loss-aversion calibrated: EMA/2.25)
+CAUSAL_ADJUSTMENT_FLOOR = 0.33  # Minimum multiplier for causal hit ratio (at-chance for 3-use minimum)
 CAUSAL_MIN_USES = 3             # Uses before causal adjustment kicks in
-RECENCY_DECAY_PER_DAY = 0.001  # 0.1% score penalty per day unused, floor 0.9
-RECENCY_FLOOR = 0.9             # Never-used floor multiplier
+RECENCY_DECAY_PER_DAY = 0.003  # 0.3% score penalty per day unused (231d half-life)
+RECENCY_FLOOR = 0.85            # Maximum 15% recency penalty; floor reached at ~50 days
 RRF_K = 60                      # Reciprocal Rank Fusion smoothing constant
 
 # Support both module and script execution
