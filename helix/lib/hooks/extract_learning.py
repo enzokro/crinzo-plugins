@@ -349,6 +349,37 @@ def log_extraction_result(agent_id: str, agent_type: str, result: dict,
         f.write(" | ".join(log_parts) + "\n")
 
 
+def _create_provenance_edges(child_name: str, parent_names: list) -> None:
+    """Create led_to edges from causal parent insights to a newly stored child insight.
+
+    Looks up IDs by name, calls add_edges() with relation='led_to'.
+    """
+    from db.connection import get_db
+    from memory.edges import add_edges
+
+    db = get_db()
+
+    # Look up child ID
+    child_row = db.execute("SELECT id FROM insight WHERE name = ?", (child_name,)).fetchone()
+    if not child_row:
+        return
+
+    child_id = child_row["id"]
+
+    # Look up parent IDs
+    placeholders = ",".join("?" for _ in parent_names)
+    parent_rows = db.execute(
+        f"SELECT id, name FROM insight WHERE name IN ({placeholders})",
+        parent_names
+    ).fetchall()
+
+    if not parent_rows:
+        return
+
+    edges = [(r["id"], child_id, 1.0, "led_to") for r in parent_rows]
+    add_edges(edges)
+
+
 def process_hook_input(hook_input: dict) -> dict:
     """Process SubagentStop hook input.
 
@@ -423,8 +454,9 @@ def process_hook_input(hook_input: dict) -> dict:
     # --- Phase 3: Optional insight processing (best-effort, independent error boundaries) ---
 
     # 3a: Store extracted insight
+    stored_name = None
     if result.get("insight"):
-        store_insight(result["insight"])
+        stored_name = store_insight(result["insight"])
 
     # 3b: Feedback attribution (independent of store success)
     feedback_applied = None
@@ -454,6 +486,13 @@ def process_hook_input(hook_input: dict) -> dict:
             feedback_applied = apply_feedback(all_injected, feedback_outcome, causal_names=causal_names)
     except Exception as e:
         _log_error("feedback_attribution", e)
+
+    # 3d: Provenance edges — link new insight to causal parents (independent error boundary)
+    if stored_name and causal_names:
+        try:
+            _create_provenance_edges(stored_name, causal_names)
+        except Exception as e:
+            _log_error("provenance_edges", e)
 
     # 3c: Log result (independent of store/feedback success)
     try:

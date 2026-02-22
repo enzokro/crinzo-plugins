@@ -33,6 +33,9 @@ From returned insights, synthesize three blocks:
 - **CONSTRAINTS** — from proven insights (`_effectiveness >= 0.70`): decomposition patterns, verification requirements, known coupling, sequencing lessons.
 - **RISK_AREAS** — from risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags: areas that historically block, need extra verification or smaller tasks.
 - **EXPLORATION_TARGETS** — codebase areas referenced by insight content/tags that need examination even if not obvious from the objective alone. These expand the exploration scope beyond what a naive reading of the objective would suggest.
+- **GRAPH_DISCOVERED** — insights with `_hop: 1` (reached via graph relationships, not direct semantic match). These expand exploration partition selection — the graph says "this area is related" even when the query alone wouldn't surface it.
+
+**Graph signal:** `graph_expanded_count > 0` = memory graph is surfacing related context. `graph_expanded_count == 0` with edges in system = query is in an isolated topic cluster.
 
 **Coverage signal:** `coverage_ratio > 0.3` = well-mapped, trust constraints. `coverage_ratio < 0.1` = uncharted, expand exploration.
 

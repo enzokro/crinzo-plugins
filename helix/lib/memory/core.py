@@ -32,6 +32,11 @@ DUPLICATE_THRESHOLD = 0.85
 MIN_RELEVANCE_DEFAULT = 0.35  # arctic-embed-m-v1.5: unrelated 0.05-0.25, related 0.35+
 CAUSAL_SIMILARITY_THRESHOLD = 0.50  # For feedback attribution filtering (tighter than 0.40)
 
+# Graph: auto-linking and expansion
+RELATED_THRESHOLD = 0.60    # Semantic similarity floor for auto-linking (below DUPLICATE_THRESHOLD)
+MAX_AUTOLINK_EDGES = 5      # Cap edges per new insight
+HOP_DISCOUNT = 0.5          # Score multiplier for graph-adjacent insights
+
 # Tuning parameters — extracted from inline for visibility
 FEEDBACK_EMA_WEIGHT = 0.2       # Learning rate for causal feedback (was 0.1; ~3 outcomes to move 0.5→0.6)
 DECAY_RATE = 0.1                # Rate dormant insights drift toward neutral per session_end
@@ -187,17 +192,19 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
 
     # Check for semantic duplicate (vectorized)
     new_emb = embed(content, is_query=False)
+    dedup_rows = None  # Retain for auto-linking after insert
+    dedup_sims = None
     if new_emb:
         db = get_db()
-        rows = db.execute("SELECT name, embedding FROM insight WHERE embedding IS NOT NULL").fetchall()
-        if rows:
+        dedup_rows = db.execute("SELECT id, name, embedding FROM insight WHERE embedding IS NOT NULL").fetchall()
+        if dedup_rows:
             import numpy as np
             q_vec = np.array(new_emb, dtype=np.float32)
-            names = [r["name"] for r in rows]
-            mat = build_embedding_matrix(r["embedding"] for r in rows)
-            sims = mat @ q_vec
-            best_idx = int(np.argmax(sims))
-            if sims[best_idx] >= DUPLICATE_THRESHOLD:
+            names = [r["name"] for r in dedup_rows]
+            mat = build_embedding_matrix(r["embedding"] for r in dedup_rows)
+            dedup_sims = mat @ q_vec
+            best_idx = int(np.argmax(dedup_sims))
+            if dedup_sims[best_idx] >= DUPLICATE_THRESHOLD:
                 match_name = names[best_idx]
                 now = _utcnow().isoformat()
                 with write_lock():
@@ -235,27 +242,56 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
 
     with write_lock():
         try:
-            db.execute(
+            cursor = db.execute(
                 "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) VALUES (?,?,?,?,?,?,?)",
                 (name, content, emb_blob, initial_effectiveness, 0, now, tags_json)
             )
+            new_id = cursor.lastrowid
             db.commit()
-            return {"status": "added", "name": name, "reason": ""}
         except sqlite3.IntegrityError as e:
             if "UNIQUE" in str(e):
                 name = f"{name}-{_utcnow().strftime('%H%M%S')}"
-                db.execute(
+                cursor = db.execute(
                     "INSERT INTO insight (name, content, embedding, effectiveness, use_count, created_at, tags) VALUES (?,?,?,?,?,?,?)",
                     (name, content, emb_blob, initial_effectiveness, 0, now, tags_json)
                 )
+                new_id = cursor.lastrowid
                 db.commit()
-                return {"status": "added", "name": name, "reason": ""}
-            raise
+            else:
+                raise
+
+    # Auto-link to semantically related insights (reuses dedup similarity vector)
+    if new_id and dedup_rows and dedup_sims is not None:
+        try:
+            from .edges import add_edges
+        except ImportError:
+            from edges import add_edges
+        try:
+            import numpy as np
+            # Find candidates: RELATED_THRESHOLD <= sim < DUPLICATE_THRESHOLD
+            candidates = []
+            for i, sim in enumerate(dedup_sims):
+                s = float(sim)
+                if RELATED_THRESHOLD <= s < DUPLICATE_THRESHOLD:
+                    candidates.append((dedup_rows[i]["id"], s))
+            # Top-K by similarity
+            candidates.sort(key=lambda x: -x[1])
+            edges_to_add = [
+                (new_id, cid, weight, "similar")
+                for cid, weight in candidates[:MAX_AUTOLINK_EDGES]
+            ]
+            if edges_to_add:
+                add_edges(edges_to_add)
+        except Exception:
+            pass  # auto-linking is best-effort
+
+    return {"status": "added", "name": name, "reason": ""}
 
 
 def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
            min_relevance: float = MIN_RELEVANCE_DEFAULT,
-           suppress_names: List[str] = None) -> List[dict]:
+           suppress_names: List[str] = None,
+           graph_hops: int = 0) -> List[dict]:
     """Recall insights by hybrid vector + keyword search with RRF fusion.
 
     Args:
@@ -263,12 +299,13 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
         limit: Maximum results
         min_effectiveness: Minimum effectiveness threshold
         min_relevance: Minimum cosine similarity (0.35 default). "No memory" beats "wrong memory."
+        graph_hops: Expand results via graph neighbors (0=off, 1=1-hop). Default off.
 
     Scoring: rrf_score * (0.5 + 0.5 * eff) * recency
     RRF fuses vector similarity ranking with FTS5 keyword ranking.
     Degrades gracefully to pure vector when FTS5 is unavailable.
 
-    Returns list with _relevance, _score fields.
+    Returns list with _relevance, _score, _hop fields.
     """
     db = get_db()
 
@@ -387,13 +424,76 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
 
     # Build results from already-fetched full rows (O(1) index lookup)
     results = []
+    selected_names = set()
     for score, rel, eff, idx in top:
         row = candidates[idx]
         m = _to_dict(row)
         m["_relevance"] = round(rel, 3)
         m["_effectiveness"] = round(eff, 3)
         m["_score"] = round(score, 3)
+        m["_hop"] = 0
         results.append(m)
+        selected_names.add(row["name"])
+
+    # --- Graph expansion (1-hop) ---
+    if graph_hops >= 1 and results:
+        try:
+            try:
+                from .edges import get_neighbors
+            except ImportError:
+                from edges import get_neighbors
+
+            top_ids = []
+            for score_val, rel, eff, idx in top:
+                top_ids.append(candidates[idx]["id"])
+
+            neighbors = get_neighbors(top_ids, limit=limit * 2)
+            if neighbors:
+                hop_scored = []
+                for nbr in neighbors:
+                    nbr_name = nbr["name"]
+                    if nbr_name in selected_names:
+                        continue
+                    if suppress_set and nbr_name in suppress_set:
+                        continue
+                    if not nbr["embedding"]:
+                        continue
+
+                    # Compute vector similarity to query
+                    nbr_vec = np.frombuffer(nbr["embedding"], dtype=np.float32)
+                    vector_sim = float(q_vec @ nbr_vec)
+                    if vector_sim < min_relevance:
+                        continue
+
+                    nbr_eff = _causal_adjusted_effectiveness(nbr)
+                    last_used = nbr["last_used"]
+                    if last_used:
+                        try:
+                            days_unused = (_utcnow() - datetime.fromisoformat(last_used)).days
+                            recency = max(RECENCY_FLOOR, 1.0 - RECENCY_DECAY_PER_DAY * days_unused)
+                        except (ValueError, TypeError):
+                            recency = 1.0
+                    else:
+                        recency = 0.95
+
+                    hop_score = vector_sim * HOP_DISCOUNT * (0.5 + 0.5 * nbr_eff) * recency
+                    hop_scored.append((hop_score, vector_sim, nbr_eff, nbr))
+                    selected_names.add(nbr_name)
+
+                # Merge hop results into main results
+                for hop_score, rel, eff, nbr_row in hop_scored:
+                    m = _to_dict(nbr_row)
+                    m["_relevance"] = round(rel, 3)
+                    m["_effectiveness"] = round(eff, 3)
+                    m["_score"] = round(hop_score, 3)
+                    m["_hop"] = 1
+                    results.append(m)
+
+                # Re-sort and trim
+                results.sort(key=lambda x: -x["_score"])
+                results = results[:limit]
+        except Exception:
+            pass  # graph expansion is best-effort
 
     return results
 
@@ -556,7 +656,20 @@ def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
     with write_lock():
         if all_remove:
             placeholders = ",".join("?" for _ in all_remove)
+            # Look up IDs before deletion for edge cleanup
+            deleted_ids = [
+                r["id"] for r in db.execute(
+                    f"SELECT id FROM insight WHERE name IN ({placeholders})", all_remove
+                ).fetchall()
+            ]
             db.execute(f"DELETE FROM insight WHERE name IN ({placeholders})", all_remove)
+            # Clean orphaned edges (manual CASCADE — FK pragma not enabled)
+            if deleted_ids:
+                id_ph = ",".join("?" for _ in deleted_ids)
+                db.execute(
+                    f"DELETE FROM insight_edges WHERE src_id IN ({id_ph}) OR dst_id IN ({id_ph})",
+                    deleted_ids + deleted_ids
+                )
         db.commit()
 
     remaining = db.execute("SELECT COUNT(*) as c FROM insight").fetchone()["c"]
@@ -610,6 +723,34 @@ def health() -> dict:
     """).fetchall()
     by_tag = {r["tag"]: r["cnt"] for r in tag_rows}
 
+    # Edge statistics
+    try:
+        edge_agg = db.execute("""
+            SELECT COUNT(*) as total_edges,
+                   COUNT(DISTINCT src_id) as src_count,
+                   COUNT(DISTINCT dst_id) as dst_count
+            FROM insight_edges
+        """).fetchone()
+        total_edges = edge_agg["total_edges"]
+        connected_insights = edge_agg["src_count"] + edge_agg["dst_count"]
+        # Deduplicate: some IDs appear in both src and dst
+        if total_edges > 0:
+            unique_connected = db.execute("""
+                SELECT COUNT(*) as c FROM (
+                    SELECT src_id AS id FROM insight_edges
+                    UNION
+                    SELECT dst_id AS id FROM insight_edges
+                )
+            """).fetchone()["c"]
+        else:
+            unique_connected = 0
+        connected_ratio = round(unique_connected / total, 3) if total > 0 else 0.0
+        avg_edges = round(total_edges / total, 2) if total > 0 else 0.0
+    except Exception:
+        total_edges = 0
+        connected_ratio = 0.0
+        avg_edges = 0.0
+
     loop_closed = total > 0 and with_feedback > 0
     issues = []
     if total == 0:
@@ -620,6 +761,9 @@ def health() -> dict:
     return {
         "status": "HEALTHY" if loop_closed and not issues else "NEEDS_ATTENTION",
         "total_insights": total,
+        "total_edges": total_edges,
+        "connected_ratio": connected_ratio,
+        "avg_edges_per_insight": avg_edges,
         "by_tag": by_tag,
         "effectiveness": round(avg_eff, 3),
         "with_feedback": with_feedback,
@@ -664,6 +808,8 @@ if __name__ == "__main__":
                    help=f"Minimum cosine similarity threshold (default: {MIN_RELEVANCE_DEFAULT})")
     s.add_argument("--suppress-names", default=None,
                    help="JSON list of insight names to exclude from results (for diversity)")
+    s.add_argument("--graph-hops", type=int, default=0,
+                   help="Expand results via graph neighbors (0=off, 1=1-hop)")
 
     s = sub.add_parser("get")
     s.add_argument("name")
@@ -681,6 +827,11 @@ if __name__ == "__main__":
     s.add_argument("--min-uses", type=int, default=3)
 
     sub.add_parser("health")
+
+    s = sub.add_parser("neighbors")
+    s.add_argument("name", help="Insight name to find neighbors for")
+    s.add_argument("--limit", type=int, default=5)
+    s.add_argument("--relation", default=None, help="Filter by relation type (similar, led_to)")
 
     args = p.parse_args()
 
@@ -701,7 +852,7 @@ if __name__ == "__main__":
     elif args.cmd == "recall":
         suppress = json.loads(args.suppress_names) if args.suppress_names else None
         r = recall(args.query, args.limit, args.min_effectiveness, args.min_relevance,
-                   suppress_names=suppress)
+                   suppress_names=suppress, graph_hops=args.graph_hops)
     elif args.cmd == "get":
         r = get(args.name)
         if r is None:
@@ -715,6 +866,23 @@ if __name__ == "__main__":
         r = prune(min_effectiveness=args.min_effectiveness, min_uses=args.min_uses)
     elif args.cmd == "health":
         r = health()
+    elif args.cmd == "neighbors":
+        db = get_db()
+        row = db.execute("SELECT id FROM insight WHERE name = ?", (args.name,)).fetchone()
+        if not row:
+            r = {"error": f"insight '{args.name}' not found"}
+        else:
+            try:
+                from edges import get_neighbors
+            except ImportError:
+                from .edges import get_neighbors
+            nbrs = get_neighbors([row["id"]], relation=args.relation, limit=args.limit)
+            r = []
+            for nbr in nbrs:
+                d = _to_dict(nbr)
+                d["edge_weight"] = round(nbr["edge_weight"], 3)
+                d["edge_relation"] = nbr["edge_relation"]
+                r.append(d)
 
     if args.verbose and r is not None:
         cmd_args = {k: v for k, v in vars(args).items() if k not in ('cmd', 'verbose', 'db')}

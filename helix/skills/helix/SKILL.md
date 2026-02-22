@@ -50,6 +50,10 @@ Synthesize `insights` into three blocks:
    - Modules mentioned in insights that aren't obvious from the objective
    - Cross-cutting concerns flagged by tag distribution
 
+4. **GRAPH_DISCOVERED** — insights with `_hop: 1` (reached via graph relationships, not direct semantic match). These surface connections the query alone wouldn't find. Treat as exploration targets — the graph says "this area is related."
+
+**Graph signal:** `graph_expanded_count > 0` = memory graph is surfacing related context. `graph_expanded_count == 0` with edges in system = query is in an isolated topic cluster.
+
 Example:
 ```
 CONSTRAINTS:
@@ -122,9 +126,9 @@ while pending tasks:
 
 #### Stall Recovery
 
-First, recall insights about the blocked area:
+First, recall insights about the blocked area (graph expansion discovers related insights that might explain the blockage):
 ```bash
-python3 "$HELIX/lib/memory/core.py" recall "{blocked_task_description}" --limit 3
+python3 "$HELIX/lib/memory/core.py" recall "{blocked_task_description}" --limit 5 --graph-hops 1
 ```
 
 Then analyze:
@@ -196,6 +200,8 @@ Synthesize orchestrator observations + user response into insights.
   ```
 - **User dismisses**: Fall back to your own cross-task observations. Store without `user-provided` tag.
 - **Skipped ask** (fast-path): Store your own observations directly.
+
+Stored insights are automatically linked to semantically related existing insights (similarity >= 0.60). Provenance edges to causal parent insights are recorded during extraction. These relationships improve future recall breadth.
 
 Test: would this help a developer 3 months from now? **Minimum:** one insight per session that completed work.
 

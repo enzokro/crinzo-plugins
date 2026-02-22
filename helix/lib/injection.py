@@ -219,7 +219,7 @@ def strategic_recall(objective: str,
     from lib.memory.core import recall, count
 
     total_in_system = count()
-    memories = recall(objective, limit=limit, min_relevance=min_relevance)
+    memories = recall(objective, limit=limit, min_relevance=min_relevance, graph_hops=1)
 
     # Batch-fetch tags for recalled insights
     if memories:
@@ -280,6 +280,7 @@ def strategic_recall(objective: str,
                 tag_distribution[tag] = tag_distribution.get(tag, 0) + 1
 
     coverage_ratio = round(total_recalled / total_in_system, 3) if total_in_system > 0 else 0.0
+    graph_expanded_count = sum(1 for m in memories if m.get("_hop", 0) > 0)
 
     return {
         "insights": memories,
@@ -293,6 +294,7 @@ def strategic_recall(objective: str,
             "untested_count": untested_count,
             "tag_distribution": tag_distribution,
             "coverage_ratio": coverage_ratio,
+            "graph_expanded_count": graph_expanded_count,
         }
     }
 

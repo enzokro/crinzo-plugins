@@ -8,7 +8,17 @@ argument-hint: <search text>
 
 ```bash
 HELIX="$(cat .helix/plugin_root)"
+
+# Semantic search (flat)
 python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 10
+
+# Graph-expanded search (follows relationships)
+python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 10 --graph-hops 1
+
+# Find related insights to a specific insight
+python3 "$HELIX/lib/memory/core.py" neighbors "insight-name" --limit 5
 ```
 
-Scoring: `relevance * (0.5 + 0.5 * causal_adjusted_effectiveness)`. Higher `_effectiveness` = more causally validated. Use `--help` for filtering options (`--min-effectiveness`, `--suppress-names`, `--min-relevance`).
+Scoring: `relevance * (0.5 + 0.5 * causal_adjusted_effectiveness)`.
+Graph-expanded results have `_hop: 1` — discovered via relationship edges, not direct match.
+Use `--help` for filtering options (`--min-effectiveness`, `--suppress-names`, `--min-relevance`).

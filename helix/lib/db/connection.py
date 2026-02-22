@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v11: insight table + FTS5 hybrid search index.
+Schema v12: insight table + FTS5 hybrid search index + relationship edges.
 """
 
 import os
@@ -179,6 +179,26 @@ def _apply_migrations(db: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
 
+    # Migration v12: Relationship edges between insights
+    if current_version < 12:
+        try:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS insight_edges (
+                    src_id INTEGER NOT NULL,
+                    dst_id INTEGER NOT NULL,
+                    weight REAL NOT NULL,
+                    relation TEXT NOT NULL DEFAULT 'similar',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (src_id, dst_id, relation)
+                );
+                CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id);
+                CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id);
+            """)
+            db.execute("INSERT OR REPLACE INTO schema_version VALUES (12, datetime('now'))")
+            db.commit()
+        except sqlite3.OperationalError:
+            pass
+
 
 def init_db(db: sqlite3.Connection = None) -> None:
     """Initialize database schema."""
@@ -206,6 +226,18 @@ def init_db(db: sqlite3.Connection = None) -> None:
             last_feedback_at TEXT,
             tags TEXT DEFAULT '[]'
         );
+
+        -- Relationship edges between insights (v12)
+        CREATE TABLE IF NOT EXISTS insight_edges (
+            src_id INTEGER NOT NULL,
+            dst_id INTEGER NOT NULL,
+            weight REAL NOT NULL,
+            relation TEXT NOT NULL DEFAULT 'similar',
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (src_id, dst_id, relation)
+        );
+        CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id);
 
     """)
     db.commit()
