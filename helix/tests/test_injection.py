@@ -1,6 +1,7 @@
 """Tests for lib/injection.py - insight injection for agents."""
 
-from lib.injection import inject_context, format_prompt, reset_session_tracking, batch_inject, NO_MATCHING_MEMORY
+import pytest
+from lib.injection import inject_context, format_prompt, reset_session_tracking, batch_inject, _normalize_objectives, NO_MATCHING_MEMORY
 
 
 class TestInjectContext:
@@ -241,4 +242,30 @@ class TestBatchInject:
 
         assert result["results"] == []
         assert result["total_unique"] == 0
+
+
+class TestNormalizeObjectives:
+    """Tests for _normalize_objectives input normalization."""
+
+    def test_string_list_passthrough(self):
+        assert _normalize_objectives(["a", "b"]) == ["a", "b"]
+
+    def test_dict_list_extracts_objective(self):
+        tasks = [{"id": "1", "objective": "fix auth"}, {"id": "2", "objective": "add tests"}]
+        assert _normalize_objectives(tasks) == ["fix auth", "add tests"]
+
+    def test_mixed_formats(self):
+        tasks = ["plain string", {"objective": "from dict"}]
+        assert _normalize_objectives(tasks) == ["plain string", "from dict"]
+
+    def test_empty_list(self):
+        assert _normalize_objectives([]) == []
+
+    def test_dict_missing_objective_key_raises(self):
+        with pytest.raises(ValueError, match="tasks\\[0\\].*'objective'"):
+            _normalize_objectives([{"id": "1", "task": "no objective key"}])
+
+    def test_invalid_type_raises(self):
+        with pytest.raises(ValueError, match="tasks\\[1\\]"):
+            _normalize_objectives(["valid", 42])
 

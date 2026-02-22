@@ -2,7 +2,7 @@
 
 Single injection function replaces 4-query context builder.
 Shared formatting used by both orchestrator (batch_inject) and hook (inject_memory).
-CLI entry point: python3 injection.py batch-inject --tasks '["obj1","obj2"]' --limit 3
+CLI entry point: python3 injection.py batch-inject --tasks '[{"objective":"obj1"},...]' --limit 3
 """
 
 import json
@@ -167,6 +167,23 @@ def format_prompt(
     return "\n".join(lines)
 
 
+def _normalize_objectives(tasks: list) -> List[str]:
+    """Extract objective strings from mixed-format task list.
+
+    Accepts: ["obj1", "obj2"] or [{"objective": "obj1"}, ...] or mixed.
+    Fails fast on unrecognized formats.
+    """
+    objectives = []
+    for i, task in enumerate(tasks):
+        if isinstance(task, str):
+            objectives.append(task)
+        elif isinstance(task, dict) and "objective" in task:
+            objectives.append(task["objective"])
+        else:
+            raise ValueError(f"tasks[{i}]: expected str or dict with 'objective' key, got {type(task).__name__}")
+    return objectives
+
+
 def batch_inject(tasks: List[str], limit: int = 3) -> dict:
     """Inject context for multiple tasks with cross-task diversity.
 
@@ -174,7 +191,7 @@ def batch_inject(tasks: List[str], limit: int = 3) -> dict:
     earlier tasks are suppressed in later ones.
 
     Args:
-        tasks: List of task objectives
+        tasks: List of objective strings
         limit: Maximum insights per task
 
     Returns: {"results": [inject_context result, ...], "total_unique": int}
@@ -315,7 +332,7 @@ if __name__ == "__main__":
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("batch-inject", help="Inject context for multiple tasks with cross-task diversity")
-    s.add_argument("--tasks", required=True, help="JSON array of task objectives")
+    s.add_argument("--tasks", required=True, help="JSON array of objectives (strings or {objective:...} dicts)")
     s.add_argument("--limit", type=int, default=3, help="Max insights per task")
 
     s = sub.add_parser("inject", help="Inject context for a single task")
@@ -339,7 +356,7 @@ if __name__ == "__main__":
 
     if args.cmd == "batch-inject":
         reset_session_tracking()
-        tasks = json.loads(args.tasks)
+        tasks = _normalize_objectives(json.loads(args.tasks))
         print(json.dumps(batch_inject(tasks, args.limit)))
     elif args.cmd == "inject":
         reset_session_tracking()
