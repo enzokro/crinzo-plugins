@@ -144,7 +144,7 @@ Then analyze:
 
 #### Step 1: Observe
 
-Review all outcomes internally. Note: which tasks blocked and why, retry patterns, ordering issues, what the user might know. Formulate hypotheses. **Do not store yet.**
+Review all outcomes internally. For each task, collect: exact DELIVERED/BLOCKED/PARTIAL text, relevant_files, verify command used, retry count, error messages. Note cross-task patterns (ordering issues, shared blockers, convergent failures). Formulate hypotheses. **Do not store yet.**
 
 #### Step 2: Ask
 
@@ -158,31 +158,42 @@ Present observations to user via `AskUserQuestion`. The user holds domain knowle
 | Any BLOCKED or PARTIAL | Yes | Highest learning value |
 | All DELIVERED (multi-task) | Yes | Approach/ordering insights |
 
-**Question design — options encode hypotheses.** Derive from block reasons, relevant files, task context. User confirms, corrects, or types "Other".
+**Question construction rules:**
+
+1. **Quote, don't paraphrase.** Question text MUST include the actual error/outcome text from the builder (the BLOCKED/PARTIAL reason). The user needs to see exactly what happened to diagnose it.
+2. **Name the files.** Question text MUST include specific file paths from relevant_files or the error output. "`tests/auth/test_oauth.py` timed out at verify step `pytest tests/auth/ -k oauth`" is actionable; "test suite timed out" is not.
+3. **Evidence-grounded options.** Each option description MUST state what observed evidence supports that hypothesis — not restate the label.
+4. **One question per blocked/notable task.** Use up to 4 `AskUserQuestion` slots for separate issues. Do NOT merge distinct blocked tasks into one vague question.
+
+**Never do these:**
+- Question without the actual error text
+- Generic option descriptions that could apply to any failure
+- Merging multiple blocked tasks into "some tasks had issues"
+- Asking about frictionless successes (no retries, no surprises)
 
 BLOCKED/PARTIAL example:
 ```
 AskUserQuestion([{
-  question: "Builder for '003: migrate-auth-tokens' was blocked: test suite timed out on OAuth flows. Most likely cause?",
-  header: "Root cause",
+  question: "Builder for '003: migrate-auth-tokens' was BLOCKED: 'ConnectionTimeout after 30s in tests/auth/test_oauth.py:42 — OAuth provider unreachable'. Files: src/auth/tokens.py, tests/auth/test_oauth.py. Verify was: pytest tests/auth/ -k oauth_migration. Most likely cause?",
+  header: "Root cause: 003",
   options: [
-    {label: "Rate limiting", description: "Test environment has API rate limits that CI hits"},
-    {label: "Missing mock", description: "These tests need a mock provider, not the real endpoint"},
-    {label: "Config issue", description: "Test environment OAuth config is wrong or stale"}
+    {label: "Missing mock", description: "test_oauth.py hits real OAuth endpoint — ConnectionTimeout suggests no mock configured for this test flow"},
+    {label: "Network/env config", description: "OAuth provider URL may be wrong in test config — 30s timeout implies connection attempt, not auth failure"},
+    {label: "Dependency ordering", description: "Token migration requires auth-service running — another task should have set up test fixtures first"}
   ],
   multiSelect: false
 }])
 ```
 
-All DELIVERED example:
+All DELIVERED (with friction) example:
 ```
 AskUserQuestion([{
-  question: "All 4 tasks delivered. The auth module needed 2 attempts (stall recovery). Worth remembering anything about this area?",
-  header: "Reflection",
+  question: "All 4 tasks delivered. '002: refactor-auth-middleware' needed 2 attempts — first failed on tests/middleware/test_chain.py (assertion: expected 3 middleware layers, got 2). After stall recovery, builder added missing CORS layer. Is this a known constraint?",
+  header: "Reflection: 002",
   options: [
-    {label: "Known friction", description: "This module has patterns/constraints that should be documented"},
-    {label: "Ordering issue", description: "Tasks should have been sequenced differently"},
-    {label: "All good", description: "No corrections — stall recovery handled it fine"}
+    {label: "Document constraint", description: "Middleware chain order matters — CORS must be explicit. The layer-count assertion in test_chain.py is the contract"},
+    {label: "Test was brittle", description: "test_chain.py counts layers instead of asserting behavior — breaks on any refactor that changes layer count"},
+    {label: "All good", description: "Stall recovery handled it correctly, nothing to remember"}
   ],
   multiSelect: false
 }])
@@ -195,8 +206,8 @@ Synthesize orchestrator observations + user response into insights.
 - **User selects option or types "Other"**: Combine observation with their answer. Tag `user-provided`.
   ```bash
   python3 "$HELIX/lib/memory/core.py" store \
-    --content "When testing OAuth token migration, use mock provider for unit tests because the test OAuth provider rate-limits at 10 req/s and blocks CI" \
-    --tags '["user-provided", "testing", "auth"]'
+    --content "When modifying auth middleware in src/auth/middleware.py, always include explicit CORS layer — test_chain.py validates 3-layer stack and implicit CORS from Flask-CORS doesn't count" \
+    --tags '["user-provided", "auth", "middleware"]'
   ```
 - **User dismisses**: Fall back to your own cross-task observations. Store without `user-provided` tag.
 - **Skipped ask** (fast-path): Store your own observations directly.
