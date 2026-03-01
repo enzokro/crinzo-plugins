@@ -5,7 +5,6 @@ Used by store() for auto-linking, extract_learning for provenance, prune() for c
 """
 
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -15,10 +14,10 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from db.connection import get_db, write_lock
 
-
-def _utcnow() -> datetime:
-    """Return current UTC time as naive datetime."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+try:
+    from .core import _utcnow
+except ImportError:
+    from memory.core import _utcnow
 
 
 def add_edges(edges: List[Tuple[int, int, float, str]]) -> int:
@@ -80,13 +79,9 @@ def get_neighbors(insight_ids: List[int], relation: Optional[str] = None,
     db = get_db()
     placeholders = ",".join("?" for _ in insight_ids)
 
-    # Bidirectional lookup: match src or dst
-    params = list(insight_ids) + list(insight_ids)
     relation_clause = ""
     if relation:
         relation_clause = "AND e.relation = ?"
-        params.append(relation)
-    params.append(limit)
 
     query = f"""
         SELECT i.*, e.weight AS edge_weight, e.relation AS edge_relation
@@ -101,11 +96,12 @@ def get_neighbors(insight_ids: List[int], relation: Optional[str] = None,
         ORDER BY e.weight DESC
         LIMIT ?
     """
-    # Need insight_ids 4 times: CASE src_id IN, WHERE src_id IN, WHERE dst_id IN, NOT IN
-    params = list(insight_ids) + list(insight_ids) + list(insight_ids)
+    # Need insight_ids 4 times: CASE-src, WHERE-src, WHERE-dst, NOT-IN
+    ids = list(insight_ids)
+    params = ids * 3  # CASE, WHERE-src, WHERE-dst
     if relation:
         params.append(relation)
-    params += list(insight_ids)
+    params += ids    # NOT-IN
     params.append(limit)
 
     rows = db.execute(query, params).fetchall()

@@ -16,12 +16,8 @@ Decompose objectives into a task DAG specification. You design the DAG; orchestr
 <input>objective, exploration, constraints (optional)</input>
 
 <execution>
-1. **Analyze findings**: Map `{file, what}` entries to understand existing structure.
-   - **GREENFIELD**: No findings? Synthesize from objective using standard project paths.
-   - **CONSTRAINTS**: If provided, these encode lessons from past sessions — decomposition patterns, verification requirements, risk areas. Respect them unless they directly conflict with current objective.
-
-2. **Group by concern**: Cluster related findings into task-sized units → relevant_files.
-
+1. **Analyze findings**: Map `{file, what}` to understand structure. GREENFIELD (no findings): synthesize from objective. CONSTRAINTS: respect past-session lessons unless they conflict.
+2. **Group by concern**: Cluster findings into task-sized units -- relevant_files.
 3. **Build specs**: `{seq, slug, description, relevant_files, blocked_by, verify}`
 </execution>
 

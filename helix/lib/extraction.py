@@ -11,6 +11,7 @@ from typing import Optional
 _OUTCOME_RE = re.compile(r'(DELIVERED|BLOCKED|PARTIAL|PLAN_COMPLETE|REMAINING):\s*(.+)', re.IGNORECASE)
 _TASK_RE = re.compile(r'(?:TASK|OBJECTIVE):\s*(.+)', re.IGNORECASE)
 _INJECTED_RE = re.compile(r'INJECTED:\s*(\[[^\]]*\])', re.IGNORECASE)
+_VALID_OUTCOMES = {"DELIVERED", "BLOCKED", "PARTIAL", "PLAN_COMPLETE"}
 
 
 def _extract_json_after(text: str, marker: str) -> Optional[dict]:
@@ -88,6 +89,7 @@ def extract_insight(transcript: str, outcome: str = None,
     }
 
 
+# test-only — standalone extractors preserved for direct test use
 def extract_outcome(transcript: str) -> str:
     """Extract outcome from transcript. Last match wins.
 
@@ -96,17 +98,12 @@ def extract_outcome(transcript: str) -> str:
     outcome = "unknown"
     for m in _OUTCOME_RE.finditer(transcript):
         marker = m.group(1).upper()
-        if marker == "DELIVERED":
-            outcome = "delivered"
-        elif marker == "BLOCKED":
-            outcome = "blocked"
-        elif marker == "PARTIAL":
-            outcome = "partial"
-        elif marker == "PLAN_COMPLETE":
-            outcome = "plan_complete"
+        if marker in _VALID_OUTCOMES:
+            outcome = marker.lower()
     return outcome
 
 
+# test-only
 def extract_summary_parts(transcript: str) -> list:
     """Extract DELIVERED/BLOCKED/PARTIAL summary text from transcript.
 
@@ -115,6 +112,7 @@ def extract_summary_parts(transcript: str) -> list:
     return re.findall(r'(?:DELIVERED|BLOCKED|PARTIAL):\s*(.+)', transcript, re.IGNORECASE)
 
 
+# test-only
 def extract_task_parts(transcript: str) -> list:
     """Extract TASK/OBJECTIVE text from transcript.
 
@@ -123,6 +121,7 @@ def extract_task_parts(transcript: str) -> list:
     return re.findall(r'(?:TASK|OBJECTIVE):\s*(.+)', transcript, re.IGNORECASE)
 
 
+# test-only
 def extract_injected_names(transcript: str) -> list:
     """Extract injected insight names from transcript.
 
@@ -158,18 +157,11 @@ def process_completion(transcript: str) -> dict:
 
     for m in _OUTCOME_RE.finditer(transcript):
         marker = m.group(1).upper()
-        text = m.group(2).strip()
         # Last-match-wins: agent's actual output is at end of transcript.
         # Earlier matches may be from injected context or PARENT_DELIVERIES.
-        if marker == "DELIVERED":
-            outcome = "delivered"
-        elif marker == "BLOCKED":
-            outcome = "blocked"
-        elif marker == "PARTIAL":
-            outcome = "partial"
-        elif marker == "PLAN_COMPLETE":
-            outcome = "plan_complete"
-        summary_parts.append(text)
+        if marker in _VALID_OUTCOMES:
+            outcome = marker.lower()
+        summary_parts.append(m.group(2).strip())
 
     for m in _TASK_RE.finditer(transcript):
         task_parts.append(m.group(1).strip())

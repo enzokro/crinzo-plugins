@@ -25,22 +25,18 @@ MAX_TEXT_CHARS = 2000
 
 @contextmanager
 def _suppress_output():
-    """Suppress stdout/stderr during model loading."""
-    stdout_fd = sys.stdout.fileno()
-    stderr_fd = sys.stderr.fileno()
-    saved_stdout = os.dup(stdout_fd)
-    saved_stderr = os.dup(stderr_fd)
+    """Suppress stdout/stderr at fd level (catches C/Rust library output)."""
+    fds = sys.stdout.fileno(), sys.stderr.fileno()
+    saved = [os.dup(fd) for fd in fds]
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, stdout_fd)
-        os.dup2(devnull, stderr_fd)
+        for fd in fds: os.dup2(devnull, fd)
         os.close(devnull)
         yield
     finally:
-        os.dup2(saved_stdout, stdout_fd)
-        os.dup2(saved_stderr, stderr_fd)
-        os.close(saved_stdout)
-        os.close(saved_stderr)
+        for fd, s in zip(fds, saved):
+            os.dup2(s, fd)
+            os.close(s)
 
 
 def _load():

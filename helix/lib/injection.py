@@ -80,12 +80,10 @@ def inject_context(objective: str, limit: int = 3,
     # Import here to avoid circular dependency
     from lib.memory.core import recall
 
-    kwargs = {"limit": limit}
-    if min_relevance is not None:
-        kwargs["min_relevance"] = min_relevance
-    if diversify and _session_injected:
-        kwargs["suppress_names"] = list(_session_injected)
-    memories = recall(objective, **kwargs)
+    suppress = list(_session_injected) if diversify and _session_injected else None
+    memories = recall(objective, limit=limit,
+                      **({"min_relevance": min_relevance} if min_relevance is not None else {}),
+                      suppress_names=suppress)
     insights, names = format_insights(memories)
 
     if diversify:
@@ -210,6 +208,36 @@ def batch_inject(tasks: List[str], limit: int = 3) -> dict:
     }
 
 
+def _summarize(memories: list, total_in_system: int) -> dict:
+    """Compute summary statistics for strategic recall results."""
+    n = len(memories)
+    if n == 0:
+        return {"total_recalled": 0, "total_in_system": total_in_system,
+                "avg_relevance": 0.0, "avg_effectiveness": 0.0,
+                "proven_count": 0, "risky_count": 0, "untested_count": 0,
+                "tag_distribution": {}, "coverage_ratio": 0.0,
+                "graph_expanded_count": 0}
+
+    effs = [m.get("_effectiveness", m.get("effectiveness", 0.5)) for m in memories]
+    tag_distribution: dict = {}
+    for m in memories:
+        for tag in m.get("tags", []):
+            tag_distribution[tag] = tag_distribution.get(tag, 0) + 1
+
+    return {
+        "total_recalled": n,
+        "total_in_system": total_in_system,
+        "avg_relevance": round(sum(m.get("_relevance", 0.0) for m in memories) / n, 3),
+        "avg_effectiveness": round(sum(effs) / n, 3),
+        "proven_count": sum(1 for e in effs if e >= STRATEGIC_HIGH_EFFECTIVENESS),
+        "risky_count": sum(1 for e in effs if e < STRATEGIC_LOW_EFFECTIVENESS),
+        "untested_count": sum(1 for m in memories if m.get("use_count", 0) < 3),
+        "tag_distribution": tag_distribution,
+        "coverage_ratio": round(n / total_in_system, 3) if total_in_system > 0 else 0.0,
+        "graph_expanded_count": sum(1 for m in memories if m.get("_hop", 0) > 0),
+    }
+
+
 def strategic_recall(objective: str,
                      limit: int = STRATEGIC_RECALL_LIMIT,
                      min_relevance: float = STRATEGIC_MIN_RELEVANCE) -> dict:
@@ -266,53 +294,9 @@ def strategic_recall(objective: str,
         for m in memories:
             m["tags"] = tags_by_name.get(m["name"], [])
 
-    # Compute summary statistics
-    total_recalled = len(memories)
-    avg_relevance = 0.0
-    avg_effectiveness = 0.0
-    proven_count = 0
-    risky_count = 0
-    untested_count = 0
-    tag_distribution: dict = {}
-
-    if memories:
-        relevances = [m.get("_relevance", 0.0) for m in memories]
-        effectivenesses = [m.get("_effectiveness", m.get("effectiveness", 0.5)) for m in memories]
-        avg_relevance = round(sum(relevances) / len(relevances), 3)
-        avg_effectiveness = round(sum(effectivenesses) / len(effectivenesses), 3)
-
-        for m in memories:
-            eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
-            use_count = m.get("use_count", 0)
-
-            if eff >= STRATEGIC_HIGH_EFFECTIVENESS:
-                proven_count += 1
-            elif eff < STRATEGIC_LOW_EFFECTIVENESS:
-                risky_count += 1
-
-            if use_count < 3:
-                untested_count += 1
-
-            for tag in m.get("tags", []):
-                tag_distribution[tag] = tag_distribution.get(tag, 0) + 1
-
-    coverage_ratio = round(total_recalled / total_in_system, 3) if total_in_system > 0 else 0.0
-    graph_expanded_count = sum(1 for m in memories if m.get("_hop", 0) > 0)
-
     return {
         "insights": memories,
-        "summary": {
-            "total_recalled": total_recalled,
-            "total_in_system": total_in_system,
-            "avg_relevance": avg_relevance,
-            "avg_effectiveness": avg_effectiveness,
-            "proven_count": proven_count,
-            "risky_count": risky_count,
-            "untested_count": untested_count,
-            "tag_distribution": tag_distribution,
-            "coverage_ratio": coverage_ratio,
-            "graph_expanded_count": graph_expanded_count,
-        }
+        "summary": _summarize(memories, total_in_system),
     }
 
 
@@ -335,10 +319,6 @@ if __name__ == "__main__":
     s.add_argument("--tasks", required=True, help="JSON array of objectives (strings or {objective:...} dicts)")
     s.add_argument("--limit", type=int, default=3, help="Max insights per task")
 
-    s = sub.add_parser("inject", help="Inject context for a single task")
-    s.add_argument("objective", help="Task objective for semantic search")
-    s.add_argument("--limit", type=int, default=3)
-
     s = sub.add_parser("strategic-recall", help="Broad recall with summary for orchestrator RECALL phase")
     s.add_argument("objective", help="Objective for semantic search")
     s.add_argument("--limit", type=int, default=STRATEGIC_RECALL_LIMIT)
@@ -348,7 +328,10 @@ if __name__ == "__main__":
 
     if args.db:
         import os
-        import db.connection as conn_module
+        try:
+            from lib.db import connection as conn_module
+        except ImportError:
+            import db.connection as conn_module
         resolved = str(Path(args.db).resolve())
         os.environ["HELIX_DB_PATH"] = resolved
         conn_module.DB_PATH = resolved
@@ -358,9 +341,6 @@ if __name__ == "__main__":
         reset_session_tracking()
         tasks = _normalize_objectives(json.loads(args.tasks))
         print(json.dumps(batch_inject(tasks, args.limit)))
-    elif args.cmd == "inject":
-        reset_session_tracking()
-        print(json.dumps(inject_context(args.objective, limit=args.limit)))
     elif args.cmd == "strategic-recall":
         print(json.dumps(strategic_recall(args.objective, limit=args.limit,
                                           min_relevance=args.min_relevance), indent=2))

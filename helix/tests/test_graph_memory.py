@@ -77,12 +77,12 @@ class TestRecallGraphExpansion:
     """Tests for recall() with graph_hops parameter."""
 
     def test_graph_hops_zero_backward_compat(self, test_db, mock_embeddings):
-        """graph_hops=0 (default) produces results with _hop=0 field."""
+        """graph_hops=0 produces results with _hop=0 field."""
         from lib.memory.core import store, recall
 
         store("When optimizing database queries, use EXPLAIN ANALYZE to identify bottlenecks", tags=["database"])
 
-        results = recall("database query optimization", limit=5)
+        results = recall("database query optimization", limit=5, graph_hops=0)
         for r in results:
             assert "_hop" in r
             assert r["_hop"] == 0

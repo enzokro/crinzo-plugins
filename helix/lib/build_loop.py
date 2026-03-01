@@ -21,6 +21,17 @@ from lib.paths import get_helix_dir as _get_helix_dir
 # ── Wait utilities ──
 
 
+def _poll(check_fn, timeout, poll_interval):
+    """Poll check_fn until it returns a truthy result or timeout."""
+    start = time.time()
+    while time.time() - start < timeout:
+        result = check_fn()
+        if result is not None:
+            return result
+        time.sleep(poll_interval)
+    return None
+
+
 def _dedup_findings(findings: list) -> list:
     """Deduplicate findings by file path."""
     seen = set()
@@ -72,39 +83,32 @@ def wait_for_explorer_results(
     Returns:
         Dict with merged findings and metadata
     """
-    if helix_dir:
-        results_dir = Path(helix_dir) / "explorer-results"
-    else:
-        results_dir = _get_helix_dir() / "explorer-results"
+    results_dir = (Path(helix_dir) if helix_dir else _get_helix_dir()) / "explorer-results"
 
-    start = time.time()
+    def _check():
+        if not results_dir.exists():
+            return None
+        files = list(results_dir.glob("*.json"))
+        if len(files) < expected_count:
+            return None
+        all_findings, errors = [], []
+        for f in files:
+            try:
+                data = json.loads(f.read_text())
+                findings = data.get('findings', [])
+                if findings:
+                    all_findings.extend(findings)
+                elif data.get('status') == 'error':
+                    errors.append(data.get('error', 'Unknown error'))
+            except Exception as e:
+                errors.append(f"Failed to parse {f.name}: {e}")
+        return {"completed": True, "count": len(files),
+                "findings": _dedup_findings(all_findings),
+                "errors": errors if errors else None}
 
-    while time.time() - start < timeout_sec:
-        if results_dir.exists():
-            files = list(results_dir.glob("*.json"))
-            if len(files) >= expected_count:
-                # Merge all findings
-                all_findings = []
-                errors = []
-                for f in files:
-                    try:
-                        data = json.loads(f.read_text())
-                        findings = data.get('findings', [])
-                        if findings:
-                            all_findings.extend(findings)
-                        elif data.get('status') == 'error':
-                            errors.append(data.get('error', 'Unknown error'))
-                    except Exception as e:
-                        errors.append(f"Failed to parse {f.name}: {e}")
-
-                return {
-                    "completed": True,
-                    "count": len(files),
-                    "findings": _dedup_findings(all_findings),
-                    "errors": errors if errors else None
-                }
-
-        time.sleep(poll_interval)
+    result = _poll(_check, timeout_sec, poll_interval)
+    if result is not None:
+        return result
 
     # Timeout - return partial results
     partial_findings = []
@@ -115,14 +119,8 @@ def wait_for_explorer_results(
             partial_findings.extend(data.get('findings', []))
         except Exception:
             pass
-
-    return {
-        "completed": False,
-        "timed_out": True,
-        "count": len(partial_files),
-        "expected": expected_count,
-        "findings": _dedup_findings(partial_findings)
-    }
+    return {"completed": False, "timed_out": True, "count": len(partial_files),
+            "expected": expected_count, "findings": _dedup_findings(partial_findings)}
 
 
 def wait_for_builder_results(
@@ -145,46 +143,30 @@ def wait_for_builder_results(
     Returns:
         Dict with completed tasks grouped by outcome
     """
-    if helix_dir:
-        status_file = Path(helix_dir) / "task-status.jsonl"
-    else:
-        status_file = _get_helix_dir() / "task-status.jsonl"
-
+    status_file = (Path(helix_dir) if helix_dir else _get_helix_dir()) / "task-status.jsonl"
     task_set = set(task_ids)
-    start = time.time()
 
-    while time.time() - start < timeout_sec:
-        if status_file.exists():
-            found = _parse_task_status(status_file, task_set)
+    def _check():
+        if not status_file.exists():
+            return None
+        found = _parse_task_status(status_file, task_set)
+        if not task_set <= set(found.keys()):
+            return None
+        delivered = [e for e in found.values() if e.get("outcome") == "delivered"]
+        blocked = [e for e in found.values() if e.get("outcome") == "blocked"]
+        unknown = [e for e in found.values() if e.get("outcome") not in ("delivered", "blocked")]
+        return {"completed": True, "count": len(found),
+                "delivered": delivered, "blocked": blocked, "unknown": unknown,
+                "all_delivered": len(blocked) == 0 and len(unknown) == 0}
 
-            if task_set <= set(found.keys()):
-                delivered = [e for e in found.values() if e.get("outcome") == "delivered"]
-                blocked = [e for e in found.values() if e.get("outcome") == "blocked"]
-                unknown = [e for e in found.values() if e.get("outcome") not in ("delivered", "blocked")]
-                return {
-                    "completed": True,
-                    "count": len(found),
-                    "delivered": delivered,
-                    "blocked": blocked,
-                    "unknown": unknown,
-                    "all_delivered": len(blocked) == 0 and len(unknown) == 0,
-                }
-
-        time.sleep(poll_interval)
+    result = _poll(_check, timeout_sec, poll_interval)
+    if result is not None:
+        return result
 
     # Timeout - return partial results
-    partial = {}
-    if status_file.exists():
-        partial = _parse_task_status(status_file, task_set)
-
-    missing = task_set - set(partial.keys())
-    return {
-        "completed": False,
-        "timed_out": True,
-        "found": list(partial.values()),
-        "missing": list(missing),
-        "expected": list(task_ids)
-    }
+    partial = _parse_task_status(status_file, task_set) if status_file.exists() else {}
+    return {"completed": False, "timed_out": True, "found": list(partial.values()),
+            "missing": list(task_set - set(partial.keys())), "expected": list(task_ids)}
 
 
 def collect_parent_deliveries(
@@ -267,23 +249,11 @@ def detect_cycles(dependencies: Dict[str, List[str]]) -> List[List[str]]:
     return cycles
 
 
-def _get_task_ids_by_outcome(all_tasks: List[Dict], outcome: str) -> List[str]:
-    """Get task IDs with a specific helix_outcome.
-
-    Derives state from TaskList metadata, not from parallel tracking.
-
-    Args:
-        all_tasks: List of task data from TaskList
-        outcome: helix_outcome value to filter by ("delivered", "blocked", etc.)
-
-    Returns:
-        List of matching task IDs
-    """
-    return [
-        t.get("id") for t in all_tasks
-        if t.get("status") == "completed"
-        and t.get("metadata", {}).get("helix_outcome") == outcome
-    ]
+def _get_task_ids_by_outcome(all_tasks: List[Dict], outcome: str) -> set:
+    """Get task IDs with a specific helix_outcome as a set."""
+    return {t.get("id") for t in all_tasks
+            if t.get("status") == "completed"
+            and t.get("metadata", {}).get("helix_outcome") == outcome}
 
 
 def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
@@ -299,7 +269,7 @@ def get_ready_tasks(all_tasks: List[Dict]) -> List[str]:
     Returns:
         List of task IDs ready for execution
     """
-    delivered_ids = set(_get_task_ids_by_outcome(all_tasks, "delivered"))
+    delivered_ids = _get_task_ids_by_outcome(all_tasks, "delivered")
 
     ready = []
     for task in all_tasks:
@@ -339,7 +309,7 @@ def check_stalled(all_tasks: List[Dict], ready: List[str] = None,
         return False, None
 
     # Stalled - analyze why
-    blocked_ids = set(_get_task_ids_by_outcome(all_tasks, "blocked"))
+    blocked_ids = _get_task_ids_by_outcome(all_tasks, "blocked")
     blocked_by_blocked = []
 
     for task in pending:

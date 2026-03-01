@@ -286,6 +286,44 @@ class TestSideband:
         assert query_embedding is None
 
 
+class TestCrossAgentDiversity:
+    """Tests for cross-agent diversity via sideband files."""
+
+    def test_collect_already_injected_reads_siblings(self, tmp_path, monkeypatch):
+        """_collect_already_injected reads names from sibling sideband files."""
+        monkeypatch.setenv("HELIX_PROJECT_DIR", str(tmp_path))
+        injected_dir = tmp_path / ".helix" / "injected"
+        injected_dir.mkdir(parents=True)
+        import json
+        (injected_dir / "agent-1.json").write_text(json.dumps({"names": ["insight-a", "insight-b"]}))
+        (injected_dir / "agent-2.json").write_text(json.dumps({"names": ["insight-c"]}))
+        from lib.hooks.inject_memory import _collect_already_injected
+        result = _collect_already_injected()
+        assert set(result) == {"insight-a", "insight-b", "insight-c"}
+
+
+class TestSidebandEmbeddingRoundtrip:
+    """Tests for query embedding sideband roundtrip."""
+
+    def test_sideband_embedding_roundtrip(self, tmp_path, monkeypatch):
+        """Query embedding survives base64 encode/decode through sideband file."""
+        monkeypatch.setenv("HELIX_PROJECT_DIR", str(tmp_path))
+        (tmp_path / ".helix" / "injected").mkdir(parents=True)
+        import struct, base64
+        # Create a known embedding blob
+        original_emb = tuple(float(i) / 768 for i in range(768))
+        original_blob = struct.pack(f"{len(original_emb)}f", *original_emb)
+        emb_b64 = base64.b64encode(original_blob).decode('ascii')
+        from lib.hooks.inject_memory import _write_sideband
+        _write_sideband("test-agent", ["insight-1"], objective="test query", query_embedding=emb_b64)
+        # Read back
+        from lib.hooks.extract_learning import _read_sideband
+        names, objective, query_emb = _read_sideband("test-agent")
+        assert names == ["insight-1"]
+        assert objective == "test query"
+        assert query_emb == original_blob
+
+
 class TestFormatAdditionalContext:
     """Tests for formatting insights as additionalContext."""
 

@@ -61,7 +61,7 @@ Opus 4.6 doesn't need training wheels. It reasons well, follows instructions, an
        ▼
 ┌──────────────────────────────────────┐
 │  LEARN                               │
-│  Observe cross-task patterns         │
+│  Observe patterns + check provenance │
 │  Ask user for domain knowledge       │
 │  Store validated insights            │
 └──────────────────────────────────────┘
@@ -82,9 +82,9 @@ Three specialized agents, each receiving context tuned to their role:
 
 Learning extraction and feedback attribution happen automatically via hooks.
 
-Memory flows at two levels: the **RECALL** phase gives the orchestrator strategic context—decomposition constraints, risk areas, sequencing hints—which it synthesizes into a `CONSTRAINTS` block for the planner and exploration targets for the explorer swarm. Strategic recall uses `graph_hops=1`, expanding results through `similar` and `led_to` edges to surface related insights beyond direct vector/keyword matches. Separately, the **SubagentStart hook** injects tactical insights directly into builder and planner prompts (no graph expansion—tactical stays focused). Strategic and tactical memory are complementary; neither duplicates the other.
+Memory flows at two levels: the **RECALL** phase gives the orchestrator strategic context—decomposition constraints, risk areas, sequencing hints—which it synthesizes into a `CONSTRAINTS` block for the planner and exploration targets for the explorer swarm. Separately, the **SubagentStart hook** injects tactical insights directly into builder and planner prompts. Both use `graph_hops=1` (the default), expanding results through `similar` and `led_to` edges to surface related insights beyond direct vector/keyword matches. Strategic and tactical memory are complementary; neither duplicates the other.
 
-The LEARN phase is not automated—the orchestrator presents observations and hypotheses to the user via structured options, incorporating domain knowledge the system cannot infer. Options encode hypotheses derived from block reasons and task context; the user confirms, corrects, or provides their own answer.
+The LEARN phase is not automated—the orchestrator presents observations and hypotheses to the user via structured options, incorporating domain knowledge the system cannot infer. For BLOCKED tasks, it checks insight ancestry via `led_to` provenance edges, identifying whether injected insights came from a low-effectiveness lineage that may be propagating errors. Options encode hypotheses derived from block reasons, task context, and insight provenance; the user confirms, corrects, or provides their own answer. User-provided insights skip dedup merge—human corrections always enter the feedback loop independently, where they must prove themselves against the existing version.
 
 ## Memory That Learns
 
@@ -93,20 +93,20 @@ Unified insight model with semantic deduplication and causal feedback:
 ```
 store("When X, do Y because Z", tags=["pattern"])
   → Embed via snowflake-arctic-embed-m-v1.5 (768-dim)
-  → Check semantic similarity (threshold: 0.85)
-  → Merge if duplicate, add if new
+  → If tagged "user-provided": skip dedup (human corrections always get their own row)
+  → Otherwise: check semantic similarity (threshold: 0.85), merge if duplicate
   → Auto-link to related insights (0.60 ≤ sim < 0.85) as 'similar' edges
   → Initial effectiveness: 0.5 (neutral)
 ```
 
 **Hybrid retrieval with RRF fusion + graph expansion:**
 ```
-recall(query, graph_hops=0)
+recall(query, graph_hops=1)
   → Vector: embed(query) → dot product against all insights → rank by cosine sim
   → Keyword: FTS5 MATCH on insight content + tags → rank by BM25
   → Fuse: RRF score = 1/(K + vec_rank) + 1/(K + fts_rank)   [K=60]
   → Final: rrf_score × (0.5 + 0.5 × effectiveness) × recency
-  → If graph_hops ≥ 1: expand top results via graph neighbors (score × 0.7 discount)
+  → Graph expansion: top results' neighbors via similar/led_to edges (score × 0.7 discount)
   → Results carry _hop: 0 (direct) or 1 (graph-expanded)
 
 eff=1.0 (proven):  score = rrf × 1.0 × recency
@@ -135,11 +135,11 @@ Insights start neutral (0.5). ~3 positive outcomes move 0.5 → 0.6. Causal filt
 - **`similar`** — undirected, auto-created by `store()`. Reuses the dedup similarity vector; candidates with `0.60 ≤ sim < 0.85` get linked (top 5 per insert). Zero extra DB queries beyond dedup.
 - **`led_to`** — directional, created by `extract_learning` Phase 3d. When a BLOCKED outcome generates a derived insight, `led_to` edges connect the causal parent insights to the new child. Weight 1.0. Tracks provenance: which insights contributed to spawning new knowledge.
 
-Graph expansion (`recall(graph_hops=1)`) fetches neighbors via a single bidirectional JOIN, scores them against the query with a `HOP_DISCOUNT (0.7)` multiplier, and merges into the main result set. The `min_relevance` gate and `suppress_names` still apply. `strategic_recall()` uses `graph_hops=1`; tactical `inject_context()` keeps `graph_hops=0`.
+Graph expansion (default `graph_hops=1`) fetches neighbors via a single bidirectional JOIN, scores them against the query with a `HOP_DISCOUNT (0.7)` multiplier, and merges into the main result set. The `min_relevance` gate and `suppress_names` still apply. All recall paths—strategic, tactical, and CLI—use graph expansion by default. Pass `graph_hops=0` to disable.
 
 Prune cleans orphaned edges inline (manual CASCADE — FK pragma not enabled). `health()` reports edge statistics: total edges, connected ratio, average edges per insight.
 
-**8 primitives:** `store`, `recall`, `get`, `feedback`, `decay`, `prune`, `count`, `health`. Graph operations (`add_edges`, `get_neighbors`, `delete_edges_for`) in `lib/memory/edges.py`. CLI: `neighbors` subcommand for graph inspection.
+**8 primitives:** `store`, `recall`, `get`, `feedback`, `decay`, `prune`, `count`, `health`. `health()` includes `loop_coverage`—fraction of insights that have cycled through feedback—surfacing whether the system is learning or just accumulating. Graph operations (`add_edges`, `get_neighbors`, `delete_edges_for`) in `lib/memory/edges.py`. CLI: `neighbors` subcommand for graph inspection.
 
 ## Hook Architecture
 

@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""SessionEnd hook - clean up session state and run maintenance.
-
-Triggered by: SessionEnd lifecycle event
-
-Actions:
-1. Remove task-status.jsonl (append-only, never cleaned)
-1b. Clean stale sideband files from .helix/injected/ (inject_memory hook)
-2. Run decay on dormant insights
-3. Log session summary
-"""
+"""SessionEnd hook - clean up session state and run maintenance."""
 
 import sys
 from datetime import datetime, timezone
@@ -31,18 +22,15 @@ def log_event(log_file: Path, *parts):
 def main():
     """Main entry point."""
     try:
-        # Read hook input (required even if not used)
         sys.stdin.read()
 
         helix_dir = get_helix_dir()
         log_file = helix_dir / "session.log"
 
-        # 1. Truncate task-status.jsonl (append-only, never cleaned)
-        status_file = helix_dir / "task-status.jsonl"
-        if status_file.exists():
-            status_file.unlink()
+        # 1. Remove task-status.jsonl
+        (helix_dir / "task-status.jsonl").unlink(missing_ok=True)
 
-        # 1b. Clean stale sideband files (from inject_memory hook)
+        # 1b. Clean stale sideband files
         injected_dir = helix_dir / "injected"
         if injected_dir.exists():
             for f in injected_dir.iterdir():
@@ -51,32 +39,23 @@ def main():
                 except Exception:
                     pass
 
-        # 2. Run decay on dormant insights
+        # 2. Run decay + prune
+        decayed = pruned = orphans = 0
         try:
-            from memory.core import decay
-            decay_result = decay()
-            decayed = decay_result.get("decayed", 0)
-        except Exception:
-            decayed = 0
-
-        # 2b. Prune low-performing and orphan insights
-        try:
-            from memory.core import prune
+            from memory.core import decay, prune
+            decayed = decay().get("decayed", 0)
             prune_result = prune()
             pruned = prune_result.get("pruned", 0)
             orphans = prune_result.get("orphans_cleaned", 0)
         except Exception:
-            pruned = 0
-            orphans = 0
+            pass
 
         # 3. Log session summary
         log_event(log_file, "SESSION_END", f"decayed={decayed}", f"pruned={pruned}", f"orphans={orphans}")
 
-        # Always output valid JSON
         print("{}")
 
     except Exception as e:
-        # Log error but never crash
         try:
             helix_dir = Path.cwd() / ".helix"
             log_file = helix_dir / "session.log"

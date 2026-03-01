@@ -6,7 +6,7 @@ argument-hint: <objective to plan>
 
 # Meta-Planner
 
-Plan-mode-only skill. Produces an implementation plan informed by helix's accumulated project insights. Runs four phases, then presents the plan for approval.
+Plan-mode-only skill. Produces an implementation plan informed by helix's accumulated project insights.
 
 ## Environment
 
@@ -20,58 +20,41 @@ HELIX="$(cat .helix/plugin_root)"
 
 ### 1. RECALL
 
-Query helix memory for insights relevant to the objective.
-
 ```bash
 python3 "$HELIX/lib/injection.py" strategic-recall "$ARGUMENTS"
 ```
 
-Parse the JSON result. Use `summary` for triage, `insights` for synthesis.
+Parse JSON. Use `summary` for triage, synthesize `insights` into blocks:
 
-From returned insights, synthesize three blocks:
+1. **CONSTRAINTS** — proven insights (`_effectiveness >= 0.70`): decomposition rules, verification needs, sequencing.
+2. **RISK_AREAS** — risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags: flag for extra verification, smaller tasks.
+3. **EXPLORATION_TARGETS** — areas referenced by insights that expand scope beyond the naive objective.
+4. **GRAPH_DISCOVERED** — `_hop: 1` insights (graph-adjacent, not direct match). Treat as exploration targets.
 
-- **CONSTRAINTS** — from proven insights (`_effectiveness >= 0.70`): decomposition patterns, verification requirements, known coupling, sequencing lessons.
-- **RISK_AREAS** — from risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags: areas that historically block, need extra verification or smaller tasks.
-- **EXPLORATION_TARGETS** — codebase areas referenced by insight content/tags that need examination even if not obvious from the objective alone. These expand the exploration scope beyond what a naive reading of the objective would suggest.
-- **GRAPH_DISCOVERED** — insights with `_hop: 1` (reached via graph relationships, not direct semantic match). These expand exploration partition selection — the graph says "this area is related" even when the query alone wouldn't surface it.
+**Triage signals:** `coverage_ratio > 0.3` = well-mapped, trust constraints. `< 0.1` = uncharted, expand exploration. `graph_expanded_count > 0` = graph surfacing related context.
 
-**Graph signal:** `graph_expanded_count > 0` = memory graph is surfacing related context. `graph_expanded_count == 0` with edges in system = query is in an isolated topic cluster.
-
-**Coverage signal:** `coverage_ratio > 0.3` = well-mapped, trust constraints. `coverage_ratio < 0.1` = uncharted, expand exploration.
-
-If recall returns empty — proceed without constraints. First sessions have no memory; that's normal.
+If recall returns empty -- proceed without constraints; first sessions have no memory.
 
 ### 2. EXPLORE
 
-Map codebase areas relevant to both the objective and insight-identified targets.
+Map areas relevant to both objective and insight-identified targets.
 
-1. `git ls-files | head -80` — identify 3-6 natural partitions.
-2. Select partitions to explore: the union of (a) partitions obviously relevant to the objective and (b) areas flagged by insights in RECALL. If insights reference specific modules or files, include their containing partitions.
-3. Spawn explorer swarm: `subagent_type="helix:helix-explorer"`, `model=sonnet`, `max_turns=30`. **All in ONE message.** Prompt each: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: $ARGUMENTS`.
+1. `git ls-files | head -80` -- identify 3-6 natural partitions.
+2. Select partitions: union of (a) obviously relevant to objective and (b) areas flagged by RECALL insights.
+3. Spawn explorer swarm: `subagent_type="helix:helix-explorer"`, `model=sonnet`, `max_turns=30`. **All in ONE message.** Prompt: `SCOPE: {partition}\nFOCUS: {focus}\nOBJECTIVE: $ARGUMENTS`.
 4. Merge findings by file path. Proceed with successful explorers on error.
 
-**If objective scope is obvious** (single module, clear file set): skip the swarm. Use Glob/Grep/Read directly to gather findings. The swarm exists for ambiguous or cross-cutting objectives.
+**Obvious scope** (single module, clear file set): skip swarm, use Glob/Grep/Read directly.
 
 ### 3. PLAN
 
-Spawn the planner to decompose into a task DAG.
+Spawn planner: `subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt: `OBJECTIVE: $ARGUMENTS\nEXPLORATION: {merged_findings_json}\nCONSTRAINTS: {constraints_from_recall}\nRISK_AREAS: {risk_areas_from_recall}`. Omit empty blocks. Parse PLAN_SPEC JSON array.
 
-`subagent_type="helix:helix-planner"`, `max_turns=500`. Prompt:
-
-```
-OBJECTIVE: $ARGUMENTS
-EXPLORATION: {merged_findings_json}
-CONSTRAINTS: {constraints_from_recall}
-RISK_AREAS: {risk_areas_from_recall}
-```
-
-Omit empty blocks. Parse the PLAN_SPEC JSON array from the result.
-
-**If the planner's decomposition raises questions** — ambiguous requirements, multiple valid approaches, unclear scope boundaries — use `AskUserQuestion` to resolve before proceeding to synthesis.
+**If decomposition raises questions** -- use `AskUserQuestion` to resolve before synthesis.
 
 ### 4. SYNTHESIZE
 
-Write the plan file (path provided by system context). Combine all gathered context into a scannable document:
+Write the plan file (path from system context):
 
 ```markdown
 # {Objective summary}

@@ -19,6 +19,6 @@ python3 "$HELIX/lib/memory/core.py" recall "$ARGUMENTS" --limit 10 --graph-hops 
 python3 "$HELIX/lib/memory/core.py" neighbors "insight-name" --limit 5
 ```
 
-Scoring: `relevance * (0.5 + 0.5 * causal_adjusted_effectiveness)`.
+Scoring: `rrf_score * (0.5 + 0.5 * causal_adjusted_effectiveness) * recency`.
 Graph-expanded results have `_hop: 1` — discovered via relationship edges, not direct match.
 Use `--help` for filtering options (`--min-effectiveness`, `--suppress-names`, `--min-relevance`).

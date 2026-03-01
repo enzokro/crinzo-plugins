@@ -69,132 +69,89 @@ def get_db() -> sqlite3.Connection:
         return _db
 
 
+# v1-v4: legacy memory table migrations (removed; tables dropped in v9)
+_MIGRATIONS = [
+    # v5: Create unified insight table
+    (5, """CREATE TABLE IF NOT EXISTS insight (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            content TEXT NOT NULL,
+            embedding BLOB,
+            effectiveness REAL DEFAULT 0.5,
+            use_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_used TEXT,
+            tags TEXT DEFAULT '[]'
+        )"""),
+    # v6: Add causal_hits column for causal feedback tracking
+    (6, "ALTER TABLE insight ADD COLUMN causal_hits INTEGER DEFAULT 0"),
+    # v7: Add last_feedback_at for session-level feedback tracking
+    (7, "ALTER TABLE insight ADD COLUMN last_feedback_at TEXT"),
+    # v8: NULL out embedding BLOBs for model migration
+    (8, "UPDATE insight SET embedding = NULL"),
+    # v9: Drop zombie tables from pre-v5 schema
+    (9, [
+        "DROP TABLE IF EXISTS memory_file_pattern",
+        "DROP TABLE IF EXISTS memory_edge",
+        "DROP TABLE IF EXISTS memory",
+        "DROP TABLE IF EXISTS exploration",
+    ]),
+    # v10: Drop redundant idx_insight_name (UNIQUE constraint already provides autoindex)
+    (10, "DROP INDEX IF EXISTS idx_insight_name"),
+    # v11: FTS5 full-text search index on insight content + tags
+    (11, [
+        # External content FTS5 table (no data duplication)
+        """CREATE VIRTUAL TABLE IF NOT EXISTS insight_fts
+            USING fts5(content, tags, content=insight, content_rowid=id)""",
+        # Auto-sync triggers
+        """CREATE TRIGGER IF NOT EXISTS insight_fts_ai AFTER INSERT ON insight BEGIN
+            INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS insight_fts_ad AFTER DELETE ON insight BEGIN
+            INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS insight_fts_au AFTER UPDATE OF content, tags ON insight BEGIN
+            INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
+            INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
+        END""",
+        # Index existing insights
+        "INSERT INTO insight_fts(insight_fts) VALUES('rebuild')",
+    ]),
+    # v12: Relationship edges between insights
+    (12, [
+        """CREATE TABLE IF NOT EXISTS insight_edges (
+            src_id INTEGER NOT NULL,
+            dst_id INTEGER NOT NULL,
+            weight REAL NOT NULL,
+            relation TEXT NOT NULL DEFAULT 'similar',
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (src_id, dst_id, relation)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id)",
+        "CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id)",
+    ]),
+]
+
+
 def _apply_migrations(db: sqlite3.Connection) -> None:
     """Apply schema migrations for existing databases."""
-    # Check current schema version
     try:
         row = db.execute("SELECT MAX(version) FROM schema_version").fetchone()
         current_version = row[0] if row and row[0] else 0
     except Exception:
         current_version = 0
 
-    # v1-v4: legacy memory table migrations (removed; tables dropped in v9)
-
-    # Migration v5: Create unified insight table
-    if current_version < 5:
+    for version, sql in _MIGRATIONS:
+        if current_version >= version:
+            continue
         try:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS insight (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    content TEXT NOT NULL,
-                    embedding BLOB,
-                    effectiveness REAL DEFAULT 0.5,
-                    use_count INTEGER DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    last_used TEXT,
-                    tags TEXT DEFAULT '[]'
-                );
-            """)
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (5, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass  # table already exists
-
-    # Migration v6: Add causal_hits column for causal feedback tracking
-    if current_version < 6:
-        try:
-            db.execute("ALTER TABLE insight ADD COLUMN causal_hits INTEGER DEFAULT 0")
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (6, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-
-    # Migration v7: Add last_feedback_at for session-level feedback tracking
-    if current_version < 7:
-        try:
-            db.execute("ALTER TABLE insight ADD COLUMN last_feedback_at TEXT")
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (7, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-
-    # Migration v8: NULL out embedding BLOBs for model migration
-    if current_version < 8:
-        try:
-            db.execute("UPDATE insight SET embedding = NULL")
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (8, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass
-
-    # Migration v9: Drop zombie tables from pre-v5 schema
-    if current_version < 9:
-        try:
-            db.execute("DROP TABLE IF EXISTS memory_file_pattern")
-            db.execute("DROP TABLE IF EXISTS memory_edge")
-            db.execute("DROP TABLE IF EXISTS memory")
-            db.execute("DROP TABLE IF EXISTS exploration")
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (9, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass
-
-    # Migration v10: Drop redundant idx_insight_name (UNIQUE constraint already provides autoindex)
-    if current_version < 10:
-        try:
-            db.execute("DROP INDEX IF EXISTS idx_insight_name")
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (10, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass
-
-    # Migration v11: FTS5 full-text search index on insight content + tags
-    if current_version < 11:
-        try:
-            db.executescript("""
-                -- External content FTS5 table (no data duplication)
-                CREATE VIRTUAL TABLE IF NOT EXISTS insight_fts
-                    USING fts5(content, tags, content=insight, content_rowid=id);
-
-                -- Auto-sync triggers
-                CREATE TRIGGER IF NOT EXISTS insight_fts_ai AFTER INSERT ON insight BEGIN
-                    INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
-                END;
-
-                CREATE TRIGGER IF NOT EXISTS insight_fts_ad AFTER DELETE ON insight BEGIN
-                    INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-                END;
-
-                CREATE TRIGGER IF NOT EXISTS insight_fts_au AFTER UPDATE OF content, tags ON insight BEGIN
-                    INSERT INTO insight_fts(insight_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-                    INSERT INTO insight_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
-                END;
-
-                -- Index existing insights
-                INSERT INTO insight_fts(insight_fts) VALUES('rebuild');
-            """)
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (11, datetime('now'))")
-            db.commit()
-        except sqlite3.OperationalError:
-            pass
-
-    # Migration v12: Relationship edges between insights
-    if current_version < 12:
-        try:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS insight_edges (
-                    src_id INTEGER NOT NULL,
-                    dst_id INTEGER NOT NULL,
-                    weight REAL NOT NULL,
-                    relation TEXT NOT NULL DEFAULT 'similar',
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (src_id, dst_id, relation)
-                );
-                CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id);
-                CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id);
-            """)
-            db.execute("INSERT OR REPLACE INTO schema_version VALUES (12, datetime('now'))")
+            stmts = [sql] if isinstance(sql, str) else sql
+            for s in stmts:
+                db.execute(s)
+            db.execute(
+                "INSERT OR REPLACE INTO schema_version VALUES (?, datetime('now'))",
+                (version,),
+            )
             db.commit()
         except sqlite3.OperationalError:
             pass

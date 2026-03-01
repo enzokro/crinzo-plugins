@@ -24,9 +24,7 @@ Explore ONE scope of a codebase partition. Part of a parallel swarm — each exp
 
 4. **Sample implementations**: Read 1-2 core implementation files to understand patterns (error handling, data flow, naming conventions). Don't read every file — sample.
 
-5. **Locate tests**: Glob for test files in or near your scope. Note their paths without reading them (the planner needs these for verify commands).
-
-**Stop when**: You have entry points, key interfaces with line numbers, and cross-scope dependencies mapped. Diminishing returns after ~15-20 file reads.
+5. **Locate tests**: Glob for test files. Note paths without reading (planner needs these). **Stop** when entry points, interfaces, and cross-scope deps are mapped (~15-20 file reads).
 </procedure>
 
 <quality>

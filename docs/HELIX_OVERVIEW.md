@@ -65,16 +65,16 @@ RECALL → EXPLORE → PLAN → BUILD (loop) → LEARN → COMPLETE
 | **LEARN** | Orchestrator + user | Observe patterns, ask user, store validated insights |
 | **COMPLETE** | Orchestrator | Summarize deliveries, blocks, stored insights |
 
-**RECALL** is the orchestrator's strategic memory layer. Before exploration, the orchestrator calls `injection.py strategic-recall` with the objective—a broader sweep (limit=15, min_relevance=0.30, graph_hops=1) than tactical recall (limit=3, min_relevance=0.35, graph_hops=0). Graph expansion traverses `similar` and `led_to` edges to surface related insights beyond direct vector/keyword matches. The returned JSON includes full insight metadata (tags, effectiveness, causal stats), graph hop markers (`_hop: 0` or `1`), and pre-computed summary statistics (coverage ratio, proven/risky/untested counts, tag distribution, `graph_expanded_count`). The orchestrator synthesizes insights into three blocks:
+**RECALL** is the orchestrator's strategic memory layer. Before exploration, the orchestrator calls `injection.py strategic-recall` with the objective—a broader sweep (limit=15, min_relevance=0.30) than tactical recall (limit=3, min_relevance=0.35). Both use the default `graph_hops=1`, expanding results through `similar` and `led_to` edges to surface related insights beyond direct vector/keyword matches. The returned JSON includes full insight metadata (tags, effectiveness, causal stats), graph hop markers (`_hop: 0` or `1`), and pre-computed summary statistics (coverage ratio, proven/risky/untested counts, tag distribution, `graph_expanded_count`). The orchestrator synthesizes insights into three blocks:
 - **CONSTRAINTS** — from proven insights (effectiveness >= 0.70): decomposition rules, verification requirements, sequencing
 - **RISK_AREAS** — from risky insights (effectiveness < 0.40) or `derived`/`failure` tags: areas needing extra verification, smaller tasks
 - **EXPLORATION_TARGETS** — areas referenced by insight content/tags that expand exploration scope beyond the naive objective
 
 Coverage signal: `coverage_ratio > 0.3` = well-mapped, trust constraints; `< 0.1` = uncharted, expand exploration. On cold start (no insights), all blocks omitted; no degradation. Skipped on fast path (single-file changes).
 
-**Two-level memory injection:**
-- **Strategic (RECALL phase):** Orchestrator → `CONSTRAINTS` + `RISK_AREAS` → planner prompt + `EXPLORATION_TARGETS` → explorer scope. Informs *how to decompose* and *where to look*.
-- **Tactical (SubagentStart hook):** Hook → `INSIGHTS` → builder/planner prompt. Informs *how to execute*.
+**Two-level memory injection** (both use `graph_hops=1` by default):
+- **Strategic (RECALL phase):** Orchestrator → `CONSTRAINTS` + `RISK_AREAS` → planner prompt + `EXPLORATION_TARGETS` → explorer scope. Broader sweep (limit=15, min_relevance=0.30). Informs *how to decompose* and *where to look*.
+- **Tactical (SubagentStart hook):** Hook → `INSIGHTS` → builder/planner prompt. Narrower focus (limit=3, min_relevance=0.35). Informs *how to execute*.
 
 ## Agents
 
@@ -380,7 +380,7 @@ Two relation types:
 
 No FK pragma — orphaned edges cleaned manually by `prune()` and `delete_edges_for()`.
 
-**Schema version:** v12. Migrations in `lib/db/connection.py:_apply_migrations()`. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`, v11 adds FTS5 table (`insight_fts`) with 3 auto-sync triggers for hybrid search, v12 adds `insight_edges` table for graph relationships.
+**Schema version:** v12. Migrations in `lib/db/connection.py` as a data-driven `_MIGRATIONS` list — each migration is a `(version, sql)` tuple processed by a generic loop. Notable: v8 NULLed all embeddings (model migration), v9 dropped legacy tables, v10 dropped redundant `idx_insight_name`, v11 adds FTS5 table (`insight_fts`) with 3 auto-sync triggers for hybrid search, v12 adds `insight_edges` table for graph relationships.
 
 ### 8 Primitives (`lib/memory/core.py`)
 
@@ -390,9 +390,10 @@ store(content, tags=None, initial_effectiveness=0.5)
     # Auto-links to semantically related insights as 'similar' edges (best-effort)
 
 recall(query, limit=5, min_effectiveness=0.0, min_relevance=0.35,
-       suppress_names=None, graph_hops=0)
+       suppress_names=None, graph_hops=1)
     # → [insights with _relevance, _effectiveness, _score, _hop]
     # _hop: 0 (direct) or 1 (graph-expanded via similar/led_to edges)
+    # graph_hops=1 by default; pass 0 to disable graph expansion
 
 get(name)
     # → single insight dict with parsed tags, or None
@@ -413,6 +414,7 @@ count()
 health()
     # → {"status": str, "total_insights": int, "total_edges": int,
     #    "connected_ratio": float, "avg_edges_per_insight": float,
+    #    "loop_coverage": float,   # fraction of insights with use_count > 0
     #    "by_tag": dict, "effectiveness": dict, ...}
 ```
 
@@ -469,11 +471,9 @@ When `graph_hops >= 1`, recall expands top direct results via the insight graph:
    - Score: `vector_sim × HOP_DISCOUNT (0.7) × (0.5 + 0.5 × eff) × recency`
 4. Merge into results, re-sort, trim to `limit`
 
-Graph-expanded results carry `_hop: 1`; direct results carry `_hop: 0`. Graph expansion is best-effort — exceptions fall back to direct results only.
+Graph-expanded results carry `_hop: 1`; direct results carry `_hop: 0`. Graph expansion is best-effort — exceptions are logged to stderr and fall back to direct results only.
 
-**Usage split:**
-- `strategic_recall()` uses `graph_hops=1` — broad sweep benefits from discovering related context
-- `inject_context()` uses `graph_hops=0` — tactical injection stays focused on direct matches
+**Default on all paths:** `recall()` defaults to `graph_hops=1`. All callers—`strategic_recall()`, `inject_context()`, the SubagentStart hook, and the CLI—benefit from graph expansion automatically. Pass `graph_hops=0` to disable.
 
 ### Feedback System
 
@@ -516,6 +516,8 @@ On `store()`, the new content is embedded and compared against all existing embe
 - **Merge without upgrade:** Updates `last_used` only.
 - Merge does NOT increment `use_count`. Re-encounter is not a "use".
 
+**User-provided insights skip dedup entirely.** When `tags` includes `"user-provided"` (set by the LEARN phase for user-confirmed insights), the dedup check is bypassed. Human corrections always get their own row, even if semantically similar to an existing insight. Auto-linking still fires (0.60-0.85 range), creating `similar` edges that connect the user's version to the existing one. The causal feedback loop then evaluates both independently—if the user's correction is better, it accumulates positive feedback; if the existing version was already correct, the user's version erodes naturally.
+
 ### Decay
 
 ```python
@@ -545,7 +547,7 @@ Three cleanup passes:
 
 Prune uses `_causal_adjusted_effectiveness()` — raw 0.50 with zero causal hits adjusts to 0.165 and falls below the threshold.
 
-**Edge cleanup:** After deleting insights, prune looks up their IDs and deletes all edges referencing them (`DELETE FROM insight_edges WHERE src_id IN (...) OR dst_id IN (...)`). Runs in the same `write_lock` block as the insight deletion.
+**Edge cleanup:** After deleting insights, prune calls `delete_edges_for()` to remove all edges referencing the deleted IDs. Runs in the same `write_lock` block as the insight deletion.
 
 ### Derived Insights
 
@@ -812,9 +814,9 @@ HELIX="${HELIX_PLUGIN_ROOT:-$(cat .helix/plugin_root 2>/dev/null)}"
 python3 "$HELIX/lib/memory/core.py" store \
   --content "When X, do Y because Z" --tags '["pattern"]'
 
-# Recall by semantic similarity (with optional graph expansion)
+# Recall by semantic similarity (graph expansion on by default)
 python3 "$HELIX/lib/memory/core.py" recall "query" --limit 3
-python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --graph-hops 1
+python3 "$HELIX/lib/memory/core.py" recall "query" --limit 5 --graph-hops 0  # disable graph
 
 # Get single insight
 python3 "$HELIX/lib/memory/core.py" get "insight-name"
@@ -869,9 +871,6 @@ python3 "$HELIX/lib/build_loop.py" parent-deliveries --results '...' --blockers 
 # Batch inject for a wave
 python3 "$HELIX/lib/injection.py" batch-inject --tasks '["obj1", "obj2"]' --limit 3
 
-# Single injection
-python3 "$HELIX/lib/injection.py" inject --objective "query text" --limit 3
-
 # Strategic recall for orchestrator RECALL phase (broad sweep + summary)
 python3 "$HELIX/lib/injection.py" strategic-recall "authentication and authorization patterns"
 python3 "$HELIX/lib/injection.py" strategic-recall "objective" --limit 20 --min-relevance 0.25
@@ -904,6 +903,7 @@ helix/
 │   ├── log.py                # Shared log_error() for hooks
 │   ├── hooks/
 │   │   ├── __init__.py
+│   │   ├── common.py         # Shared run_hook() entry point
 │   │   ├── inject_memory.py  # SubagentStart: injection + sideband
 │   │   ├── extract_learning.py # SubagentStop: extraction + feedback
 │   │   └── session_end.py    # SessionEnd: decay + prune + cleanup
@@ -931,10 +931,10 @@ helix/
 │       └── SKILL.md          # Health check
 ├── tests/
 │   ├── conftest.py           # Fixtures: test_db, mock_embeddings, isolated_env
-│   ├── test_memory_core.py   # 54 tests — 8 primitives + hybrid search
-│   ├── test_injection.py     # 17 tests — inject_context, format_prompt, batch_inject
+│   ├── test_memory_core.py   # 57 tests — 8 primitives + hybrid search + ghost cleanup + user-provided
+│   ├── test_injection.py     # 23 tests — inject_context, format_prompt, batch_inject
 │   ├── test_extraction.py    # 36 tests — process_completion, last-match-wins
-│   ├── test_inject_memory.py # 27 tests — SubagentStart hook
+│   ├── test_inject_memory.py # 29 tests — SubagentStart hook + sideband roundtrip + cross-agent diversity
 │   ├── test_extract_learning.py # 21 tests — SubagentStop hook
 │   ├── test_extract_causal.py # 11 tests — causal filtering (real embeddings)
 │   ├── test_build_loop.py    # 27 tests — DAG ops, wave management
