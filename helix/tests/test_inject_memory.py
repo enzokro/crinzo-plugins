@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from lib.hooks.inject_memory import ParsedTranscript
+
 
 class TestParseParentTranscript:
     """Tests for parsing parent transcript (objective + injection state)."""
@@ -29,9 +31,9 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective == "Implement JWT authentication"
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "Implement JWT authentication"
+        assert result.has_insights is False
 
     def test_uses_last_task_tool_use(self, tmp_path):
         """When multiple Task tool_uses exist, uses the last one."""
@@ -54,9 +56,9 @@ class TestParseParentTranscript:
         ]
         transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective == "Build the API layer"
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "Build the API layer"
+        assert result.has_insights is False
 
     def test_skips_non_helix_agents(self, tmp_path):
         """Ignores Task tool_use for non-helix agents."""
@@ -78,16 +80,16 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective is None
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective is None
+        assert result.has_insights is False
 
     def test_missing_file_returns_none(self):
         """Returns (None, False) for non-existent transcript."""
         from lib.hooks.inject_memory import _parse_parent_transcript
-        objective, has_insights = _parse_parent_transcript("/nonexistent/path.jsonl")
-        assert objective is None
-        assert has_insights is False
+        result = _parse_parent_transcript("/nonexistent/path.jsonl")
+        assert result.objective is None
+        assert result.has_insights is False
 
     def test_no_objective_returns_none(self, tmp_path):
         """Returns None when no OBJECTIVE field — avoids noisy recall queries."""
@@ -109,9 +111,9 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective is None
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective is None
+        assert result.has_insights is False
 
     def test_skips_non_tool_use_content(self, tmp_path):
         """Handles entries with string content (not tool_use blocks)."""
@@ -130,9 +132,9 @@ class TestParseParentTranscript:
         ]
         transcript.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective == "The actual objective"
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "The actual objective"
+        assert result.has_insights is False
 
     def test_empty_transcript_returns_none(self, tmp_path):
         """Returns (None, False) for empty transcript file."""
@@ -141,9 +143,9 @@ class TestParseParentTranscript:
         transcript = tmp_path / "transcript.jsonl"
         transcript.write_text("")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective is None
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective is None
+        assert result.has_insights is False
 
     def test_detects_insights_in_prompt(self, tmp_path):
         """Returns has_insights=True when INSIGHTS section exists."""
@@ -165,9 +167,9 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert has_insights is True
-        assert objective is not None
+        result = _parse_parent_transcript(str(transcript))
+        assert result.has_insights is True
+        assert result.objective is not None
 
     def test_returns_false_without_insights(self, tmp_path):
         """Returns has_insights=False when no INSIGHTS section."""
@@ -189,8 +191,8 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        _, has_insights = _parse_parent_transcript(str(transcript))
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.has_insights is False
 
     def test_non_helix_agent_insights_ignored(self, tmp_path):
         """Returns (None, False) when last Task isn't a helix agent even with INSIGHTS."""
@@ -212,9 +214,9 @@ class TestParseParentTranscript:
         }
         transcript.write_text(json.dumps(entry) + "\n")
 
-        objective, has_insights = _parse_parent_transcript(str(transcript))
-        assert objective is None
-        assert has_insights is False
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective is None
+        assert result.has_insights is False
 
 
 class TestSideband:
@@ -242,10 +244,12 @@ class TestSideband:
         assert data["objective"] == "Implement JWT authentication"
 
         # Read and verify
-        names, objective, query_embedding = extract_learning._read_sideband("agent-123")
+        names, objective, query_embedding, constraints, risk_areas = extract_learning._read_sideband("agent-123")
         assert set(names) == {"insight-a", "insight-b"}
         assert objective == "Implement JWT authentication"
         assert query_embedding is None  # no embedding written in this test
+        assert constraints is None
+        assert risk_areas is None
 
         # File should be cleaned up after read
         assert not sideband_file.exists()
@@ -255,10 +259,12 @@ class TestSideband:
         from lib.hooks import extract_learning
         monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
 
-        names, objective, query_embedding = extract_learning._read_sideband("nonexistent-agent")
+        names, objective, query_embedding, constraints, risk_areas = extract_learning._read_sideband("nonexistent-agent")
         assert names == []
         assert objective is None
         assert query_embedding is None
+        assert constraints is None
+        assert risk_areas is None
 
     def test_write_creates_directory(self, tmp_path, monkeypatch):
         """_write_sideband creates injected/ directory if missing."""
@@ -280,10 +286,12 @@ class TestSideband:
         injected_dir.mkdir()
         (injected_dir / "agent-bad.json").write_text("not json")
 
-        names, objective, query_embedding = extract_learning._read_sideband("agent-bad")
+        names, objective, query_embedding, constraints, risk_areas = extract_learning._read_sideband("agent-bad")
         assert names == []
         assert objective is None
         assert query_embedding is None
+        assert constraints is None
+        assert risk_areas is None
 
 
 class TestCrossAgentDiversity:
@@ -318,10 +326,12 @@ class TestSidebandEmbeddingRoundtrip:
         _write_sideband("test-agent", ["insight-1"], objective="test query", query_embedding=emb_b64)
         # Read back
         from lib.hooks.extract_learning import _read_sideband
-        names, objective, query_emb = _read_sideband("test-agent")
+        names, objective, query_emb, constraints, risk_areas = _read_sideband("test-agent")
         assert names == ["insight-1"]
         assert objective == "test query"
         assert query_emb == original_blob
+        assert constraints is None
+        assert risk_areas is None
 
 
 class TestFormatAdditionalContext:
@@ -426,7 +436,7 @@ class TestProcessHookInput:
         ]
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Add user authentication", False))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Add user authentication", False, None, None))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5, suppress_names=None: mock_memories
@@ -456,7 +466,7 @@ class TestProcessHookInput:
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Implement authentication", True))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Implement authentication", True, None, None))
 
         # recall should NOT be called — no mock needed
         result = inject_memory.process_hook_input({
@@ -478,7 +488,7 @@ class TestProcessHookInput:
         ]
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Optimize database queries", False))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Optimize database queries", False, None, None))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5, suppress_names=None: mock_memories
@@ -500,7 +510,7 @@ class TestProcessHookInput:
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Some objective", False))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Some objective", False, None, None))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5, suppress_names=None: []
@@ -524,7 +534,7 @@ class TestProcessHookInput:
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Niche objective", False))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Niche objective", False, None, None))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = lambda q, limit=5, suppress_names=None: []
@@ -546,7 +556,7 @@ class TestProcessHookInput:
         from lib.hooks import inject_memory
 
         monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
-        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ("Some objective", False))
+        monkeypatch.setattr(inject_memory, "_parse_parent_transcript", lambda tp: ParsedTranscript("Some objective", False, None, None))
 
         mock_memory_core = MagicMock()
         mock_memory_core.recall = MagicMock(side_effect=Exception("DB error"))
@@ -561,3 +571,131 @@ class TestProcessHookInput:
         # Should degrade to cold start, not crash
         assert "additionalContext" in result
         assert "NO_PRIOR_MEMORY" in result["additionalContext"]
+
+
+class TestConstraintsCapture:
+    """Tests for CONSTRAINTS and RISK_AREAS extraction from orchestrator prompt."""
+
+    def _make_transcript(self, tmp_path, prompt_text):
+        """Create a transcript file with given prompt in a Task tool_use."""
+        transcript = tmp_path / "transcript.jsonl"
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "Task",
+                    "input": {
+                        "subagent_type": "helix:helix-builder",
+                        "prompt": prompt_text
+                    }
+                }]
+            }
+        }
+        transcript.write_text(json.dumps(entry) + "\n")
+        return transcript
+
+    def test_extracts_constraints(self, tmp_path):
+        """CONSTRAINTS section extracted from orchestrator prompt."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
+
+        prompt = (
+            "TASK_ID: t1\n"
+            "OBJECTIVE: Build auth module\n"
+            "CONSTRAINTS:\n"
+            "- Do not modify existing API endpoints\n"
+            "- Must be backward compatible\n"
+            "VERIFY: pytest tests/"
+        )
+        transcript = self._make_transcript(tmp_path, prompt)
+
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "Build auth module"
+        assert result.constraints is not None
+        assert "Do not modify existing API endpoints" in result.constraints
+        assert "Must be backward compatible" in result.constraints
+
+    def test_extracts_risk_areas(self, tmp_path):
+        """RISK_AREAS section extracted from orchestrator prompt."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
+
+        prompt = (
+            "TASK_ID: t2\n"
+            "OBJECTIVE: Refactor database layer\n"
+            "RISK_AREAS:\n"
+            "- Migration scripts may break on Postgres 12\n"
+            "- Connection pooling config is fragile\n"
+            "VERIFY: pytest tests/"
+        )
+        transcript = self._make_transcript(tmp_path, prompt)
+
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "Refactor database layer"
+        assert result.risk_areas is not None
+        assert "Migration scripts may break on Postgres 12" in result.risk_areas
+        assert "Connection pooling config is fragile" in result.risk_areas
+
+    def test_no_constraints_returns_none(self, tmp_path):
+        """Prompt without CONSTRAINTS returns None."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
+
+        prompt = (
+            "TASK_ID: t3\n"
+            "OBJECTIVE: Simple task\n"
+            "VERIFY: pytest tests/"
+        )
+        transcript = self._make_transcript(tmp_path, prompt)
+
+        result = _parse_parent_transcript(str(transcript))
+        assert result.objective == "Simple task"
+        assert result.constraints is None
+        assert result.risk_areas is None
+
+    def test_sideband_includes_constraints(self, tmp_path, monkeypatch):
+        """Sideband JSON includes constraints and risk_areas when present."""
+        from lib.hooks import inject_memory
+        from lib.hooks import extract_learning
+
+        monkeypatch.setattr(inject_memory, "get_helix_dir", lambda: tmp_path)
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        inject_memory._write_sideband(
+            "agent-cons", ["insight-x"],
+            objective="Build auth",
+            constraints="- No API changes\n- Backward compat",
+            risk_areas="- Session handling fragile"
+        )
+
+        sideband_file = tmp_path / "injected" / "agent-cons.json"
+        assert sideband_file.exists()
+        data = json.loads(sideband_file.read_text())
+        assert data["constraints"] == "- No API changes\n- Backward compat"
+        assert data["risk_areas"] == "- Session handling fragile"
+
+        # Read back and verify roundtrip
+        names, objective, query_emb, constraints, risk_areas = extract_learning._read_sideband("agent-cons")
+        assert names == ["insight-x"]
+        assert objective == "Build auth"
+        assert constraints == "- No API changes\n- Backward compat"
+        assert risk_areas == "- Session handling fragile"
+
+    def test_both_constraints_and_risk_areas(self, tmp_path):
+        """Both CONSTRAINTS and RISK_AREAS extracted from same prompt."""
+        from lib.hooks.inject_memory import _parse_parent_transcript
+
+        prompt = (
+            "TASK_ID: t4\n"
+            "OBJECTIVE: Full feature implementation\n"
+            "CONSTRAINTS:\n"
+            "- Must use existing auth module\n"
+            "RISK_AREAS:\n"
+            "- Rate limiting untested at scale\n"
+            "VERIFY: pytest tests/"
+        )
+        transcript = self._make_transcript(tmp_path, prompt)
+
+        result = _parse_parent_transcript(str(transcript))
+        assert result.constraints is not None
+        assert "Must use existing auth module" in result.constraints
+        assert result.risk_areas is not None
+        assert "Rate limiting untested at scale" in result.risk_areas

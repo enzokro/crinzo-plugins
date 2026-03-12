@@ -29,6 +29,8 @@ def main():
 
         # 1. Remove task-status.jsonl
         (helix_dir / "task-status.jsonl").unlink(missing_ok=True)
+        (helix_dir / "recall_synthesis.json").unlink(missing_ok=True)
+        (helix_dir / "session_checkpoint.md").unlink(missing_ok=True)
 
         # 1b. Clean stale sideband files
         injected_dir = helix_dir / "injected"
@@ -50,8 +52,26 @@ def main():
         except Exception:
             pass
 
+        # 2b. Cross-session synthesis (best-effort)
+        synthesized = 0
+        try:
+            from memory.synthesis import synthesize_session
+            from memory.core import store as _store, feedback as _feedback
+            candidates = synthesize_session()
+            for c in candidates:
+                if c["type"] == "new":
+                    r = _store(c["content"], tags=c["tags"], initial_effectiveness=0.45)
+                    if r.get("status") in ("added", "merged"):
+                        synthesized += 1
+                elif c["type"] == "reinforcement" and c.get("existing_name"):
+                    _feedback([c["existing_name"]], "delivered",
+                              causal_names=[(c["existing_name"], 0.80)])
+                    synthesized += 1
+        except Exception:
+            pass
+
         # 3. Log session summary
-        log_event(log_file, "SESSION_END", f"decayed={decayed}", f"pruned={pruned}", f"orphans={orphans}")
+        log_event(log_file, "SESSION_END", f"decayed={decayed}", f"pruned={pruned}", f"orphans={orphans}", f"synthesized={synthesized}")
 
         print("{}")
 

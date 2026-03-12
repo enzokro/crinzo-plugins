@@ -55,5 +55,16 @@ One status marker per completion:
 Optional on any outcome:
 `INSIGHT: {"content": "When X, do Y because Z", "tags": ["pattern"]}`
 
-Insight quality test: would this change a future builder's approach? "I had to install X" is not useful. "When modifying Y, Z breaks because of hidden coupling via shared config" is.
+**Emit an INSIGHT when you discover:**
+- A hidden coupling or constraint not obvious from the task description
+- A verify command that needs a non-obvious prerequisite (env var, fixture, import order)
+- An error whose root cause differs from what the error message suggests
+- An environment quirk, API behavior differing from docs, or dependency interaction
+- A multi-step sequence that must be followed in order (tag as `procedure`)
+
+For multi-step procedures, use newline-separated steps:
+`INSIGHT: {"content": "Check fixtures exist in conftest.py\nInitialize test database before migration tests\nRun migrations with --check flag first", "tags": ["procedure", "testing"]}`
+
+**Do NOT emit when:** the observation is task-specific with no future applicability.
+Quality test: would this change a future builder's *first* approach to a similar task?
 </output>

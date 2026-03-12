@@ -244,6 +244,63 @@ class TestBatchInject:
         assert result["total_unique"] == 0
 
 
+class TestUserPreferenceFormatting:
+    def test_user_preference_gets_pref_prefix(self):
+        from lib.injection import format_insights
+        memories = [{"content": "Always use TypeScript", "tags": ["user-preference"], "effectiveness": 0.8, "name": "ts-pref"}]
+        lines, names = format_insights(memories)
+        assert "[USER PREF]" in lines[0]
+        assert "80%" not in lines[0]
+
+    def test_normal_insight_gets_effectiveness_prefix(self):
+        from lib.injection import format_insights
+        memories = [{"content": "Check token expiry", "tags": ["auth"], "effectiveness": 0.75, "name": "token-check"}]
+        lines, names = format_insights(memories)
+        assert "[75%]" in lines[0]
+        assert "USER PREF" not in lines[0]
+
+
+class TestProcedureFormatting:
+    def test_procedure_renders_numbered_steps(self):
+        from lib.injection import format_insights
+        memories = [{
+            "content": "Step one do this\nStep two do that\nStep three verify",
+            "tags": ["procedure"],
+            "effectiveness": 0.7,
+            "name": "test-proc"
+        }]
+        lines, names = format_insights(memories)
+        assert "[PROCEDURE]" in lines[0]
+        assert "1." in lines[1]
+        assert "2." in lines[2]
+        assert "3." in lines[3]
+        assert "test-proc" in names
+
+    def test_procedure_single_line_inline(self):
+        from lib.injection import format_insights
+        memories = [{
+            "content": "Always run lint before commit",
+            "tags": ["procedure"],
+            "effectiveness": 0.6,
+            "name": "lint-proc"
+        }]
+        lines, names = format_insights(memories)
+        assert len(lines) == 1
+        assert "[PROCEDURE] Always run lint before commit" == lines[0]
+
+    def test_procedure_without_tag_normal(self):
+        from lib.injection import format_insights
+        memories = [{
+            "content": "Step one\nStep two\nStep three",
+            "tags": ["testing"],
+            "effectiveness": 0.8,
+            "name": "not-proc"
+        }]
+        lines, names = format_insights(memories)
+        assert "[80%]" in lines[0]
+        assert "PROCEDURE" not in lines[0]
+
+
 class TestNormalizeObjectives:
     """Tests for _normalize_objectives input normalization."""
 

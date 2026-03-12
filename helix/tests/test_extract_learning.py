@@ -260,12 +260,13 @@ class TestCrashedFeedback:
         feedback_calls = []
         original_apply = extract_learning.apply_feedback
 
-        def tracking_apply(names, outcome, causal_names=None):
+        def tracking_apply(names, outcome, causal_names=None, context_embedding=None):
             feedback_calls.append({"names": names, "outcome": outcome, "causal_names": causal_names})
             return True
 
         monkeypatch.setattr(extract_learning, "apply_feedback", tracking_apply)
-        monkeypatch.setattr(extract_learning, "filter_causal_insights", lambda names, ctx, context_embedding=None: names)
+        monkeypatch.setattr(extract_learning, "filter_causal_insights",
+                            lambda names, ctx, context_embedding=None: [(n, 0.80) for n in names])
 
         # Write sideband so injected names are found
         injected_dir = tmp_path / "injected"
@@ -285,6 +286,57 @@ class TestCrashedFeedback:
         assert len(feedback_calls) == 1
         assert feedback_calls[0]["outcome"] == "blocked"
         assert "insight-a" in feedback_calls[0]["names"]
+
+
+class TestPartialOutcomeFeedback:
+    """Tests for PARTIAL outcomes generating feedback (not silently skipped)."""
+
+    def _make_partial_transcript(self, tmp_path, agent_id="agent-partial-1"):
+        """Create transcript for a builder that reported PARTIAL."""
+        transcript_lines = [
+            json.dumps({"message": {"role": "user", "content": "TASK_ID: partial-1\nTASK: Implement feature\nINJECTED: [\"insight-p\"]"}}),
+            json.dumps({"message": {"role": "assistant", "content": "PARTIAL: Implemented core logic\nREMAINING: Tests not written due to missing fixture"}}),
+        ]
+        transcript_file = tmp_path / f"{agent_id}.jsonl"
+        transcript_file.write_text("\n".join(transcript_lines))
+        return transcript_file
+
+    def test_partial_outcome_triggers_feedback(self, tmp_path, monkeypatch):
+        """PARTIAL outcomes should trigger feedback on injected insights."""
+        from hooks import extract_learning
+
+        monkeypatch.setattr(extract_learning, "get_helix_dir", lambda: tmp_path)
+
+        feedback_calls = []
+
+        def tracking_apply(names, outcome, causal_names=None, context_embedding=None):
+            feedback_calls.append({"names": names, "outcome": outcome, "causal_names": causal_names})
+            return True
+
+        monkeypatch.setattr(extract_learning, "apply_feedback", tracking_apply)
+        monkeypatch.setattr(extract_learning, "filter_causal_insights",
+                            lambda names, ctx, context_embedding=None: [(n, 0.80) for n in names])
+
+        # Write sideband
+        injected_dir = tmp_path / "injected"
+        injected_dir.mkdir(exist_ok=True)
+        (injected_dir / "agent-partial-1.json").write_text(
+            json.dumps({"names": ["insight-p"], "objective": "Implement feature"})
+        )
+
+        agent_id = "agent-partial-1"
+        transcript_file = self._make_partial_transcript(tmp_path, agent_id)
+
+        extract_learning.process_hook_input({
+            "agent_type": "helix:helix-builder",
+            "agent_id": agent_id,
+            "agent_transcript_path": str(transcript_file),
+        })
+
+        # Feedback should have been called with "partial" outcome
+        assert len(feedback_calls) == 1
+        assert feedback_calls[0]["outcome"] == "partial"
+        assert "insight-p" in feedback_calls[0]["names"]
 
 
 if __name__ == "__main__":

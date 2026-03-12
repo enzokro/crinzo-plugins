@@ -172,18 +172,18 @@ def filter_causal_insights(injected_names: list, task_context: str,
         valid_names, emb_data = zip(*valid)
         mat = build_embedding_matrix(list(emb_data))
         sims = mat @ ctx_vec
-        return [name for name, sim in zip(valid_names, sims) if sim >= CAUSAL_SIMILARITY_THRESHOLD]
+        return [(name, float(sim)) for name, sim in zip(valid_names, sims) if sim >= CAUSAL_SIMILARITY_THRESHOLD]
     except Exception as e:
         _log_error("filter_causal_insights", e)
         return []
 
 
 def _read_sideband(agent_id: str) -> tuple:
-    """Read and clean up sideband file. Returns (names, objective, query_embedding)."""
+    """Read and clean up sideband file. Returns (names, objective, query_embedding, constraints, risk_areas)."""
     try:
         sideband_file = get_helix_dir() / "injected" / f"{agent_id}.json"
         if not sideband_file.exists():
-            return [], None, None
+            return [], None, None, None, None
 
         data = json.loads(sideband_file.read_text())
         names = data.get("names", [])
@@ -195,21 +195,25 @@ def _read_sideband(agent_id: str) -> tuple:
             import base64
             query_embedding = base64.b64decode(raw_emb)
 
+        constraints = data.get("constraints")
+        risk_areas = data.get("risk_areas")
+
         sideband_file.unlink(missing_ok=True)
-        return names, objective, query_embedding
+        return names, objective, query_embedding, constraints, risk_areas
     except Exception as e:
         _log_error("_read_sideband", e)
-        return [], None, None
+        return [], None, None, None, None
 
 
-def apply_feedback(injected_names: list, outcome: str, causal_names: list = None) -> bool:
+def apply_feedback(injected_names: list, outcome: str, causal_names: list = None, context_embedding=None) -> bool:
     """Apply feedback to injected insights based on outcome."""
-    if not injected_names or outcome not in ("delivered", "blocked", "plan_complete"):
+    if not injected_names or outcome not in ("delivered", "blocked", "partial", "plan_complete"):
         return False
 
     try:
         from memory.core import feedback
-        result = feedback(names=injected_names, outcome=outcome, causal_names=causal_names)
+        result = feedback(names=injected_names, outcome=outcome, causal_names=causal_names,
+                          context_embedding=context_embedding)
         return result.get("updated", 0) > 0
     except Exception as e:
         _log_error("apply_feedback", e)
@@ -355,9 +359,12 @@ def process_hook_input(hook_input: dict) -> dict:
     # 3b: Feedback attribution (independent of store success)
     feedback_applied = None
     causal_names = None
+    causal_name_list = []
     all_injected = []
+    sideband_constraints = None
+    sideband_risk_areas = None
     try:
-        injected_from_sideband, sideband_objective, sideband_embedding = _read_sideband(agent_id)
+        injected_from_sideband, sideband_objective, sideband_embedding, sideband_constraints, sideband_risk_areas = _read_sideband(agent_id)
         all_injected = list(set(injected_from_sideband + result["injected"]))
 
         if sideband_objective:
@@ -371,28 +378,53 @@ def process_hook_input(hook_input: dict) -> dict:
         feedback_outcome = result["outcome"]
         if feedback_outcome == "crashed":
             feedback_outcome = "blocked"
-        if all_injected and feedback_outcome in ("delivered", "blocked", "plan_complete"):
+        if all_injected and feedback_outcome in ("delivered", "blocked", "partial", "plan_complete"):
             causal_names = filter_causal_insights(all_injected, task_context.strip(),
                                                   context_embedding=embedding_for_causal)
-            feedback_applied = apply_feedback(all_injected, feedback_outcome, causal_names=causal_names)
+            causal_name_list = [n for n, _ in causal_names] if causal_names else []
+            feedback_applied = apply_feedback(all_injected, feedback_outcome,
+                                              causal_names=causal_names,
+                                              context_embedding=embedding_for_causal)
     except Exception as e:
         _log_error("feedback_attribution", e)
 
     # 3d: Provenance edges (independent error boundary)
-    if stored_name and causal_names:
+    if stored_name and causal_name_list:
         try:
-            _create_provenance_edges(stored_name, causal_names)
+            _create_provenance_edges(stored_name, causal_name_list)
         except Exception as e:
             _log_error("provenance_edges", e)
 
     # 3c: Log result (independent of store/feedback success)
     try:
-        n_causal = len(causal_names) if causal_names is not None else None
+        n_causal = len(causal_name_list) if causal_names is not None else None
         n_injected = len(all_injected)
         log_extraction_result(agent_id, agent_type, result, feedback_applied,
                               causal_count=n_causal, total_injected=n_injected)
     except Exception as e:
         _log_error("log_extraction_result", e)
+
+    # 3e: Archive to session log (independent error boundary)
+    try:
+        import hashlib as _hashlib
+        from db.connection import get_db as _get_db, write_lock as _write_lock
+        _archive_db = _get_db()
+        _t_hash = _hashlib.sha256(transcript_raw.encode()).hexdigest()
+        _summary = summary_parts[-1].strip()[:500] if summary_parts else ""
+        if sideband_constraints:
+            _summary += f" [CONSTRAINTS: {sideband_constraints[:200]}]"
+        if sideband_risk_areas:
+            _summary += f" [RISK_AREAS: {sideband_risk_areas[:200]}]"
+        with _write_lock():
+            _archive_db.execute(
+                "INSERT INTO session_log (agent_id, agent_type, task_id, outcome, summary, transcript_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (agent_id, agent_short, task_id, result["outcome"], _summary,
+                 _t_hash, datetime.now(timezone.utc).isoformat())
+            )
+            _archive_db.commit()
+    except Exception as e:
+        _log_error("session_log_archive", e)
 
     return {}
 

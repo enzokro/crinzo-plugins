@@ -2,7 +2,7 @@
 
 Uses WAL mode for concurrent reads, write_lock for safe writes.
 
-Schema v12: insight table + FTS5 hybrid search index + relationship edges.
+Schema v15: insight table + FTS5 hybrid search index + relationship edges + session transcript archive + usage velocity + knowledge generality.
 """
 
 import os
@@ -130,6 +130,34 @@ _MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id)",
         "CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id)",
     ]),
+    # v13: Session transcript archive for searchable history
+    (13, [
+        """CREATE TABLE IF NOT EXISTS session_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            task_id TEXT,
+            outcome TEXT,
+            summary TEXT,
+            transcript_hash TEXT,
+            created_at TEXT NOT NULL
+        )""",
+        """CREATE VIRTUAL TABLE IF NOT EXISTS session_log_fts
+            USING fts5(summary, outcome, content=session_log, content_rowid=id)""",
+        """CREATE TRIGGER IF NOT EXISTS session_log_fts_ai AFTER INSERT ON session_log BEGIN
+            INSERT INTO session_log_fts(rowid, summary, outcome) VALUES (new.id, new.summary, new.outcome);
+        END""",
+        """CREATE TRIGGER IF NOT EXISTS session_log_fts_ad AFTER DELETE ON session_log BEGIN
+            INSERT INTO session_log_fts(session_log_fts, rowid, summary, outcome) VALUES('delete', old.id, old.summary, old.outcome);
+        END""",
+    ]),
+    # v14: Usage velocity tracking
+    (14, "ALTER TABLE insight ADD COLUMN recent_uses INTEGER DEFAULT 0"),
+    # v15: Knowledge generality tracking
+    (15, [
+        "ALTER TABLE insight ADD COLUMN context_spread REAL DEFAULT NULL",
+        "ALTER TABLE insight ADD COLUMN context_centroid BLOB DEFAULT NULL",
+    ]),
 ]
 
 
@@ -181,6 +209,9 @@ def init_db(db: sqlite3.Connection = None) -> None:
             created_at TEXT NOT NULL,
             last_used TEXT,
             last_feedback_at TEXT,
+            recent_uses INTEGER DEFAULT 0,
+            context_spread REAL DEFAULT NULL,
+            context_centroid BLOB DEFAULT NULL,
             tags TEXT DEFAULT '[]'
         );
 
@@ -195,6 +226,18 @@ def init_db(db: sqlite3.Connection = None) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_edges_src ON insight_edges(src_id);
         CREATE INDEX IF NOT EXISTS idx_edges_dst ON insight_edges(dst_id);
+
+        -- Session transcript archive (v13)
+        CREATE TABLE IF NOT EXISTS session_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            task_id TEXT,
+            outcome TEXT,
+            summary TEXT,
+            transcript_hash TEXT,
+            created_at TEXT NOT NULL
+        );
 
     """)
     db.commit()

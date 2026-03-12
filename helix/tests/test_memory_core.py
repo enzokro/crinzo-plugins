@@ -70,6 +70,16 @@ class TestStore:
         assert "auth" in insight["tags"]
 
 
+class TestToDict:
+    def test_recall_returns_parsed_tags(self, test_db, mock_embeddings):
+        from lib.memory.core import store, recall
+        store("When testing auth flows, verify token refresh", tags=["auth", "testing"])
+        results = recall("auth testing token", limit=1)
+        assert len(results) > 0
+        assert "auth" in results[0]["tags"]
+        assert "testing" in results[0]["tags"]
+
+
 class TestRecall:
     """Tests for insight recall and ranking."""
 
@@ -1019,3 +1029,44 @@ class TestHybridRecall:
         assert r1["name"] in names
         assert r2["name"] in names
         assert names.index(r1["name"]) < names.index(r2["name"])
+
+
+class TestVelocityTracking:
+    """Test usage velocity scoring boost."""
+
+    def test_feedback_increments_recent_uses(self, test_db, mock_embeddings):
+        from lib.memory.core import store, feedback, get
+        r = store("Velocity test insight checking recent uses increments properly here")
+        name = r["name"]
+        feedback([name], "delivered", causal_names=[(name, 0.90)])
+        result = get(name)
+        assert result["recent_uses"] == 1
+        feedback([name], "delivered", causal_names=[(name, 0.90)])
+        result = get(name)
+        assert result["recent_uses"] == 2
+
+    def test_velocity_boost_increases_score(self, test_db, mock_embeddings):
+        from lib.memory.core import store, feedback, recall
+        r = store("When deploying microservices to Kubernetes, check pod resource limits first")
+        assert r["status"] == "added"
+        # Recall before any feedback — baseline score
+        results_before = recall("Kubernetes deployment", limit=10, min_relevance=0.0)
+        score_before = None
+        for res in results_before:
+            if res["name"] == r["name"]:
+                score_before = res["_score"]
+                break
+        assert score_before is not None, "Insight not found in recall"
+        # Give 5 feedback events to build velocity
+        for _ in range(5):
+            feedback([r["name"]], "delivered", causal_names=[(r["name"], 0.90)])
+        # Recall after feedback — score should be higher due to velocity boost
+        results_after = recall("Kubernetes deployment", limit=10, min_relevance=0.0)
+        score_after = None
+        for res in results_after:
+            if res["name"] == r["name"]:
+                score_after = res["_score"]
+                break
+        assert score_after is not None, "Insight not found in recall after feedback"
+        # Score must increase (effectiveness boost + velocity boost)
+        assert score_after > score_before

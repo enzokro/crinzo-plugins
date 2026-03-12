@@ -37,6 +37,11 @@ Parse JSON. Use `summary` for triage, synthesize `insights` into blocks:
 2. **RISK_AREAS** — risky insights (`_effectiveness < 0.40`) or `derived`/`failure` tags: flag for extra verification, smaller tasks.
 3. **EXPLORATION_TARGETS** — areas referenced by insights that expand scope beyond the naive objective.
 4. **GRAPH_DISCOVERED** — `_hop: 1` insights (graph-adjacent, not direct match). Treat as exploration targets.
+5. **KNOWLEDGE_TOPOLOGY** — from `summary.graph` (when `graph_too_small` is false):
+   - Dense clusters (density > 0.3) = well-understood domain, high confidence in constraints
+   - Many isolates = fragmented knowledge, expand exploration before committing to plan
+   - Bridges = cross-cutting insights connecting separate domains — high planning value, verify carefully
+   - Low density + few clusters = early-stage knowledge, treat all insights as provisional
 
 **Weight by relevance:** An insight with `_effectiveness: 0.85` but `_relevance: 0.36` (barely above threshold) is weakly connected to this objective — treat as background context, not hard constraint. High-effectiveness + high-relevance = strong constraint.
 
@@ -55,6 +60,21 @@ EXPLORATION_TARGETS:
 - config/secrets.py (referenced by auth insights but not in objective)
 - tests/fixtures/ (multiple insights reference test setup patterns)
 ```
+
+**Persist synthesis** (survives context compression):
+```bash
+cat > .helix/recall_synthesis.json << 'RECALL_EOF'
+{
+  "objective": "{objective_summary}",
+  "constraints": [{insight_content_and_effectiveness}],
+  "risk_areas": [{insight_content_and_effectiveness}],
+  "exploration_targets": ["{paths}"],
+  "graph_discovered": [{hop_1_insights}],
+  "triage": {"coverage_ratio": {n}, "well_mapped": {bool}, "graph_expanded": {count}}
+}
+RECALL_EOF
+```
+If you re-read `.helix/recall_synthesis.json` mid-BUILD, context was compressed — this file preserves your orchestration decisions.
 
 **Targeted follow-up:** If blind spots identified, call `python3 "$HELIX/lib/memory/core.py" recall "{specific_area}" --limit 3`.
 **If empty:** omit blocks, no degradation. **Fast path:** skip RECALL for single-file changes.
@@ -81,6 +101,8 @@ EXPLORATION_TARGETS:
 
 If PLAN_SPEC empty or ERROR -- add exploration context, re-run planner.
 
+**Context recovery:** If context was compressed, re-read `.helix/recall_synthesis.json` for prior CONSTRAINTS and RISK_AREAS before proceeding.
+
 ### BUILD
 
 **Goal:** Execute all tasks. **Exit when:** no pending tasks remain.
@@ -103,6 +125,8 @@ while pending tasks:
 **On crash:** Re-dispatch once. Second crash → mark blocked.
 
 #### Stall Recovery
+
+If context was compressed, first re-read `.helix/recall_synthesis.json` for prior CONSTRAINTS and RISK_AREAS.
 
 Recall insights about the blocked area: `python3 "$HELIX/lib/memory/core.py" recall "{blocked_task_description}" --limit 5 --graph-hops 1`
 
@@ -177,6 +201,14 @@ AskUserQuestion([{
   ```
 - **User dismisses**: Fall back to your own cross-task observations. Store without `user-provided` tag.
 - **Skipped ask** (fast-path): Store your own observations directly.
+
+- **Procedure graduation**: If stall recovery revealed a multi-step fix sequence, store as a procedure:
+  ```bash
+  python3 "$HELIX/lib/memory/core.py" store \
+    --content "Check pytest fixtures in conftest.py\nEnsure test DB initialized before migration tests\nRun migrations with --check flag before applying" \
+    --tags '["procedure", "testing", "database"]'
+  ```
+  Procedures render as numbered steps when injected and decay/prune like any other insight.
 
 Insights auto-link (similarity >= 0.60) and provenance edges form during extraction. Test: would this help 3 months from now? **Minimum:** one insight per session.
 

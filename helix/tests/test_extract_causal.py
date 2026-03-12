@@ -42,8 +42,10 @@ class TestFilterCausalInsights:
         result = filter_causal_insights([r1["name"], r2["name"]], context)
 
         # TS insight should pass, cooking should not
-        assert r1["name"] in result
-        assert r2["name"] not in result, "Cooking insight should be filtered as irrelevant to TypeScript context"
+        # filter_causal_insights returns List[Tuple[str, float]] (name, similarity)
+        result_names = [n for n, _ in result]
+        assert r1["name"] in result_names
+        assert r2["name"] not in result_names, "Cooking insight should be filtered as irrelevant to TypeScript context"
 
     def test_nonexistent_insight_skipped(self):
         """Non-existent insight names are skipped without error."""

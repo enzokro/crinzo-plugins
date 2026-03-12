@@ -1,0 +1,449 @@
+---
+title: "Helix v3 — Memory + Orchestration System"
+---
+
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#e2e8f0',
+  'primaryTextColor': '#1a202c',
+  'primaryBorderColor': '#a0aec0',
+  'lineColor': '#4a5568',
+  'secondaryColor': '#f7fafc',
+  'tertiaryColor': '#edf2f7',
+  'edgeLabelBackground': '#f7fafc',
+  'clusterBkg': '#f7fafc',
+  'clusterBorder': '#cbd5e0',
+  'noteBkgColor': '#fffff0',
+  'noteTextColor': '#1a202c',
+  'noteBorderColor': '#d69e2e'
+}}}%%
+
+flowchart TB
+    %% =========================================================
+    %% ENTRY
+    %% =========================================================
+    USER(["/helix &lt;objective&gt;"]) --> SKILL
+
+    subgraph SKILL["SKILL.md — Prose Orchestrator (Opus)"]
+        direction TB
+
+        %% --- RECALL PHASE ---
+        subgraph RECALL_PHASE["RECALL"]
+            direction TB
+            SR["strategic_recall(objective)<br/>limit=15, min_relevance=0.30<br/>graph_hops=1"]
+            SR --> SR_OUT["JSON: insights[] + summary{}"]
+            SR_OUT --> CLASSIFY["Synthesize into blocks"]
+            CLASSIFY --> CONSTRAINTS["CONSTRAINTS<br/>_effectiveness >= 0.70<br/>decomposition rules, verification needs"]
+            CLASSIFY --> RISK["RISK_AREAS<br/>_effectiveness < 0.40<br/>or derived/failure tags"]
+            CLASSIFY --> EXPLORE_TARGETS["EXPLORATION_TARGETS<br/>areas referenced by insights"]
+            CLASSIFY --> GRAPH_DISC["GRAPH_DISCOVERED<br/>_hop: 1 insights<br/>graph-adjacent context"]
+            CLASSIFY --> TOPOLOGY["KNOWLEDGE_TOPOLOGY<br/>clusters, bridges, isolates<br/>density → confidence signals"]
+            CLASSIFY --> REL_WEIGHT["Weight by _relevance:<br/>high eff + low relevance = background<br/>high eff + high relevance = strong constraint"]
+            CLASSIFY --> PERSIST_RECALL["Persist → .helix/recall_synthesis.json<br/>(survives context compression)"]
+        end
+
+        %% --- EXPLORE PHASE ---
+        subgraph EXPLORE_PHASE["EXPLORE"]
+            direction TB
+            PARTITION["git ls-files → 3-6 partitions"]
+            PARTITION --> SPAWN_EXP["Spawn explorer swarm<br/>model=sonnet, max_turns=30<br/>ALL in ONE message"]
+        end
+
+        %% --- PLAN PHASE ---
+        subgraph PLAN_PHASE["PLAN"]
+            direction TB
+            SPAWN_PLAN["Spawn planner<br/>model=opus, max_turns=500<br/>OBJECTIVE + EXPLORATION +<br/>CONSTRAINTS + RISK_AREAS"]
+            SPAWN_PLAN --> PLAN_SPEC["Parse PLAN_SPEC JSON"]
+            PLAN_SPEC --> CREATE_TASKS["TaskCreate + TaskUpdate<br/>set dependencies"]
+            CREATE_TASKS --> VALIDATE["detect-cycles validation"]
+        end
+
+        %% --- BUILD PHASE ---
+        subgraph BUILD_PHASE["BUILD (loop)"]
+            direction TB
+            STATUS["build_status()<br/>ready + stalled check"]
+            STATUS -->|stalled| STALL_RECOVERY
+            STATUS -->|ready tasks| BATCH_INJ["batch_inject(tasks)<br/>limit=3, graph_hops=1<br/>cross-task diversity"]
+            BATCH_INJ --> DELIVERIES["Assemble PARENT_DELIVERIES"]
+            DELIVERIES --> SPAWN_BUILD["Spawn builders<br/>model=opus, max_turns=250<br/>cap 6/wave, ONE message"]
+            SPAWN_BUILD --> OUTCOMES["Parse outcomes"]
+            OUTCOMES -->|DELIVERED| TASK_DONE["TaskUpdate: completed"]
+            OUTCOMES -->|PARTIAL| FOLD["Fold REMAINING → new task"]
+            OUTCOMES -->|BLOCKED| TASK_BLOCK["TaskUpdate: blocked"]
+            OUTCOMES -->|crash| REDISPATCH["Re-dispatch once<br/>second crash → blocked"]
+            TASK_DONE --> STATUS
+            FOLD --> STATUS
+            TASK_BLOCK --> STATUS
+            REDISPATCH --> STATUS
+
+            subgraph STALL_RECOVERY["Stall Recovery"]
+                direction TB
+                STALL_RECALL["recall(blocked_desc)<br/>--limit 5 --graph-hops 1"]
+                STALL_RECALL --> STALL_DECIDE{Analyze}
+                STALL_DECIDE -->|"1 task, workaround"| SKIP["SKIP + store failure insight"]
+                STALL_DECIDE -->|"subtree, fixable"| REPLAN_SUB["Re-plan blocked subtree"]
+                STALL_DECIDE -->|"verify wrong"| REPLAN_V["REPLAN with tighter verify"]
+                STALL_DECIDE -->|"3+ attempts"| ABORT["ABORT → escalate to user"]
+            end
+        end
+
+        %% --- LEARN PHASE ---
+        subgraph LEARN_PHASE["LEARN (not optional)"]
+            direction TB
+            OBSERVE["Step 1: Observe<br/>Collect all outcomes, errors,<br/>retry counts, cross-task patterns"]
+            OBSERVE --> PROVENANCE_CHK["Check insight ancestry<br/>neighbors --relation led_to<br/>Identify error-propagating lineages"]
+            PROVENANCE_CHK --> ASK_DECISION{Ask?}
+            ASK_DECISION -->|"BLOCKED/PARTIAL"| ASK_USER["Step 2: AskUserQuestion<br/>Quote actual error text<br/>Name specific files<br/>Evidence-grounded options<br/>1 question per blocked task"]
+            ASK_DECISION -->|"all DELIVERED multi"| ASK_USER
+            ASK_DECISION -->|"fast-path single"| STORE_OWN["Store own observations"]
+            ASK_USER --> STORE_USER["Step 3: Store<br/>tag: user-provided<br/>(skips dedup merge)"]
+            ASK_USER -->|"user dismisses"| STORE_OWN
+        end
+
+        %% --- COMPLETE ---
+        COMPLETE_PHASE["COMPLETE<br/>Summarize deliveries, blocks,<br/>stored insights"]
+
+        %% Phase flow
+        RECALL_PHASE --> EXPLORE_PHASE
+        EXPLORE_PHASE --> PLAN_PHASE
+        PLAN_PHASE --> BUILD_PHASE
+        BUILD_PHASE -->|"no pending tasks"| LEARN_PHASE
+        LEARN_PHASE --> COMPLETE_PHASE
+    end
+
+    %% =========================================================
+    %% FAST PATH
+    %% =========================================================
+    USER -.->|"single-file change<br/>obvious scope"| FAST["Fast Path<br/>Skip RECALL/EXPLORE/PLAN<br/>One builder directly<br/>LEARN still applies"]
+
+    %% =========================================================
+    %% AGENTS
+    %% =========================================================
+    subgraph AGENTS["Agent Layer"]
+        direction LR
+
+        subgraph EXP_AGENT["Explorer (sonnet)"]
+            direction TB
+            EXP_TOOLS["Tools: Read, Grep, Glob, Bash"]
+            EXP_PROC["5-step procedure:<br/>orient → map interfaces →<br/>trace deps → sample impl →<br/>locate tests"]
+            EXP_OUT["Output: JSON findings<br/>{file, what} with line numbers"]
+        end
+
+        subgraph PLAN_AGENT["Planner (opus)"]
+            direction TB
+            PLAN_TOOLS["Tools: Read, Grep, Glob, Bash"]
+            PLAN_RULES["Task sizing: 1-3 files<br/>Deps: data flow only<br/>Anti-patterns: no setup tasks,<br/>no serial test bottleneck"]
+            PLAN_OUT["Output: PLAN_SPEC JSON<br/>{seq, slug, description,<br/>relevant_files, blocked_by, verify}"]
+        end
+
+        subgraph BUILD_AGENT["Builder (opus)"]
+            direction TB
+            BUILD_TOOLS["Tools: Read, Write, Edit,<br/>Grep, Glob, Bash"]
+            BUILD_PROC["Pre-flight → Implement →<br/>Verify → Failure diagnosis<br/>(categorize + 2-attempt retry)"]
+            BUILD_OUT["Output: DELIVERED / PARTIAL /<br/>BLOCKED + optional INSIGHT"]
+        end
+    end
+
+    SPAWN_EXP --> EXP_AGENT
+    SPAWN_PLAN --> PLAN_AGENT
+    SPAWN_BUILD --> BUILD_AGENT
+
+    %% =========================================================
+    %% HOOK LIFECYCLE
+    %% =========================================================
+    subgraph HOOKS["Hook Layer (subprocesses)"]
+        direction TB
+
+        subgraph SESSION_START["SessionStart — setup-env.sh"]
+            direction TB
+            SS1["Resolve HELIX_ROOT"]
+            SS2["Wipe ephemeral state:<br/>injected/, explorer-results/,<br/>task-status.jsonl"]
+            SS3["Venv management<br/>(create/repair/sync)"]
+            SS4["Persist env vars<br/>via CLAUDE_ENV_FILE"]
+            SS5["Background warmup:<br/>embeddings.py warmup"]
+            SS6["Health check → report"]
+            SS1 --> SS2 --> SS3 --> SS4 --> SS5 --> SS6
+        end
+
+        subgraph SUBAGENT_START["SubagentStart — inject_memory.py<br/>(builders & planners only)"]
+            direction TB
+            SI1["Parse parent transcript<br/>(last 50KB JSONL)<br/>Extract: objective +<br/>CONSTRAINTS + RISK_AREAS"]
+            SI2{"Orchestrator<br/>already injected?"}
+            SI2 -->|yes| SI_SKIP["return {}"]
+            SI2 -->|no| SI3["Collect sibling sideband names<br/>(_collect_already_injected)"]
+            SI3 --> SI4["recall(objective, limit=3,<br/>suppress_names=siblings,<br/>graph_hops=1)"]
+            SI4 --> SI5["Write sideband:<br/>.helix/injected/{agent_id}.json<br/>{names, objective,<br/>query_embedding, constraints,<br/>risk_areas}"]
+            SI5 --> SI6["Return {additionalContext:<br/>INSIGHTS + INJECTED names}"]
+        end
+
+        subgraph SUBAGENT_STOP["SubagentStop — extract_learning.py<br/>(all helix agents)"]
+            direction TB
+            SE_P1["Phase 1: Handoff<br/>Write task-status.jsonl<br/>Write explorer-results/"]
+            SE_P2["Phase 2: Outcome<br/>process_completion()<br/>(last-match-wins)<br/>Crash detection + retry loop"]
+            SE_P3A["Phase 3a: Store insight<br/>derived: eff=0.35<br/>explicit: eff=0.50<br/>user-provided: skip dedup"]
+            SE_P3B["Phase 3b: Feedback<br/>Read sideband → merge names<br/>→ filter_causal_insights()<br/>→ apply_feedback()"]
+            SE_P3D["Phase 3d: Provenance<br/>led_to edges from<br/>causal parents → child"]
+            SE_P3C["Phase 3c: Log<br/>extraction result"]
+            SE_P3E["Phase 3e: Archive<br/>session_log with<br/>orchestrator context"]
+            SE_P1 --> SE_P2
+            SE_P2 --> SE_P3A
+            SE_P2 --> SE_P3B
+            SE_P2 --> SE_P3D
+            SE_P2 --> SE_P3C
+            SE_P2 --> SE_P3E
+            SE_ERR["Each sub-phase has<br/>independent error boundary"]
+        end
+
+        subgraph SESSION_END["SessionEnd — session_end.py"]
+            direction TB
+            SEND1["Clean task-status.jsonl<br/>Clean stale sideband files"]
+            SEND2["decay() → dormant<br/>insights toward 0.5"]
+            SEND3["prune() → low performers<br/>+ orphans + ghosts"]
+            SEND_SYN["synthesize_session()<br/>Cluster failures, store<br/>cross-session patterns"]
+            SEND4["Log session summary"]
+            SEND1 --> SEND2 --> SEND3 --> SEND_SYN --> SEND4
+        end
+    end
+
+    %% Hook connections
+    SESSION_START -.->|"session begins"| SKILL
+    SUBAGENT_START -.->|"builder/planner spawns"| BUILD_AGENT
+    SUBAGENT_START -.->|"builder/planner spawns"| PLAN_AGENT
+    BUILD_AGENT -.->|"agent completes"| SUBAGENT_STOP
+    PLAN_AGENT -.->|"agent completes"| SUBAGENT_STOP
+    EXP_AGENT -.->|"agent completes"| SUBAGENT_STOP
+    COMPLETE_PHASE -.->|"session ends"| SESSION_END
+
+    %% =========================================================
+    %% MEMORY ENGINE
+    %% =========================================================
+    subgraph MEMORY["Memory Engine (lib/memory/)"]
+        direction TB
+
+        subgraph PRIMITIVES["8 Primitives — core.py"]
+            direction LR
+            STORE["store()"]
+            RECALL_FN["recall()"]
+            GET_FN["get()"]
+            FEEDBACK_FN["feedback()"]
+            DECAY_FN["decay()"]
+            PRUNE_FN["prune()"]
+            COUNT_FN["count()"]
+            HEALTH_FN["health()"]
+        end
+
+        subgraph STORE_DETAIL["store() Pipeline"]
+            direction TB
+            ST_VALID["Validate >= 20 chars"]
+            ST_SCAN["Security scan<br/>14 patterns, 4 categories<br/>Prescriptive exemption"]
+            ST_VALID --> ST_SCAN --> ST_EMBED
+            ST_EMBED["Embed (document mode)"]
+            ST_DEDUP{"user-provided?"}
+            ST_DEDUP -->|yes| ST_INSERT["INSERT (skip dedup)<br/>Always own row"]
+            ST_DEDUP -->|no| ST_SIM["Vectorized cosine sim<br/>vs all existing"]
+            ST_SIM -->|">= 0.85"| ST_MERGE["_merge_duplicate()<br/>Replace if longer or eff < 0.5"]
+            ST_SIM -->|"< 0.85"| ST_INSERT
+            ST_INSERT --> ST_AUTOLINK["_autolink()<br/>0.60 <= sim < 0.85<br/>Top 5 'similar' edges"]
+        end
+
+        subgraph RECALL_DETAIL["recall() Pipeline — Hybrid RRF + Graph"]
+            direction TB
+            RC_EMBED["Embed query<br/>(asymmetric mode)"]
+            RC_FETCH["SELECT * WHERE<br/>embedding IS NOT NULL<br/>AND effectiveness >= min"]
+            RC_SUPPRESS["Filter suppress_names"]
+            RC_VEC["Vector ranking:<br/>mat @ q_vec → sort"]
+            RC_FTS["FTS5 ranking:<br/>BM25 MATCH → sort"]
+            RC_RRF["RRF fusion:<br/>1/(60+vec_rank) +<br/>1/(60+fts_rank)"]
+            RC_GATE["min_relevance gate<br/>(cosine < 0.35 → excluded)"]
+            RC_SCORE["Final score:<br/>rrf * (0.5 + 0.5 * eff) * recency"]
+            RC_GRAPH["Graph expansion (default):<br/>get_neighbors(top_ids)<br/>score * HOP_DISCOUNT(0.7)<br/>→ merge + re-sort"]
+            RC_EMBED --> RC_FETCH --> RC_SUPPRESS
+            RC_SUPPRESS --> RC_VEC --> RC_RRF
+            RC_SUPPRESS --> RC_FTS --> RC_RRF
+            RC_RRF --> RC_GATE --> RC_SCORE --> RC_GRAPH
+        end
+
+        subgraph FEEDBACK_DETAIL["Causal Feedback Loop"]
+            direction TB
+            FB_INJECT["1. INJECT: insights with<br/>tracked names → agent prompt"]
+            FB_SIDEBAND["2. SIDEBAND: write query_embedding<br/>(base64) for attribution"]
+            FB_EXECUTE["3. EXECUTE: agent produces<br/>DELIVERED / BLOCKED / PARTIAL"]
+            FB_ATTRIBUTE["4. ATTRIBUTE:<br/>filter_causal_insights()<br/>mat @ ctx_vec >= 0.50<br/>Conservative: [] on any error"]
+            FB_UPDATE["5. FEEDBACK:<br/>Causal: weighted EMA<br/>w = (sim-0.50)/0.50<br/>eff = old*(1-0.2w) + outcome*0.2w<br/>Non-causal: erode 9% toward 0.5"]
+            FB_PRUNE["6. PRUNE:<br/>adjusted_eff = eff * max(0.33,<br/>causal_hits/use_count)<br/>< 0.25 after 3+ uses → deleted"]
+            FB_INJECT --> FB_SIDEBAND --> FB_EXECUTE
+            FB_EXECUTE --> FB_ATTRIBUTE --> FB_UPDATE --> FB_PRUNE
+        end
+
+        subgraph GRAPH["Graph Memory — edges.py + insight_edges"]
+            direction TB
+            EDGE_SIM["'similar' edges<br/>Undirected, canonical (min,max)<br/>Auto-created by store()<br/>0.60 <= sim < 0.85, top 5"]
+            EDGE_LED["'led_to' edges<br/>Directional parent→child<br/>Created by extract_learning<br/>Phase 3d, weight 1.0"]
+            NEIGHBORS["get_neighbors()<br/>Bidirectional JOIN<br/>Used by recall(graph_hops=1)"]
+        end
+
+        subgraph NEW_MODULES["Additional Modules"]
+            direction LR
+            SCANNER["scanner.py<br/>Content security<br/>14 patterns, 4 categories"]
+            SYNTHESIS_MOD["synthesis.py<br/>Cross-session clustering<br/>Embed + agglomerative"]
+            ANALYTICS["analytics.py<br/>Graph topology<br/>Components, bridges, density"]
+            STATS_MOD["stats.py<br/>Observability<br/>Distributions, velocity"]
+        end
+    end
+
+    %% =========================================================
+    %% DATABASE
+    %% =========================================================
+    subgraph DB["SQLite Database — .helix/helix.db (WAL)"]
+        direction LR
+        INSIGHT_TBL["insight table (14 cols)<br/>id, name, content, embedding,<br/>effectiveness, use_count, causal_hits,<br/>recent_uses, context_spread, context_centroid,<br/>created_at, last_used, last_feedback_at, tags"]
+        FTS_TBL["insight_fts (FTS5)<br/>External content on insight<br/>3 auto-sync triggers<br/>(INSERT, DELETE, UPDATE OF content,tags)"]
+        EDGES_TBL["insight_edges<br/>src_id, dst_id, weight, relation<br/>PK: (src_id, dst_id, relation)<br/>Indexed on src_id and dst_id"]
+        SESSION_LOG_TBL["session_log<br/>agent_id, agent_type, task_id,<br/>outcome, summary, transcript_hash"]
+        SESSION_FTS["session_log_fts (FTS5)<br/>summary + outcome search"]
+        SCHEMA_TBL["schema_version<br/>v15, data-driven migrations"]
+    end
+
+    %% =========================================================
+    %% SIDEBAND FILES
+    %% =========================================================
+    subgraph SIDEBAND["Sideband Coordination — .helix/"]
+        direction LR
+        SB_INJ[".helix/injected/{agent_id}.json<br/>{names, objective, query_embedding,<br/>constraints, risk_areas}<br/>Written by SubagentStart<br/>Read-and-deleted by SubagentStop"]
+        SB_EXP[".helix/explorer-results/{agent_id}.json<br/>Explorer findings<br/>Written by SubagentStop<br/>Consumed by orchestrator"]
+        SB_TASK[".helix/task-status.jsonl<br/>Builder outcomes (append-only)<br/>Written by SubagentStop<br/>Consumed by build_loop.py"]
+        SB_RECALL[".helix/recall_synthesis.json<br/>Orchestrator RECALL synthesis<br/>Written by RECALL phase<br/>Survives context compression"]
+    end
+
+    %% =========================================================
+    %% CONNECTIONS between layers
+    %% =========================================================
+
+    %% Memory connections
+    SR --> RECALL_FN
+    BATCH_INJ --> RECALL_FN
+    SI4 --> RECALL_FN
+    STALL_RECALL --> RECALL_FN
+    STORE_USER --> STORE
+    STORE_OWN --> STORE
+    SE_P3A --> STORE
+    SE_P3B --> FEEDBACK_FN
+    SEND2 --> DECAY_FN
+    SEND3 --> PRUNE_FN
+    PROVENANCE_CHK --> NEIGHBORS
+
+    %% Database connections
+    STORE --> INSIGHT_TBL
+    STORE --> FTS_TBL
+    RECALL_FN --> INSIGHT_TBL
+    RECALL_FN --> FTS_TBL
+    RECALL_FN --> EDGES_TBL
+    FEEDBACK_FN --> INSIGHT_TBL
+    PRUNE_FN --> INSIGHT_TBL
+    PRUNE_FN --> EDGES_TBL
+    ST_AUTOLINK --> EDGES_TBL
+    SE_P3D --> EDGES_TBL
+
+    %% Sideband connections
+    SI5 --> SB_INJ
+    SE_P3B --> SB_INJ
+    SE_P1 --> SB_EXP
+    SE_P1 --> SB_TASK
+    SI3 --> SB_INJ
+
+    %% =========================================================
+    %% SCORING FORMULA CALLOUT
+    %% =========================================================
+    subgraph SCORING["Scoring Formula"]
+        direction TB
+        FORMULA["score = rrf_score * (0.5 + 0.5 * causal_adj_eff)<br/>* recency * (1 + velocity_boost)"]
+        FORMULA_VEL["velocity_boost = min(0.10, recent_uses × 0.02)  [14-day window]"]
+        FORMULA_RRF["rrf = 1/(60+vec_rank) + 1/(60+fts_rank)"]
+        FORMULA_EFF["causal_adj_eff = eff * max(0.33, causal_hits/use_count)  [>=3 uses]"]
+        FORMULA_REC["recency = max(0.85, 1.0 - 0.003 * days_unused)  [never-used: 0.95]"]
+    end
+
+    %% =========================================================
+    %% CONSTANTS
+    %% =========================================================
+    subgraph CONSTANTS["Tuning Constants (core.py)"]
+        direction TB
+        C1["DUPLICATE_THRESHOLD = 0.85 — dedup gate"]
+        C2["RELATED_THRESHOLD = 0.60 — auto-link floor"]
+        C3["CAUSAL_SIMILARITY_THRESHOLD = 0.50 — attribution gate"]
+        C4["FEEDBACK_EMA_WEIGHT = 0.2 — learning rate"]
+        C5["EROSION_RATE = 0.09 — non-causal drift (loss-aversion λ=2.25)"]
+        C6["DECAY_RATE = 0.1 — dormant drift toward neutral"]
+        C7["HOP_DISCOUNT = 0.7 — graph expansion penalty"]
+        C8["RRF_K = 60 — SIGIR 2009 standard"]
+        C9["RECENCY_FLOOR = 0.85 — max 15% lifetime penalty"]
+        C10["CAUSAL_WEIGHT_RAMP = 0.50 — weighted attribution normalizer"]
+        C11["VELOCITY_PER_USE = 0.02 — per-feedback score boost"]
+        C12["VELOCITY_CAP = 0.10 — max velocity boost"]
+        C13["GENERALITY_SPREAD_CAP = 0.30 — full-general threshold"]
+        C14["GENERALITY_DECAY_DISCOUNT = 0.50 — max decay reduction"]
+        C15["CLUSTER_SIM_THRESHOLD = 0.60 — synthesis clustering gate"]
+    end
+
+    %% =========================================================
+    %% STYLES
+    %%
+    %% Palette principles:
+    %%   - Dark fills always get white (#ffffff) text
+    %%   - Light fills (theme defaults) get dark text (via primaryTextColor)
+    %%   - Subgraph labels: dark text on light cluster backgrounds
+    %%   - Every node is explicitly classed (no unstyled defaults)
+    %%   - Consistent color language across both diagrams:
+    %%       blue    = orchestration phases
+    %%       green   = agents
+    %%       crimson = hooks
+    %%       indigo  = memory internals
+    %%       amber   = database
+    %%       slate   = sideband / coordination
+    %%       charcoal = formulas / constants
+    %%       light gray = terminals (USER)
+    %% =========================================================
+
+    %% Orchestration phases — steel blue
+    classDef phase fill:#2b6cb0,stroke:#1a4971,color:#ffffff
+    %% Agents — forest green
+    classDef agent fill:#276749,stroke:#1a4731,color:#ffffff
+    %% Hooks — deep crimson
+    classDef hook fill:#c53030,stroke:#9b2c2c,color:#ffffff
+    %% Memory internals — indigo
+    classDef memory fill:#5a3e8e,stroke:#44337a,color:#ffffff
+    %% Database tables — dark amber
+    classDef db fill:#975a16,stroke:#744210,color:#ffffff
+    %% Sideband files — dark slate
+    classDef sideband fill:#4a5568,stroke:#2d3748,color:#ffffff
+    %% Formulas / constants — charcoal
+    classDef formula fill:#2d3748,stroke:#1a202c,color:#e2e8f0
+    %% Terminal nodes — light gray, dark text
+    classDef terminal fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+
+    class RECALL_PHASE,EXPLORE_PHASE,PLAN_PHASE,BUILD_PHASE,LEARN_PHASE,COMPLETE_PHASE phase
+    class EXP_AGENT,PLAN_AGENT,BUILD_AGENT agent
+    class SESSION_START,SUBAGENT_START,SUBAGENT_STOP,SESSION_END hook
+    class PRIMITIVES,STORE_DETAIL,RECALL_DETAIL,FEEDBACK_DETAIL,GRAPH,NEW_MODULES memory
+    class SCANNER,SYNTHESIS_MOD,ANALYTICS,STATS_MOD memory
+    class INSIGHT_TBL,FTS_TBL,EDGES_TBL,SCHEMA_TBL,SESSION_LOG_TBL,SESSION_FTS db
+    class SB_INJ,SB_EXP,SB_TASK,SB_RECALL sideband
+    class SCORING,CONSTANTS,FORMULA,FORMULA_VEL,FORMULA_RRF,FORMULA_EFF,FORMULA_REC formula
+    class USER terminal
+
+    %% Interior nodes — inherit readable defaults from theme
+    %% (light gray fill #e2e8f0, dark text #1a202c)
+    %% These are already readable via primaryColor/primaryTextColor.
+    %% Group the major interior sets for optional future styling:
+    %%
+    %% Orchestration interiors: SR, SR_OUT, CLASSIFY, CONSTRAINTS, RISK,
+    %%   EXPLORE_TARGETS, GRAPH_DISC, REL_WEIGHT, PARTITION, SPAWN_EXP,
+    %%   SPAWN_PLAN, PLAN_SPEC, CREATE_TASKS, VALIDATE, STATUS, BATCH_INJ,
+    %%   DELIVERIES, SPAWN_BUILD, OUTCOMES, TASK_DONE, FOLD, TASK_BLOCK,
+    %%   REDISPATCH, STALL_RECALL, STALL_DECIDE, SKIP, REPLAN_SUB,
+    %%   REPLAN_V, ABORT, OBSERVE, PROVENANCE_CHK, ASK_DECISION,
+    %%   ASK_USER, STORE_OWN, STORE_USER
+    %%
+    %% Hook interiors: SS1-SS6, SI1-SI6, SI_SKIP, SE_P1-SE_P3D, SE_ERR,
+    %%   SEND1-SEND4
+    %%
+    %% Memory interiors: STORE-HEALTH_FN, ST_*, RC_*, FB_*, EDGE_*, NEIGHBORS

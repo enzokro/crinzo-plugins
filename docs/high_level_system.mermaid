@@ -1,0 +1,232 @@
+---
+title: "Helix v3 — Core Operations & Loops"
+---
+
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#e2e8f0',
+  'primaryTextColor': '#1a202c',
+  'primaryBorderColor': '#a0aec0',
+  'lineColor': '#4a5568',
+  'secondaryColor': '#f7fafc',
+  'tertiaryColor': '#edf2f7',
+  'edgeLabelBackground': '#f7fafc',
+  'clusterBkg': '#f7fafc',
+  'clusterBorder': '#cbd5e0'
+}}}%%
+
+flowchart TB
+    %% =========================================================
+    %% THE THREE LOOPS
+    %%
+    %% Loop 1: Orchestration — the session-level work cycle
+    %%   RECALL -> EXPLORE -> PLAN -> BUILD (waves) -> LEARN -> COMPLETE
+    %%
+    %% Loop 2: Learning — the per-task feedback cycle (hooks)
+    %%   inject(names) -> execute -> observe(outcome)
+    %%   -> attribute(cosine >= 0.50, weighted) -> feedback(weighted EMA/erosion)
+    %%   -> score(rrf * eff * recency * velocity) -> recall -> inject...
+    %%
+    %% Loop 3: Synthesis — the cross-session slow loop
+    %%   session_log -> cluster failures -> synthesize -> store/reinforce
+    %%
+    %% The loops interlock at three points:
+    %%   RECALL reads what LEARN wrote (memory shapes orchestration)
+    %%   BUILD writes what LEARN reads (outcomes shape memory)
+    %%   SESSION_END synthesizes what session_log accumulated (history shapes future)
+    %% =========================================================
+
+    USER(["/helix objective"]) --> RECALL
+
+    %% ─────────────────────────────────────────────────────────
+    %% ORCHESTRATION LOOP (one session)
+    %% ─────────────────────────────────────────────────────────
+    subgraph ORCH["Orchestration Loop"]
+        direction TB
+
+        RECALL["RECALL<br/>strategic_recall(objective)<br/>graph_hops=1, limit=15"]
+        EXPLORE["EXPLORE<br/>Parallel sonnet explorers<br/>scope shaped by recalled insights"]
+        PLAN["PLAN<br/>Opus planner -> task DAG<br/>respects CONSTRAINTS + RISK_AREAS"]
+        BUILD["BUILD<br/>Opus builders in waves<br/>cap 6/wave, stall recovery"]
+        LEARN["LEARN<br/>Observe patterns, ask user<br/>store validated insights"]
+
+        RECALL --> EXPLORE --> PLAN --> BUILD
+        BUILD -->|"pending tasks remain"| BUILD
+        BUILD -->|"all tasks resolved"| LEARN
+    end
+
+    LEARN --> COMPLETE(["COMPLETE"])
+
+    %% ─────────────────────────────────────────────────────────
+    %% LEARNING LOOP (cross-session, automatic via hooks)
+    %% ─────────────────────────────────────────────────────────
+    subgraph FEEDBACK["Learning Loop (hooks, automatic)"]
+        direction LR
+
+        INJECT["INJECT<br/>Insights with tracked names<br/>-> agent prompt + sideband"]
+        EXECUTE["EXECUTE<br/>Agent produces<br/>DELIVERED / PARTIAL / BLOCKED"]
+        ATTRIBUTE["ATTRIBUTE<br/>filter_causal_insights()<br/>mat @ ctx_vec >= 0.50<br/>→ weighted (name, sim) tuples"]
+        UPDATE["FEEDBACK<br/>Causal: weighted EMA<br/>(sim-proportional update)<br/>Non-causal: erode toward 0.5<br/>Context spread tracking"]
+
+        INJECT --> EXECUTE --> ATTRIBUTE --> UPDATE
+    end
+
+    subgraph SYNTHESIS["Slow Loop (session end, cross-session)"]
+        direction LR
+
+        SYN_LOG["SESSION_LOG<br/>agent outcomes +<br/>orchestrator context"]
+        SYN_CLUSTER["CLUSTER<br/>Embed summaries<br/>Agglomerative sim>=0.60"]
+        SYN_GATE["CONFIDENCE GATE<br/>tightness × √count >= 1.5"]
+        SYN_STORE["STORE / REINFORCE<br/>new: eff=0.45<br/>existing: positive feedback"]
+
+        SYN_LOG --> SYN_CLUSTER --> SYN_GATE --> SYN_STORE
+    end
+
+    %% ─────────────────────────────────────────────────────────
+    %% MEMORY (the shared state between both loops)
+    %% ─────────────────────────────────────────────────────────
+    subgraph MEM["Memory"]
+        direction TB
+
+        subgraph RETRIEVAL["Hybrid Recall"]
+            direction LR
+            VEC["Vector<br/>mat @ q_vec"]
+            FTS["FTS5<br/>BM25 keywords"]
+            RRF["RRF Fusion<br/>K=60"]
+            GRAPH["Graph Expand<br/>similar + led_to<br/>hop discount 0.7"]
+            VEC --> RRF
+            FTS --> RRF
+            RRF --> GRAPH
+        end
+
+        SCORE["score = rrf * (0.5 + 0.5 * eff)<br/>* recency * (1 + velocity)"]
+
+        subgraph LIFECYCLE["Insight Lifecycle"]
+            direction LR
+            STORE_INS["Store<br/>dedup 0.85<br/>auto-link 0.60"]
+            ACTIVE["Active<br/>injected, feedback<br/>accumulating"]
+            DECAY_INS["Decay<br/>dormant above-0.5<br/>drift toward neutral"]
+            PRUNE_INS["Prune<br/>adj_eff < 0.25<br/>after 3+ uses"]
+            STORE_INS --> ACTIVE --> DECAY_INS --> PRUNE_INS
+        end
+
+        RETRIEVAL --> SCORE
+    end
+
+    %% ─────────────────────────────────────────────────────────
+    %% INTERLOCK CONNECTIONS (where the three loops meet)
+    %% ─────────────────────────────────────────────────────────
+
+    %% Memory feeds orchestration
+    MEM -->|"recalled insights shape<br/>decomposition + execution"| RECALL
+    MEM -->|"tactical insights<br/>injected per builder"| BUILD
+
+    %% Orchestration feeds memory
+    BUILD -->|"outcomes trigger<br/>hook pipeline"| INJECT
+    LEARN -->|"user-validated insights<br/>(skip dedup merge)"| STORE_INS
+
+    %% Learning loop feeds memory
+    UPDATE -->|"effectiveness<br/>updated"| ACTIVE
+    ATTRIBUTE -->|"provenance edges<br/>(led_to)"| STORE_INS
+
+    %% Session lifecycle
+    SESSION_END(["Session End"]) -->|"decay + prune<br/>+ synthesis"| LIFECYCLE
+
+    %% Slow loop connections
+    SESSION_END -->|"synthesize_session()"| SYN_LOG
+    SYN_STORE -->|"new insights enter<br/>fast loop"| STORE_INS
+    BUILD -->|"Phase 3e archival"| SYN_LOG
+
+    %% ─────────────────────────────────────────────────────────
+    %% GRAPH STRUCTURE (how insights relate)
+    %% ─────────────────────────────────────────────────────────
+    subgraph INSIGHT_GRAPH["Insight Graph"]
+        direction LR
+        A(["insight A"])
+        B(["insight B"])
+        C(["insight C"])
+        D(["insight D<br/>(derived)"])
+
+        A ---|"similar<br/>0.72"| B
+        A ---|"similar<br/>0.65"| C
+        A -->|"led_to"| D
+        B ---|"similar<br/>0.61"| C
+    end
+
+    GRAPH -.->|"1-hop traversal<br/>expands recall"| INSIGHT_GRAPH
+
+    %% ─────────────────────────────────────────────────────────
+    %% SCORING DETAIL
+    %% ─────────────────────────────────────────────────────────
+    subgraph SCORING["How Insights Earn Their Place"]
+        direction TB
+        S1["Proven (eff >= 0.70): full weight -> CONSTRAINTS"]
+        S2["Neutral (eff = 0.50): 75% weight, untested"]
+        S3["Risky (eff < 0.40): flagged -> RISK_AREAS"]
+        S4["Failing (adj_eff < 0.25, 3+ uses): pruned"]
+    end
+
+    SCORE -.-> SCORING
+
+    %% ─────────────────────────────────────────────────────────
+    %% TWO-LEVEL INJECTION
+    %% ─────────────────────────────────────────────────────────
+    subgraph INJECTION["Two-Level Injection"]
+        direction TB
+        STRATEGIC["Strategic (RECALL phase)<br/>limit=15, broad sweep<br/>shapes decomposition"]
+        TACTICAL["Tactical (SubagentStart hook)<br/>limit=3, focused<br/>shapes execution"]
+        DIVERSITY["Cross-agent diversity<br/>sideband files suppress<br/>already-injected names"]
+        STRATEGIC --> DIVERSITY
+        TACTICAL --> DIVERSITY
+    end
+
+    RECALL -.-> STRATEGIC
+    BUILD -.-> TACTICAL
+
+    %% ─────────────────────────────────────────────────────────
+    %% STYLES
+    %%
+    %% Palette principles:
+    %%   - Dark fills (#2x-#4x) always get white text
+    %%   - Medium fills (#5x-#9x) get white text
+    %%   - Light fills (theme defaults) get dark text (via primaryTextColor)
+    %%   - Subgraph labels: dark text on light cluster backgrounds
+    %%   - Every node is explicitly classed (no unstyled defaults)
+    %% ─────────────────────────────────────────────────────────
+
+    %% Orchestration phases — steel blue, white text
+    classDef orchPhase fill:#2b6cb0,stroke:#1a4971,color:#ffffff
+
+    %% Learning loop steps — deep crimson, white text
+    classDef learnStep fill:#c53030,stroke:#9b2c2c,color:#ffffff
+
+    %% Memory / retrieval — indigo, white text
+    classDef memBlock fill:#5a3e8e,stroke:#44337a,color:#ffffff
+
+    %% Graph nodes — teal, white text
+    classDef graphNode fill:#276749,stroke:#1a4731,color:#ffffff
+
+    %% Scoring tiers — charcoal, warm white text
+    classDef scoreBlock fill:#2d3748,stroke:#1a202c,color:#e2e8f0
+
+    %% Injection — dark amber, white text
+    classDef injBlock fill:#975a16,stroke:#744210,color:#ffffff
+
+    %% Lifecycle — dark slate, white text
+    classDef lifecycle fill:#4a5568,stroke:#2d3748,color:#ffffff
+
+    %% Terminals — light gray, dark text
+    classDef terminal fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+
+    %% Synthesis loop — deep teal, white text
+    classDef synthStep fill:#234e52,stroke:#1a3a3c,color:#ffffff
+
+    %% Apply classes
+    class RECALL,EXPLORE,PLAN,BUILD,LEARN orchPhase
+    class INJECT,EXECUTE,ATTRIBUTE,UPDATE learnStep
+    class VEC,FTS,RRF,GRAPH,SCORE memBlock
+    class A,B,C,D graphNode
+    class S1,S2,S3,S4 scoreBlock
+    class STRATEGIC,TACTICAL,DIVERSITY injBlock
+    class STORE_INS,ACTIVE,DECAY_INS,PRUNE_INS lifecycle
+    class SYN_LOG,SYN_CLUSTER,SYN_GATE,SYN_STORE synthStep
+    class USER,COMPLETE,SESSION_END terminal

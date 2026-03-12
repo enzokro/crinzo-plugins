@@ -12,7 +12,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, NamedTuple, Optional
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,6 +20,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from paths import get_helix_dir
 from log import log_error as _log_error
 from injection import format_insights, NO_PRIOR_MEMORY, NO_MATCHING_MEMORY, INSIGHTS_HEADER
+
+
+class ParsedTranscript(NamedTuple):
+    objective: Optional[str]
+    has_insights: bool
+    constraints: Optional[str]
+    risk_areas: Optional[str]
 
 
 def _log_injection(agent_id: str, agent_type: str, n_insights: int,
@@ -40,15 +47,15 @@ def _log_injection(agent_id: str, agent_type: str, n_insights: int,
         pass
 
 
-def _parse_parent_transcript(transcript_path: str) -> tuple:
-    """Parse parent transcript for objective and injection state in one pass.
+def _parse_parent_transcript(transcript_path: str) -> ParsedTranscript:
+    """Parse parent transcript for objective, injection state, constraints, and risk areas.
 
-    Returns: (objective: str | None, has_insights: bool)
+    Returns: ParsedTranscript(objective, has_insights, constraints, risk_areas)
     """
     try:
         path = Path(transcript_path)
         if not path.exists():
-            return None, False
+            return ParsedTranscript(None, False, None, None)
 
         size = path.stat().st_size
         with open(path, 'r') as f:
@@ -79,7 +86,7 @@ def _parse_parent_transcript(transcript_path: str) -> tuple:
                 continue
 
         if not last_prompt:
-            return None, False
+            return ParsedTranscript(None, False, None, None)
 
         has_insights = INSIGHTS_HEADER in last_prompt
 
@@ -88,15 +95,25 @@ def _parse_parent_transcript(transcript_path: str) -> tuple:
         if match:
             objective = match.group(1).strip()[:1000]
 
-        return objective, has_insights
+        constraints = None
+        risk_areas = None
+        c_match = re.search(r'CONSTRAINTS:\s*\n((?:- .+\n?)+)', last_prompt)
+        if c_match:
+            constraints = c_match.group(1).strip()[:2000]
+        r_match = re.search(r'RISK_AREAS:\s*\n((?:- .+\n?)+)', last_prompt)
+        if r_match:
+            risk_areas = r_match.group(1).strip()[:2000]
+
+        return ParsedTranscript(objective, has_insights, constraints, risk_areas)
 
     except Exception as e:
         _log_error("_parse_parent_transcript", e)
-        return None, False
+        return ParsedTranscript(None, False, None, None)
 
 
 def _write_sideband(agent_id: str, names: List[str], objective: str = None,
-                     query_embedding: str = None):
+                     query_embedding: str = None, constraints: str = None,
+                     risk_areas: str = None):
     """Write sideband file for SubagentStop feedback attribution."""
     try:
         injected_dir = get_helix_dir() / "injected"
@@ -107,6 +124,10 @@ def _write_sideband(agent_id: str, names: List[str], objective: str = None,
             data["objective"] = objective
         if query_embedding:
             data["query_embedding"] = query_embedding
+        if constraints:
+            data["constraints"] = constraints
+        if risk_areas:
+            data["risk_areas"] = risk_areas
         sideband_file.write_text(json.dumps(data))
     except Exception as e:
         _log_error("_write_sideband", e)
@@ -153,7 +174,9 @@ def process_hook_input(hook_input: dict) -> dict:
     if not agent_id:
         return {}
 
-    objective, already_injected = _parse_parent_transcript(transcript_path) if transcript_path else (None, False)
+    parsed = _parse_parent_transcript(transcript_path) if transcript_path else ParsedTranscript(None, False, None, None)
+    objective = parsed.objective
+    already_injected = parsed.has_insights
     if not objective:
         _log_injection(agent_id, agent_type, 0, False, True)
         return {"additionalContext": NO_PRIOR_MEMORY}
@@ -186,7 +209,8 @@ def process_hook_input(hook_input: dict) -> dict:
                 query_emb_b64 = base64.b64encode(to_blob(emb_tuple)).decode('ascii')
         except Exception:
             pass
-        _write_sideband(agent_id, names, objective=objective, query_embedding=query_emb_b64)
+        _write_sideband(agent_id, names, objective=objective, query_embedding=query_emb_b64,
+                        constraints=parsed.constraints, risk_areas=parsed.risk_areas)
         wrote_sideband = True
 
     result = _format_additional_context(memories, total_insights=total_insights)

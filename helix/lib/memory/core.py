@@ -31,6 +31,7 @@ from typing import Optional, List
 DUPLICATE_THRESHOLD = 0.85
 MIN_RELEVANCE_DEFAULT = 0.35  # arctic-embed-m-v1.5: unrelated 0.05-0.25, related 0.35+
 CAUSAL_SIMILARITY_THRESHOLD = 0.50  # For feedback attribution filtering (tighter than 0.40)
+CAUSAL_WEIGHT_RAMP = CAUSAL_SIMILARITY_THRESHOLD  # Weight normalizer: 0.0 at threshold, 1.0 at sim=1.0
 
 # Graph: auto-linking and expansion
 RELATED_THRESHOLD = 0.60    # Semantic similarity floor for auto-linking (below DUPLICATE_THRESHOLD)
@@ -46,9 +47,15 @@ CAUSAL_MIN_USES = 3             # Uses before causal adjustment kicks in
 RECENCY_DECAY_PER_DAY = 0.003  # 0.3% score penalty per day unused (231d half-life)
 RECENCY_FLOOR = 0.85            # Maximum 15% recency penalty; floor reached at ~50 days
 RRF_K = 60                      # Reciprocal Rank Fusion smoothing constant
+VELOCITY_PER_USE = 0.02    # Score boost per recent feedback event
+VELOCITY_CAP = 0.10        # Maximum 10% velocity boost (5 recent uses to cap)
+VELOCITY_WINDOW_DAYS = 14  # Window for "recent" usage
+GENERALITY_SPREAD_CAP = 0.30       # Spread at which insight is "fully general"
+GENERALITY_DECAY_DISCOUNT = 0.50   # Max decay rate reduction for general insights (0.1 → 0.05)
+GENERALITY_MIN_SPREAD = 0.05       # Below this, insufficient diversity data
 
 # Outcome values for feedback
-OUTCOME_VALUES = {"delivered": 1.0, "blocked": 0.0, "plan_complete": 1.0}
+OUTCOME_VALUES = {"delivered": 1.0, "blocked": 0.0, "partial": 0.3, "plan_complete": 1.0}
 
 # Support both module and script execution
 try:
@@ -118,7 +125,11 @@ def _causal_adjusted_effectiveness(row) -> float:
 
 
 def _to_dict(row) -> dict:
-    """Convert database row to insight dict (hot path -- skips tag parsing)."""
+    """Convert database row to insight dict."""
+    try:
+        tags = json.loads(row["tags"]) if row["tags"] else []
+    except Exception:
+        tags = []
     return {
         "name": row["name"],
         "content": row["content"],
@@ -126,14 +137,17 @@ def _to_dict(row) -> dict:
         "use_count": row["use_count"] or 0,
         "created_at": row["created_at"],
         "last_used": row["last_used"],
-        "tags": [],
+        "tags": tags,
         "causal_hits": row["causal_hits"] or 0,
+        "recent_uses": row["recent_uses"] or 0,
+        "context_spread": round(row["context_spread"], 4) if row["context_spread"] is not None else None,
     }
 
 
 def _make_result(row, relevance, eff, score, hop=0):
     """Build a recall result dict from a row."""
     m = _to_dict(row)
+    m["_id"] = row["id"]
     m["_relevance"] = round(relevance, 3)
     m["_effectiveness"] = round(eff, 3)
     m["_score"] = round(score, 3)
@@ -231,6 +245,15 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
     if not content or len(content.strip()) < 20:
         return {"status": "rejected", "name": "", "reason": "content too short (min 20 chars)"}
 
+    # Security scan before any processing
+    try:
+        from .scanner import scan as _scan_content
+    except ImportError:
+        from scanner import scan as _scan_content
+    is_safe, scan_reason = _scan_content(content)
+    if not is_safe:
+        return {"status": "rejected", "name": "", "reason": f"security: {scan_reason}"}
+
     content = content.strip()
     tags = tags or []
 
@@ -238,7 +261,7 @@ def store(content: str, tags: list = None, initial_effectiveness: float = 0.5) -
     new_emb = embed(content, is_query=False)
     dedup_rows = None
     dedup_sims = None
-    skip_dedup = tags and "user-provided" in tags
+    skip_dedup = tags and ("user-provided" in tags or "user-preference" in tags)
     if new_emb and not skip_dedup:
         db = get_db()
         dedup_rows = db.execute("SELECT id, name, embedding FROM insight WHERE embedding IS NOT NULL").fetchall()
@@ -371,7 +394,8 @@ def recall(query: str, limit: int = 5, min_effectiveness: float = 0.0,
 
         eff = _causal_adjusted_effectiveness(candidates[idx])
         recency = _recency(candidates[idx]["last_used"])
-        final_score = rrf_score * (0.5 + 0.5 * eff) * recency
+        velocity_boost = min(VELOCITY_CAP, (candidates[idx]["recent_uses"] or 0) * VELOCITY_PER_USE)
+        final_score = rrf_score * (0.5 + 0.5 * eff) * recency * (1.0 + velocity_boost)
         scored.append((final_score, cosine_sim, eff, idx))
 
     scored.sort(key=lambda x: -x[0])
@@ -424,15 +448,84 @@ def get(name: str) -> Optional[dict]:
     row = get_db().execute("SELECT * FROM insight WHERE name=?", (name,)).fetchone()
     if not row:
         return None
-    d = _to_dict(row)
-    try:
-        d["tags"] = json.loads(row["tags"]) if row["tags"] else []
-    except Exception:
-        pass
-    return d
+    return _to_dict(row)
 
 
-def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> dict:
+def _update_context_spread(db, name, ctx_emb_bytes, n):
+    """Incrementally update context centroid and spread (Welford's for cosine space).
+
+    Tracks semantic diversity of causal contexts. High spread = principle (general).
+    Low spread = observation (narrow). Used to modulate decay rate.
+    """
+    import numpy as np
+    ctx_vec = np.frombuffer(ctx_emb_bytes, dtype=np.float32).copy()
+
+    row = db.execute(
+        "SELECT context_centroid, context_spread FROM insight WHERE name = ?",
+        (name,)
+    ).fetchone()
+    if not row:
+        return
+
+    if row["context_centroid"] is None:
+        # First causal context: set centroid, spread = 0
+        db.execute(
+            "UPDATE insight SET context_centroid=?, context_spread=0.0 WHERE name=?",
+            (ctx_vec.astype(np.float32).tobytes(), name)
+        )
+    else:
+        old_centroid = np.frombuffer(row["context_centroid"], dtype=np.float32).copy()
+        old_spread = row["context_spread"] or 0.0
+
+        # Welford's: update running centroid
+        new_centroid = old_centroid * ((n - 1) / n) + ctx_vec * (1.0 / n)
+        # Re-normalize to unit sphere (prevent drift)
+        norm = np.linalg.norm(new_centroid)
+        if norm > 0:
+            new_centroid = new_centroid / norm
+
+        # Incremental variance in cosine space (n >= 3 for stability)
+        if n >= 3:
+            dist = 1.0 - float(np.dot(ctx_vec, new_centroid))
+            new_spread = old_spread * ((n - 2) / (n - 1)) + max(0.0, dist) / (n - 1)
+        else:
+            new_spread = old_spread
+
+        db.execute(
+            "UPDATE insight SET context_centroid=?, context_spread=? WHERE name=?",
+            (new_centroid.astype(np.float32).tobytes(), round(new_spread, 6), name)
+        )
+
+
+def _apply_causal_update(db, name, row, weight, outcome_value, now, context_embedding=None):
+    """Apply weighted causal feedback: EMA update + velocity + generality tracking."""
+    old_eff = row["effectiveness"] or 0.5
+    new_eff = _clamp01(old_eff * (1 - FEEDBACK_EMA_WEIGHT * weight) + outcome_value * FEEDBACK_EMA_WEIGHT * weight)
+    db.execute(
+        "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
+        "causal_hits=causal_hits+1, recent_uses=recent_uses+1, last_used=?, last_feedback_at=? WHERE name=?",
+        (new_eff, now, now, name)
+    )
+    if context_embedding is not None:
+        new_causal_hits = (row["causal_hits"] or 0) + 1
+        try:
+            _update_context_spread(db, name, context_embedding, new_causal_hits)
+        except Exception:
+            pass  # Best-effort: don't fail feedback on spread computation error
+
+
+def _apply_erosion(db, name, row, now):
+    """Apply non-causal erosion: drift above-0.5 insights toward neutral."""
+    old_eff = row["effectiveness"] or 0.5
+    # Asymmetric: below-0.5 insights stay bad until positive causal feedback
+    new_eff = _clamp01(old_eff + (0.5 - old_eff) * EROSION_RATE if old_eff > 0.5 else old_eff)
+    db.execute(
+        "UPDATE insight SET effectiveness=?, last_used=? WHERE name=?",
+        (new_eff, now, name)
+    )
+
+
+def feedback(names: List[str], outcome: str, causal_names: List[str] = None, context_embedding=None) -> dict:
     """Update effectiveness based on outcome with causal filtering.
 
     Args:
@@ -440,11 +533,12 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
         outcome: "delivered" or "blocked"
         causal_names: Subset of names that passed causal similarity check.
                       None means treat all as causal (backward compatible).
+        context_embedding: bytes (f32 blob) of the task context embedding for generality tracking.
 
     Returns count of updated insights with causal breakdown.
     """
     if outcome not in OUTCOME_VALUES:
-        return {"updated": 0, "error": "outcome must be 'delivered', 'blocked', or 'plan_complete'"}
+        return {"updated": 0, "error": f"outcome must be one of {sorted(OUTCOME_VALUES.keys())}"}
 
     db = get_db()
     now = _utcnow().isoformat()
@@ -452,7 +546,17 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
     causal_count = 0
     eroded_count = 0
 
-    causal_set = set(causal_names) if causal_names is not None else None
+    if causal_names is not None:
+        if causal_names and isinstance(causal_names[0], tuple):
+            causal_map = {n: max(0.0, (s - CAUSAL_WEIGHT_RAMP) / (1.0 - CAUSAL_WEIGHT_RAMP))
+                          for n, s in causal_names}
+            causal_set = set(causal_map.keys())
+        else:
+            causal_map = {n: 1.0 for n in causal_names}
+            causal_set = set(causal_names)
+    else:
+        causal_set = None
+        causal_map = None
     outcome_value = OUTCOME_VALUES[outcome]
 
     # Batch-fetch all rows in one query instead of N individual SELECTs
@@ -460,7 +564,7 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
     placeholders = ",".join("?" for _ in unique_names)
     rows_by_name = {
         r["name"]: r for r in db.execute(
-            f"SELECT name, effectiveness, use_count FROM insight WHERE name IN ({placeholders})",
+            f"SELECT name, effectiveness, use_count, causal_hits FROM insight WHERE name IN ({placeholders})",
             unique_names
         ).fetchall()
     }
@@ -471,24 +575,14 @@ def feedback(names: List[str], outcome: str, causal_names: List[str] = None) -> 
             if not row:
                 continue
 
-            old_eff = row["effectiveness"] or 0.5
             is_causal = causal_set is None or name in causal_set
 
             if is_causal:
-                new_eff = _clamp01(old_eff * (1 - FEEDBACK_EMA_WEIGHT) + outcome_value * FEEDBACK_EMA_WEIGHT)
-                db.execute(
-                    "UPDATE insight SET effectiveness=?, use_count=use_count+1, "
-                    "causal_hits=causal_hits+1, last_used=?, last_feedback_at=? WHERE name=?",
-                    (new_eff, now, now, name)
-                )
+                weight = causal_map[name] if causal_map else 1.0
+                _apply_causal_update(db, name, row, weight, outcome_value, now, context_embedding)
                 causal_count += 1
             else:
-                # Asymmetric: below-0.5 insights stay bad until positive causal feedback
-                new_eff = _clamp01(old_eff + (0.5 - old_eff) * EROSION_RATE if old_eff > 0.5 else old_eff)
-                db.execute(
-                    "UPDATE insight SET effectiveness=?, last_used=? WHERE name=?",
-                    (new_eff, now, name)
-                )
+                _apply_erosion(db, name, row, now)
                 eroded_count += 1
 
             updated += 1
@@ -509,16 +603,38 @@ def decay(unused_days: int = 30) -> dict:
     cutoff = (_utcnow() - timedelta(days=unused_days)).isoformat()
 
     with write_lock():
-        cursor = db.execute(f"""
-            UPDATE insight
-            SET effectiveness = effectiveness * {1 - DECAY_RATE} + 0.5 * {DECAY_RATE}
-            WHERE use_count > 0
-            AND effectiveness > 0.5
-            AND (last_used IS NULL OR last_used < ?)
-        """, (cutoff,))
+        # Decay with generality modulation
+        rows = db.execute(
+            "SELECT name, effectiveness, context_spread FROM insight "
+            "WHERE use_count > 0 AND effectiveness > 0.5 "
+            "AND (last_used IS NULL OR last_used < ?)",
+            (cutoff,)
+        ).fetchall()
+
+        decayed = 0
+        for row in rows:
+            spread = row["context_spread"]
+            if spread is not None and spread >= GENERALITY_MIN_SPREAD:
+                generality = min(1.0, spread / GENERALITY_SPREAD_CAP)
+                rate = DECAY_RATE * (1.0 - GENERALITY_DECAY_DISCOUNT * generality)
+            else:
+                rate = DECAY_RATE
+            new_eff = row["effectiveness"] * (1 - rate) + 0.5 * rate
+            db.execute("UPDATE insight SET effectiveness=? WHERE name=?",
+                       (new_eff, row["name"]))
+            decayed += 1
         db.commit()
 
-    return {"decayed": cursor.rowcount, "threshold_days": unused_days}
+        # Reset stale velocity
+        velocity_cutoff = (_utcnow() - timedelta(days=VELOCITY_WINDOW_DAYS)).isoformat()
+        db.execute(
+            "UPDATE insight SET recent_uses = 0 "
+            "WHERE last_feedback_at IS NOT NULL AND last_feedback_at < ? AND recent_uses > 0",
+            (velocity_cutoff,)
+        )
+        db.commit()
+
+    return {"decayed": decayed, "threshold_days": unused_days}
 
 
 def prune(min_effectiveness: float = 0.25, min_uses: int = 3) -> dict:
@@ -723,7 +839,7 @@ if __name__ == "__main__":
 
     s = sub.add_parser("feedback")
     s.add_argument("--names", required=True, help="JSON list of insight names")
-    s.add_argument("--outcome", required=True, choices=["delivered", "blocked", "plan_complete"])
+    s.add_argument("--outcome", required=True, choices=sorted(OUTCOME_VALUES.keys()))
     s.add_argument("--causal-names", default=None, help="JSON list of causally relevant insight names (subset of --names)")
 
     s = sub.add_parser("decay")
@@ -739,6 +855,8 @@ if __name__ == "__main__":
     s.add_argument("name", help="Insight name to find neighbors for")
     s.add_argument("--limit", type=int, default=5)
     s.add_argument("--relation", default=None, help="Filter by relation type (similar, led_to)")
+
+    sub.add_parser("stats", help="System statistics for tuning calibration")
 
     args = p.parse_args()
 
@@ -780,6 +898,12 @@ if __name__ == "__main__":
         r = neighbors(args.name, limit=args.limit, relation=args.relation)
         if r is None:
             r = {"error": f"insight '{args.name}' not found"}
+    elif args.cmd == "stats":
+        try:
+            from .stats import full_stats
+        except ImportError:
+            from stats import full_stats
+        r = full_stats()
 
     if args.verbose and r is not None:
         cmd_args = {k: v for k, v in vars(args).items() if k not in ('cmd', 'verbose', 'db')}

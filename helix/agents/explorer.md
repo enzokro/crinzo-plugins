@@ -52,4 +52,8 @@ Good: `{"file": "src/auth.py", "what": "verify_token():42 — validates JWT, cal
 
 Required: `status` ("success"|"error"), `findings` (array with `file` + `what`).
 On error: `{"scope": "...", "focus": "...", "status": "error", "error": "what went wrong", "findings": []}`
+
+Optional (when cross-scope patterns discovered):
+`INSIGHT: {"content": "When X, be aware that Y because Z", "tags": ["architecture"]}`
+Emit when you find cross-scope coupling, circular dependencies, undocumented constraints, or architectural patterns that would affect planning. Explorers see the full landscape — planners and builders do not.
 </output>

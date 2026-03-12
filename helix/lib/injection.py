@@ -52,8 +52,20 @@ def format_insights(memories: list) -> Tuple[List[str], List[str]]:
         eff = m.get("_effectiveness", m.get("effectiveness", 0.5))
         eff_pct = int(eff * 100)
         content = m.get("content", "")
+        tags = m.get("tags", [])
         if content:
-            lines.append(f"[{eff_pct}%] {content}")
+            if "user-preference" in tags:
+                lines.append(f"[USER PREF] {content}")
+            elif "procedure" in tags:
+                steps = [s.strip() for s in content.split("\n") if s.strip()]
+                if len(steps) > 1:
+                    lines.append("[PROCEDURE]")
+                    for i, step in enumerate(steps, 1):
+                        lines.append(f"    {i}. {step}")
+                else:
+                    lines.append(f"[PROCEDURE] {content}")
+            else:
+                lines.append(f"[{eff_pct}%] {content}")
             name = m.get("name", "")
             if name:
                 names.append(name)
@@ -266,37 +278,25 @@ def strategic_recall(objective: str,
     total_in_system = count()
     memories = recall(objective, limit=limit, min_relevance=min_relevance, graph_hops=1)
 
-    # Batch-fetch tags for recalled insights
-    if memories:
+    summary = _summarize(memories, total_in_system)
+
+    # Graph topology analytics (best-effort)
+    try:
         try:
-            from lib.db.connection import get_db
+            from lib.memory.analytics import graph_analytics
         except ImportError:
-            from db.connection import get_db
-
-        names = [m["name"] for m in memories]
-        placeholders = ",".join("?" for _ in names)
-        db = get_db()
-        tag_rows = db.execute(
-            f"SELECT name, tags FROM insight WHERE name IN ({placeholders})",
-            names
-        ).fetchall()
-        tags_by_name = {}
-        for r in tag_rows:
-            if r["tags"]:
-                try:
-                    tags_by_name[r["name"]] = json.loads(r["tags"])
-                except Exception:
-                    tags_by_name[r["name"]] = []
-            else:
-                tags_by_name[r["name"]] = []
-
-        # Enrich insights with tags
-        for m in memories:
-            m["tags"] = tags_by_name.get(m["name"], [])
+            from memory.analytics import graph_analytics
+        recalled_ids = [m["_id"] for m in memories if m.get("_id")]
+        if recalled_ids:
+            summary["graph"] = graph_analytics(recalled_ids)
+        else:
+            summary["graph"] = {"graph_too_small": True}
+    except Exception:
+        summary["graph"] = {"graph_too_small": True}
 
     return {
         "insights": memories,
-        "summary": _summarize(memories, total_in_system),
+        "summary": summary,
     }
 
 
